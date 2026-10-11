@@ -9,10 +9,11 @@ plugins {
 }
 
 android {
-    namespace = "com.uyatame.cdripper"
+    namespace = "com.uyatame.ucrt"
     compileSdk = 36
 
     defaultConfig {
+        // アプリ ID は公開済みの版から変えない(変えると別のアプリ扱いになり、上書き更新や設定の引き継ぎができなくなる)
         applicationId = "com.uyatame.cdripper"
         minSdk = 31
         targetSdk = 36
@@ -88,7 +89,7 @@ fun downloadText(url: String): ByteArray {
     val conn = URI(url).toURL().openConnection()
     conn.connectTimeout = 20000
     conn.readTimeout = 60000
-    conn.setRequestProperty("User-Agent", "UyatameCDRippingTool-build")
+    conn.setRequestProperty("User-Agent", "UCRT-build")
     return conn.getInputStream().use { it.readBytes() }
 }
 

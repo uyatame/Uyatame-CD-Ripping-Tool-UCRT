@@ -22,7 +22,7 @@
         android:label="@string/app_name"
         android:localeConfig="@xml/locales_config"
         android:supportsRtl="true"
-        android:theme="@style/Theme.UyatameCdRipper">
+        android:theme="@style/Theme.UCRT">
 
         <activity
             android:name=".MainActivity"
