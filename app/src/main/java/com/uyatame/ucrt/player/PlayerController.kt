@@ -535,6 +535,19 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         f.start()
     }
 
+    /**
+     * PCM の曲(ファイル・CD)の出力を開く。
+     * DAR の DSD 変換がオンで、USB DAC へ DSD で送れるならその出力、そうでなければ通常の出力(PCM アップサンプリングを含む)。
+     * 再生スレッドから呼ぶ
+     */
+    private fun openOutput(rate: Int, channels: Int, bits: Int): PcmOut {
+        if (AudioEngine.wantUsbDirect && AudioEngine.darMode == 2 && channels in 1..2) {
+            com.uyatame.ucrt.player.dar.DsdConvertOutput.open(ctx, attrs, rate, channels)?.let { return it }
+            AudioEngine.log("dar: DSD conversion not available for ${AudioEngine.khz(rate)}, playing as PCM")
+        }
+        return AudioOutput(ctx, attrs, rate, channels, bits, dar = true)
+    }
+
     private var failAt = 0L
     private var failCount = 0
 
@@ -977,7 +990,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         startPaused: Boolean,
     ) : PlayStream("file-play") {
         @Volatile private var stopFlag = false
-        @Volatile private var out: AudioOutput? = null
+        @Volatile private var out: PcmOut? = null
         @Volatile private var paused = startPaused
         private val segs = Segments().also { it.baseMs = fromMs }
         override val seg: Segments get() = segs
@@ -1011,7 +1024,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 src = cur
                 val d0 = cur.durationMs
                 if (d0 > 0) main.post { if (file === this) { durationMs = d0; publish() } }
-                val o = AudioOutput(ctx, attrs, cur.rate, cur.channels, cur.bits)
+                val o = openOutput(cur.rate, cur.channels, cur.bits)
                 out = o
                 if (stopFlag) return
                 if (!paused) o.play()
@@ -1187,7 +1200,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     ) : Thread("cd-play") {
         @Volatile private var stopFlag = false
         // 出力はスレッドの中で作る(USB DAC の準備で画面が止まらないように)
-        @Volatile private var out: AudioOutput? = null
+        @Volatile private var out: PcmOut? = null
         @Volatile private var paused = startPaused
         val seg = Segments().also { it.baseMs = baseSector * 1000L / 75 }
 
@@ -1224,7 +1237,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             var end = endOf(firstTrack)
             var lba = firstTrack.startLba + baseSector
             try {
-                val o = AudioOutput(ctx, attrs, 44100, 2, 16)
+                val o = openOutput(44100, 2, 16)
                 out = o
                 if (stopFlag) return
                 if (!paused) o.play()

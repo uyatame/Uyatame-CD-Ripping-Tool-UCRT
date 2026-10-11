@@ -89,6 +89,12 @@ data class AppSettings(
     val libTiles: String = "",
     /** ギャップレス再生 */
     val gapless: Boolean = true,
+    /** DAR: 0 = オフ, 1 = PCM アップサンプリング, 2 = DSD に変換 */
+    val darMode: Int = 0,
+    /** DAR の PCM アップサンプリングの上限: 0 = DAC の最大, 1 = 2 倍, 2 = 4 倍, 3 = 8 倍, 4 = 16 倍 */
+    val darPcm: Int = 0,
+    /** DAR の DSD 変換の周波数: 0 = DSD64, 1 = DSD128, 2 = DSD256 */
+    val darDsd: Int = 0,
 )
 
 /** 出力方式: 0 = 通常, 2 = ビットパーフェクト(USB DAC 直接出力)。以前の版の bitPerfect もこちらに移す */
@@ -153,6 +159,9 @@ object Keys {
     val verboseLog = booleanPreferencesKey("verboseLog")
     val libTiles = stringPreferencesKey("libTiles")
     val gapless = booleanPreferencesKey("gapless")
+    val darMode = intPreferencesKey("darMode")
+    val darPcm = intPreferencesKey("darPcm")
+    val darDsd = intPreferencesKey("darDsd")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -201,6 +210,9 @@ class SettingsRepository(private val context: Context) {
             verboseLog = p[Keys.verboseLog] ?: d.verboseLog,
             libTiles = p[Keys.libTiles] ?: d.libTiles,
             gapless = p[Keys.gapless] ?: d.gapless,
+            darMode = p[Keys.darMode] ?: d.darMode,
+            darPcm = p[Keys.darPcm] ?: d.darPcm,
+            darDsd = p[Keys.darDsd] ?: d.darDsd,
         )
     }
 

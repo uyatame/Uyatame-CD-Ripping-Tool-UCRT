@@ -322,7 +322,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 com.uyatame.ucrt.player.AudioEngine.dsdSwap = s.dsdSwap
                 val devChanged = com.uyatame.ucrt.player.AudioEngine.preferredKey != s.outputDevice
                 com.uyatame.ucrt.player.AudioEngine.preferredKey = s.outputDevice
-                if (lastMode != null && (lastMode != mode || (dsdChanged && player.isDsd) || (devChanged && mode != 2))) player.reloadOutput()
+                val eng = com.uyatame.ucrt.player.AudioEngine
+                val darChanged = eng.darMode != s.darMode || eng.darPcm != s.darPcm || eng.darDsd != s.darDsd
+                eng.darMode = s.darMode
+                eng.darPcm = s.darPcm
+                eng.darDsd = s.darDsd
+                // DAR は USB DAC 直接出力の PCM の曲だけに使う。DAR の DSD 変換は DSD の出力の設定も使う
+                val darReload = mode == 2 && !player.isDsd && (darChanged || (dsdChanged && s.darMode == 2))
+                if (lastMode != null && (lastMode != mode || (dsdChanged && player.isDsd) || (devChanged && mode != 2) || darReload)) player.reloadOutput()
                 lastMode = mode
             }
         }

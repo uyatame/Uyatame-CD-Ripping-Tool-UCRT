@@ -92,6 +92,26 @@ object AudioEngine {
     /** ネイティブ DSD のバイト順を逆にする(DAC によって必要) */
     @Volatile var dsdSwap = false
 
+    /** DAR: 0 = オフ, 1 = PCM アップサンプリング, 2 = DSD に変換(USB DAC 直接出力のときだけ使う) */
+    @Volatile var darMode = 0
+    /** DAR の PCM アップサンプリングの上限: 0 = DAC の最大, 1 = 2 倍, 2 = 4 倍, 3 = 8 倍, 4 = 16 倍(44.1 / 48 kHz に対して) */
+    @Volatile var darPcm = 0
+    /** DAR の DSD 変換の周波数: 0 = DSD64, 1 = DSD128, 2 = DSD256 */
+    @Volatile var darDsd = 0
+
+    /** DAR の PCM アップサンプリングで目指す周波数の上限(DAR を使わないなら 0) */
+    fun darMaxRate(srcRate: Int): Int {
+        if (darMode != 1) return 0
+        val mul = intArrayOf(0, 2, 4, 8, 16).getOrElse(darPcm) { 0 }
+        if (mul == 0) return Int.MAX_VALUE
+        val family = when {
+            srcRate % 44100 == 0 -> 44100
+            srcRate % 48000 == 0 -> 48000
+            else -> srcRate
+        }
+        return family * mul
+    }
+
     /** 選ばれている出力先(OutputDevices の key。空なら自動) */
     @Volatile var preferredKey = ""
 
@@ -232,6 +252,39 @@ fun pcmBytes(enc: Int): Int = when (enc) {
     else -> 0
 }
 
+/** PCM の出力先(AudioOutput と、DAR の DSD 変換の出力で共通) */
+interface PcmOut {
+    /** 入力の周波数(再生位置の計算に使う) */
+    val sampleRate: Int
+    /** 書き込んだフレーム数(入力の周波数で数える) */
+    val framesWritten: Long
+    /** 出力に書き込めなくなったか(作り直しが必要) */
+    val failed: Boolean
+    /** 再生し終えたフレーム数(入力の周波数で数える) */
+    fun headFrames(): Long
+    fun play()
+    fun pause()
+    fun release()
+    /** src(srcEnc の音声)を書き込む。一時停止中は書き込めるまで待つ。stop() が true を返したら途中でやめる */
+    fun write(src: ByteBuffer, srcEnc0: Int, stop: () -> Boolean)
+}
+
+/** 1 サンプルを 32bit 整数(上位詰め)で読む */
+internal fun readI32(src: ByteBuffer, enc: Int): Int = when (enc) {
+    AFormat.ENCODING_PCM_8BIT -> ((src.get().toInt() and 0xFF) - 128) shl 24
+    AFormat.ENCODING_PCM_16BIT -> src.short.toInt() shl 16
+    AFormat.ENCODING_PCM_24BIT_PACKED -> {
+        val b0 = src.get().toInt() and 0xFF
+        val b1 = src.get().toInt() and 0xFF
+        val b2 = src.get().toInt()
+        ((b2 shl 16) or (b1 shl 8) or b0) shl 8
+    }
+    AFormat.ENCODING_PCM_32BIT -> src.int
+    else -> f2i(src.float)
+}
+
+internal fun f2i(f: Float): Int = (f.toDouble() * 2147483648.0).roundToLong().coerceIn(-2147483648L, 2147483647L).toInt()
+
 /**
  * 音声の出力先。次のどれかで出力する。
  * - USB DAC 直接出力(独自ドライバー。Android の音声機能を通さない)
@@ -242,12 +295,14 @@ fun pcmBytes(enc: Int): Int = when (enc) {
 class AudioOutput(
     ctx: Context,
     private val attrs: AudioAttributes,
-    val sampleRate: Int,
+    override val sampleRate: Int,
     val channels: Int,
     srcBits: Int,
     /** 一切加工せずに出力できる場合だけ使う(DoP 用)。できたかは exactOk で分かる */
     private val exact: Boolean = false,
-) {
+    /** DAR の PCM アップサンプリングを使ってよいか(DSD を変換した音などには使わない) */
+    dar: Boolean = false,
+) : PcmOut {
     /** 加工せずに出力しているか(画面表示用) */
     val bitPerfect: Boolean
     /** exact を指定したとき、加工なしの出力を確保できたか */
@@ -266,20 +321,21 @@ class AudioOutput(
     private var warned = -1
     private var routing: android.media.AudioRouting.OnRoutingChangedListener? = null
     /** 書き込んだフレーム数(再生の終わりを判定する) */
-    @Volatile var framesWritten = 0L
+    @Volatile override var framesWritten = 0L
         private set
     /**
      * 通常の出力に書き込めなくなった(音声サーバーの再起動などで AudioTrack が使えなくなった)か。
      * 再生側はこれを見て出力を作り直す
      */
-    @Volatile var failed = false
+    @Volatile override var failed = false
         private set
 
     init {
         val usbDac = com.uyatame.ucrt.player.usb.UsbDac
         // 1) ビットパーフェクト(USB DAC 直接出力)
+        val darMax = if (dar && !exact) AudioEngine.darMaxRate(sampleRate) else 0
         val d = if (AudioEngine.wantUsbDirect && channels in 1..2) {
-            runCatching { usbDac.prepare(sampleRate, channels, srcBits, exact) }.getOrElse { e ->
+            runCatching { usbDac.prepare(sampleRate, channels, srcBits, exact, darMax) }.getOrElse { e ->
                 AudioEngine.log("usb dac error: ${e.javaClass.simpleName}: ${e.message}")
                 null
             }
@@ -297,6 +353,7 @@ class AudioOutput(
             val perfect = up == null && !softVol
             val title = when {
                 perfect -> T("ビットパーフェクト", "Bit-perfect")
+                up != null && darMax > 0 -> T("DAR: PCM アップサンプリング", "DAR: PCM upsampling")
                 up != null -> T("USB DAC 直接出力(DAC が非対応の周波数のためアップサンプリング)", "USB DAC direct (upsampled: rate not supported by the DAC)")
                 else -> T("USB DAC 直接出力(ソフトウェア音量を使用中。音量 100 でビットパーフェクト)", "USB DAC direct (software volume; set 100 for bit-perfect)")
             }
@@ -367,15 +424,15 @@ class AudioOutput(
 
     private val usbDac get() = com.uyatame.ucrt.player.usb.UsbDac
 
-    fun play() {
+    override fun play() {
         if (dac != null) usbDac.setPaused(dacSession, false) else runCatching { track?.play() }
     }
 
-    fun pause() {
+    override fun pause() {
         if (dac != null) usbDac.setPaused(dacSession, true) else runCatching { track?.pause() }
     }
 
-    fun release() {
+    override fun release() {
         released = true
         if (dac != null) {
             usbDac.end(dacSession)
@@ -389,7 +446,7 @@ class AudioOutput(
     }
 
     /** 再生し終えたフレーム数(音源の周波数で数える) */
-    fun headFrames(): Long {
+    override fun headFrames(): Long {
         if (dac != null) {
             // 転送が止まってしまった(DAC が外れたなど)ときは、書いた分を再生済みとみなして先へ進める
             if (!usbDac.streaming) return framesWritten
@@ -409,22 +466,6 @@ class AudioOutput(
 
     private var lastRaw = 0L
     private var wrapHi = 0L
-
-    /** 1 サンプルを 32bit 整数(上位詰め)で読む */
-    private fun readI32(src: ByteBuffer, enc: Int): Int = when (enc) {
-        AFormat.ENCODING_PCM_8BIT -> ((src.get().toInt() and 0xFF) - 128) shl 24
-        AFormat.ENCODING_PCM_16BIT -> src.short.toInt() shl 16
-        AFormat.ENCODING_PCM_24BIT_PACKED -> {
-            val b0 = src.get().toInt() and 0xFF
-            val b1 = src.get().toInt() and 0xFF
-            val b2 = src.get().toInt()
-            ((b2 shl 16) or (b1 shl 8) or b0) shl 8
-        }
-        AFormat.ENCODING_PCM_32BIT -> src.int
-        else -> f2i(src.float)
-    }
-
-    private fun f2i(f: Float): Int = (f.toDouble() * 2147483648.0).roundToLong().coerceIn(-2147483648L, 2147483647L).toInt()
 
     /** 32bit 整数(上位詰め)を DAC の 1 サンプル分のバイトに書く */
     private fun putSlot(v: Int, slot: Int, o: Int) {
@@ -490,7 +531,7 @@ class AudioOutput(
      * 音声を書き込む。src は srcEnc の音声。
      * 一時停止中は書き込めるまで待つ。stop() が true を返したら途中でやめる。
      */
-    fun write(src: ByteBuffer, srcEnc0: Int, stop: () -> Boolean) {
+    override fun write(src: ByteBuffer, srcEnc0: Int, stop: () -> Boolean) {
         src.order(ByteOrder.LITTLE_ENDIAN)
         var srcEnc = srcEnc0
         var srcBytes = pcmBytes(srcEnc)

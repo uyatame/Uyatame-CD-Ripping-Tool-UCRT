@@ -106,7 +106,71 @@ fun BitPerfectPanel(vm: MainViewModel, s: AppSettings) {
             )
         }
     }
+    DarPanel(vm, s)
     DsdPanel(vm, s)
+}
+
+/** DAR(PCM の曲を高い周波数の PCM や DSD にして DAC へ送る) */
+@Composable
+fun DarPanel(vm: MainViewModel, s: AppSettings) {
+    Section(T("DAR(アップサンプリング・DSD 変換)", "DAR (upsampling / DSD conversion)")) {
+        val options = listOf(
+            T("オフ", "Off") to
+                T("音源のまま送ります(ビットパーフェクト)", "Sends the source as is (bit-perfect)"),
+            T("PCM アップサンプリング", "PCM upsampling") to
+                T("音源を整数倍の高い周波数(例: 44.1 kHz → 352.8 kHz)にして、24 / 32bit で送ります",
+                    "Raises the source to an integer multiple (e.g. 44.1 kHz → 352.8 kHz) and sends it at 24 / 32 bit"),
+            T("DSD に変換", "Convert to DSD") to
+                T("音源を DSD に変換して、ネイティブ DSD か DoP で送ります。DSD に対応した DAC で使ってください",
+                    "Converts the source to DSD and sends it as native DSD or DoP. Use with a DSD-capable DAC"),
+        )
+        options.forEachIndexed { i, (title, desc) ->
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { vm.set(Keys.darMode, i) }.padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(s.darMode == i, { vm.set(Keys.darMode, i) })
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.bodyLarge)
+                    Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        if (s.darMode == 1) {
+            Text(T("上げる周波数(44.1 / 48 kHz の何倍まで)", "Target rate (up to N × 44.1 / 48 kHz)"), style = MaterialTheme.typography.labelLarge)
+            val labels = listOf(
+                T("DAC の最大", "DAC maximum"), "×2 (88.2 / 96k)", "×4 (176.4 / 192k)", "×8 (352.8 / 384k)", "×16 (705.6 / 768k)",
+            )
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                labels.forEachIndexed { i, l ->
+                    FilterChip(s.darPcm == i, { vm.set(Keys.darPcm, i) }, label = { Text(l) })
+                }
+            }
+        }
+        if (s.darMode == 2) {
+            Text(T("DSD の周波数", "DSD rate"), style = MaterialTheme.typography.labelLarge)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("DSD64", "DSD128", "DSD256").forEachIndexed { i, l ->
+                    FilterChip(s.darDsd == i, { vm.set(Keys.darDsd, i) }, label = { Text(l) })
+                }
+            }
+            Text(
+                T(
+                    "DAC が対応していない周波数のときは、低い周波数に下げて変換します。DSD256 は処理が重く、端末によっては音が途切れます(その場合は DSD128 以下にしてください)。送り方(ネイティブ DSD / DoP)は下の「DSD の再生」の設定に従います",
+                    "If the DAC does not support the rate, a lower DSD rate is used. DSD256 is heavy and may stutter on some phones (use DSD128 or lower then). The transport (native DSD / DoP) follows the DSD playback setting below",
+                ),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            T(
+                "DAR はビットパーフェクト再生(USB DAC 直接出力)がオンのときに、PCM の曲(ファイル・CD)に使われます。DSD の曲はそのまま再生します。オンにするとビットパーフェクトではなくなり、電池の減りが早くなります",
+                "DAR is applied to PCM tracks (files and CDs) when bit-perfect playback (USB DAC direct) is on. DSD tracks play as is. With DAR on, playback is no longer bit-perfect and uses more battery",
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (s.darMode != 0 && s.outputMode != 2) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 /** DSD(DSF / DFF)の再生方法 */
