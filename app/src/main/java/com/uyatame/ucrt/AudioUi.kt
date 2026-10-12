@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -54,12 +55,12 @@ private fun db(v: Float): String {
 @Composable
 fun BitPerfectPanel(vm: MainViewModel, s: AppSettings) {
     val mode = s.outputMode
-    Section(T("ビットパーフェクト再生", "Bit-perfect playback")) {
+    Section(T("USB DAC 直接出力", "USB DAC direct output")) {
         SwitchRow(
-            T("ビットパーフェクトで再生する", "Bit-perfect playback"),
+            T("USB DAC 直接出力を使う", "Use USB DAC direct output"),
             T(
-                "アプリの独自ドライバーで USB DAC を直接動かし、音源のデータを一切加工せずに送ります(Android の音声機能は通しません)。使用中は DAC を独占するため、通知音などは DAC から鳴りません。オフにすると Android の標準の出力になり、イコライザーが使えます",
-                "The app's own driver drives the USB DAC directly and sends the audio data unaltered, bypassing Android audio. The DAC is used exclusively, so notification sounds won't play through it. Turn off to use Android's standard output (the equalizer works there)",
+                "アプリの独自ドライバーで USB DAC を直接動かします(Android の音声機能は通しません)。ソースダイレクトをオンにすると、音源のデータを一切加工せずに送ります(ビットパーフェクト)。使用中は DAC を独占するため、通知音などは DAC から鳴りません",
+                "The app's own driver drives the USB DAC directly, bypassing Android audio. With source direct on, the audio data is sent unaltered (bit-perfect). The DAC is used exclusively, so notification sounds won't play through it",
             ),
             mode == 2,
         ) { vm.setOutputMode(if (it) 2 else 0) }
@@ -106,8 +107,6 @@ fun BitPerfectPanel(vm: MainViewModel, s: AppSettings) {
             )
         }
     }
-    DarPanel(vm, s)
-    DsdPanel(vm, s)
 }
 
 /** DAR(PCM の曲を高い周波数の PCM や DSD にして DAC へ送る) */
@@ -164,11 +163,11 @@ fun DarPanel(vm: MainViewModel, s: AppSettings) {
         }
         Text(
             T(
-                "DAR はビットパーフェクト再生(USB DAC 直接出力)がオンのときに、PCM の曲(ファイル・CD)に使われます。DSD の曲はそのまま再生します。オンにするとビットパーフェクトではなくなり、電池の減りが早くなります",
-                "DAR is applied to PCM tracks (files and CDs) when bit-perfect playback (USB DAC direct) is on. DSD tracks play as is. With DAR on, playback is no longer bit-perfect and uses more battery",
+                "DAR は USB DAC 直接出力がオンで、ソースダイレクトがオフのときに、PCM の曲(ファイル・CD)に使われます。DSD の曲はそのまま再生します。オンにするとビットパーフェクトではなくなり、電池の減りが早くなります",
+                "DAR is applied to PCM tracks (files and CDs) when USB DAC direct output is on and source direct is off. DSD tracks play as is. With DAR on, playback is no longer bit-perfect and uses more battery",
             ),
             style = MaterialTheme.typography.bodySmall,
-            color = if (s.darMode != 0 && s.outputMode != 2) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (s.darMode != 0 && (s.outputMode != 2 || s.sourceDirect)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -214,18 +213,31 @@ fun DsdPanel(vm: MainViewModel, s: AppSettings) {
     }
 }
 
-/** プレイヤー画面から開く音響設定 */
+/** プレイヤー画面から開く音質設定(トップと詳細ページをシートの中で切り替える) */
 @Composable
 fun AudioSettingsSheet(vm: MainViewModel, s: AppSettings, onDismiss: () -> Unit) {
+    var page by remember { mutableIntStateOf(SoundPage.MAIN) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        androidx.activity.compose.BackHandler(enabled = page != SoundPage.MAIN) { page = SoundPage.MAIN }
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding()
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(T("音響設定", "Sound"), style = MaterialTheme.typography.titleLarge)
-            BitPerfectPanel(vm, s)
-            EqualizerPanel(vm, s)
+            if (page == SoundPage.MAIN) {
+                Text(SoundPage.title(page), style = MaterialTheme.typography.titleLarge)
+                SoundMain(vm, s) { page = it }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.IconButton({ page = SoundPage.MAIN }) {
+                        androidx.compose.material3.Icon(
+                            androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, T("戻る", "Back"),
+                        )
+                    }
+                    Text(SoundPage.title(page), style = MaterialTheme.typography.titleLarge)
+                }
+                SoundSubPage(vm, s, page)
+            }
         }
     }
 }

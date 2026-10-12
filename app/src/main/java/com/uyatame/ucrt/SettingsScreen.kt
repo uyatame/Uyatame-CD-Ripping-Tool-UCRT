@@ -77,9 +77,11 @@ fun SettingsScreen(vm: MainViewModel, s: AppSettings, page: Int, onPage: (Int) -
         2 -> SettingsPage(T("音質", "Quality"), back) { QualityPage(vm, s) }
         3 -> SettingsPage(T("CDドライブ", "CD drive"), back) { DrivePage(vm, s) }
         4 -> SettingsPage(T("ライブラリ", "Library"), back) { LibraryFoldersPage(vm, s) }
-        5 -> SettingsPage(T("表示と再生", "Display & playback"), back) { DisplayPage(vm, s) }
+        5 -> SettingsPage(T("表示", "Display"), back) { DisplayPage(vm, s) }
         6 -> LogPage(vm, s, back)
         7 -> LicensePage(back)
+        8 -> SettingsPage(SoundPage.title(SoundPage.MAIN), back) { SoundMain(vm, s) { onPage(80 + it) } }
+        in 81..89 -> SettingsPage(SoundPage.title(page - 80), { onPage(8) }) { SoundSubPage(vm, s, page - 80) }
         else -> MainSettings(vm, s, onPage)
     }
 }
@@ -160,10 +162,15 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
             ) { onPage(4) }
             HorizontalDivider()
             CategoryRow(
-                Icons.Filled.PlayArrow, T("表示と再生", "Display & playback"),
+                AppIcons.Headphones, T("音質設定", "Sound settings"),
+                (if (s.sourceDirect) T("ソースダイレクト", "Source direct") else T("EQ ", "EQ ") + (if (s.eqEnabled) "ON" else "OFF") +
+                    (if (s.darMode != 0) " ・ DAR" else "")) +
+                    (if (s.outputMode == 2) T(" ・ USB DAC 直接出力", " · USB DAC direct") else ""),
+            ) { onPage(8) }
+            HorizontalDivider()
+            CategoryRow(
+                Icons.Filled.PlayArrow, T("表示", "Display"),
                 listOf(T("自動", "Auto"), T("ライト", "Light"), T("ダーク", "Dark"))[s.themeMode.coerceIn(0, 2)] +
-                    T(" ・ EQ ", " · EQ ") + (if (s.eqEnabled) "ON" else "OFF") +
-                    (if (s.outputMode == 2) T(" ・ ビットパーフェクト", " · Bit-perfect") else "") +
                     (if (AppLanguage.supported) " ・ " + languageLabel(AppLanguage.current(ctx)) else ""),
             ) { onPage(5) }
         }
@@ -417,14 +424,7 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
         Segmented(T("テーマ", "Theme"), listOf(T("自動", "Auto"), T("ライト", "Light"), T("ダーク", "Dark")), s.themeMode) { vm.set(Keys.themeMode, it) }
         SwitchRow(T("ダイナミックカラー", "Dynamic color"), T("壁紙の色に合わせます", "Match your wallpaper colors"), s.dynamicColor) { vm.set(Keys.dynamicColor, it) }
     }
-    BitPerfectPanel(vm, s)
-    EqualizerPanel(vm, s)
-    Section(T("再生", "Playback")) {
-        SwitchRow(
-            T("ギャップレス再生", "Gapless playback"),
-            T("同じ形式の曲が続くとき、曲間に無音をはさまずにつなぎます(ライブ盤やクラシックで切れ目が出ません)", "Joins songs of the same format without a pause between them"),
-            s.gapless,
-        ) { vm.set(Keys.gapless, it) }
+    Section(T("再生画面", "Player")) {
         SwitchRow(
             T("アンビエントモード", "Ambient mode"),
             T("再生画面の背景を、ジャケット画像の色合いにします", "Tints the player background with the album art"),

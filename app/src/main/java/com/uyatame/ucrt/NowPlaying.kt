@@ -501,7 +501,13 @@ private fun PlayerPage(
                     onClick = onSound,
                     label = {
                         val name = EqBands.PRESETS.getOrNull(s.eqPreset)?.let { T(it.ja, it.en) } ?: T("カスタム", "Custom")
-                        Text("EQ" + if (s.eqEnabled) " · $name" else " OFF")
+                        Text(
+                            when {
+                                s.sourceDirect -> "Source Direct"
+                                s.eqEnabled -> "EQ · $name"
+                                else -> "EQ OFF"
+                            },
+                        )
                     },
                     colors = chipColors,
                     border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = eqSel),
