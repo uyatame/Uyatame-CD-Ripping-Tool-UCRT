@@ -32,6 +32,9 @@ import com.uyatame.ucrt.data.Keys
 import com.uyatame.ucrt.data.QualityPreset
 import com.uyatame.ucrt.data.SettingsRepository
 import com.uyatame.ucrt.data.outputMode
+import com.uyatame.ucrt.data.eqActive
+import com.uyatame.ucrt.data.eqBandList
+import com.uyatame.ucrt.data.darEffective
 import com.uyatame.ucrt.tags.TagEditor
 import com.uyatame.ucrt.tags.TagValues
 import com.uyatame.ucrt.tags.prepareCoverImage
@@ -308,10 +311,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // 保存されている音響設定を再生エンジンに反映し続ける
         viewModelScope.launch {
             var lastMode: Int? = null
+            var lastEq: Boolean? = null
             settings.collect { s ->
-                com.uyatame.ucrt.player.AudioEngine.setEq(
-                    s.eqEnabled, com.uyatame.ucrt.player.EqBands.decode(s.eqGains), s.eqPreamp, s.eqAutoPreamp,
-                )
+                com.uyatame.ucrt.player.AudioEngine.setEq(s.eqActive, s.eqBandList, s.eqPreamp, s.eqAutoPreamp)
                 val mode = s.outputMode
                 com.uyatame.ucrt.player.AudioEngine.setOutputMode(mode)
                 // ビットパーフェクト再生がオンなら、USB DAC の使用許可を先にもらっておく
@@ -325,14 +327,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val devChanged = com.uyatame.ucrt.player.AudioEngine.preferredKey != s.outputDevice
                 com.uyatame.ucrt.player.AudioEngine.preferredKey = s.outputDevice
                 val eng = com.uyatame.ucrt.player.AudioEngine
-                val darChanged = eng.darMode != s.darMode || eng.darPcm != s.darPcm || eng.darDsd != s.darDsd
-                eng.darMode = s.darMode
+                val dar = s.darEffective
+                val darChanged = eng.darMode != dar || eng.darPcm != s.darPcm || eng.darDsd != s.darDsd
+                eng.darMode = dar
                 eng.darPcm = s.darPcm
                 eng.darDsd = s.darDsd
-                // DAR は USB DAC 直接出力の PCM の曲だけに使う。DAR の DSD 変換は DSD の出力の設定も使う
-                val darReload = mode == 2 && !player.isDsd && (darChanged || (dsdChanged && s.darMode == 2))
+                // DAR は USB DAC 直接出力の PCM の曲だけに使う。DAR の DSD 変換は DSD の出力の設定も使う。
+                // USB DAC 直接出力でイコライザーを入り切りしたときも、出力の状態(ビットパーフェクトか)を作り直す
+                val eqChanged = lastEq != null && lastEq != s.eqActive
+                val darReload = mode == 2 && !player.isDsd && (darChanged || eqChanged || (dsdChanged && dar == 2))
                 if (lastMode != null && (lastMode != mode || (dsdChanged && player.isDsd) || (devChanged && mode != 2) || darReload)) player.reloadOutput()
                 lastMode = mode
+                lastEq = s.eqActive
             }
         }
         // 以前の版で保存した連絡先メールアドレスは不要になったので消す
@@ -393,9 +399,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** イコライザーの帯域を動かしている途中(保存はせず、音だけすぐ変える) */
-    fun previewEq(gains: FloatArray, preamp: Float) {
+    fun previewEq(bands: List<com.uyatame.ucrt.player.EqBand>, preamp: Float) {
         val s = settings.value
-        com.uyatame.ucrt.player.AudioEngine.setEq(s.eqEnabled, gains, preamp, s.eqAutoPreamp)
+        com.uyatame.ucrt.player.AudioEngine.setEq(s.eqActive, bands, preamp, s.eqAutoPreamp)
     }
 
     /** ビットパーフェクト(USB DAC 直接出力)の切り替え */
@@ -417,9 +423,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (save) set(com.uyatame.ucrt.data.Keys.usbVolume, v)
     }
 
-    fun saveEq(gains: FloatArray, preamp: Float, preset: Int) {
+    fun saveEq(bands: List<com.uyatame.ucrt.player.EqBand>, preamp: Float, preset: Int) {
         viewModelScope.launch {
-            repo.set(Keys.eqGains, com.uyatame.ucrt.player.EqBands.encode(gains))
+            repo.set(Keys.eqBands, com.uyatame.ucrt.player.ParamEq.encode(bands))
             repo.set(Keys.eqPreamp, preamp)
             repo.set(Keys.eqPreset, preset)
         }

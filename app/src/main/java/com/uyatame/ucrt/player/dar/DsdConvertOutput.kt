@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import com.uyatame.ucrt.T
 import com.uyatame.ucrt.player.AudioEngine
 import com.uyatame.ucrt.player.AudioOutput
+import com.uyatame.ucrt.player.ParamEqualizer
 import com.uyatame.ucrt.player.PcmOut
 import com.uyatame.ucrt.player.dsd.DopSink
 import com.uyatame.ucrt.player.dsd.DsdSink
@@ -33,6 +34,8 @@ internal class DsdConvertOutput private constructor(
 
     private var fbuf = FloatArray(0)
     private var out = Array(OUT_CH) { ByteArray(0) }
+    /** イコライザー(ソースダイレクトがオフで、イコライザーを使うとき。DSD にする前に掛ける) */
+    private val eq = ParamEqualizer(sampleRate, OUT_CH)
 
     override fun headFrames(): Long {
         val sh = sink.headFrames()
@@ -65,10 +68,19 @@ internal class DsdConvertOutput private constructor(
             fbuf[k++] = l
             fbuf[k++] = r
         }
+        var gain = UsbDac.softGain.toFloat()
+        if (AudioEngine.eqEnabled) {
+            if (eq.version != AudioEngine.version) {
+                eq.update(AudioEngine.bands)
+                eq.version = AudioEngine.version
+            }
+            eq.process(fbuf, samples)
+            gain *= AudioEngine.preampGain()
+        }
         val need = conv.maxOut(frames)
         if (out[0].size < need) out = Array(OUT_CH) { ByteArray(need) }
         // DAC 本体で音量を変えられないときは、ソフトウェアの音量を変換の前に掛ける
-        val n = conv.process(fbuf, frames, UsbDac.softGain.toFloat(), out)
+        val n = conv.process(fbuf, frames, gain, out)
         if (n > 0) sink.write(out, n, stop)
     }
 

@@ -52,8 +52,11 @@ object EqBands {
 object AudioEngine {
     @Volatile var eqEnabled = false
         private set
-    @Volatile var gains = FloatArray(EqBands.FREQS.size)
+    /** イコライザーの帯域(パラメトリック EQ) */
+    @Volatile var bands: List<EqBand> = emptyList()
         private set
+    /** 帯域を合わせた、いちばん持ち上がっているところの dB(自動で音量を下げる分) */
+    @Volatile private var maxBoost = 0f
     @Volatile var preampDb = 0f
         private set
     @Volatile var autoPreamp = true
@@ -70,9 +73,10 @@ object AudioEngine {
         private set
 
 
-    fun setEq(enabled: Boolean, g: FloatArray, preamp: Float, auto: Boolean) {
+    fun setEq(enabled: Boolean, b: List<EqBand>, preamp: Float, auto: Boolean) {
+        if (b != bands) maxBoost = ParamEq.maxBoostDb(b)
         eqEnabled = enabled
-        gains = g.copyOf()
+        bands = b.toList()
         preampDb = preamp
         autoPreamp = auto
         version++
@@ -128,7 +132,7 @@ object AudioEngine {
 
     /** クリップを防ぐために自動で下げる分も含めた、全体の音量(倍率) */
     fun preampGain(): Float {
-        val auto = if (autoPreamp) max(0f, gains.maxOrNull() ?: 0f) else 0f
+        val auto = if (autoPreamp) max(0f, maxBoost) else 0f
         return 10.0.pow((preampDb - auto) / 20.0).toFloat()
     }
 
@@ -186,62 +190,6 @@ object AudioEngine {
         else -> "%.1f kHz".format(java.util.Locale.US, hz / 1000.0)
     }
 }
-
-/** 10バンドのピーキングイコライザー(ステレオ・モノラル対応) */
-private class Equalizer10(private val sampleRate: Int, private val channels: Int) {
-    private val n = EqBands.FREQS.size
-    private val b0 = FloatArray(n); private val b1 = FloatArray(n); private val b2 = FloatArray(n)
-    private val a1 = FloatArray(n); private val a2 = FloatArray(n)
-    private val active = BooleanArray(n)
-    private val z1 = Array(channels) { FloatArray(n) }
-    private val z2 = Array(channels) { FloatArray(n) }
-    var version = -1
-
-    fun update(gains: FloatArray) {
-        val q = 1.41
-        for (i in 0 until n) {
-            val f = EqBands.FREQS[i].toDouble()
-            val g = gains.getOrElse(i) { 0f }
-            val was = active[i]
-            active[i] = g != 0f && f < sampleRate * 0.45
-            if (!active[i]) continue
-            // 止めていた帯域を使い直すときは、前に使っていたときの値を消す(残っているとプツッと音が出る)
-            if (!was) for (c in 0 until channels) { z1[c][i] = 0f; z2[c][i] = 0f }
-            val a = 10.0.pow(g / 40.0)
-            val w0 = 2 * PI * f / sampleRate
-            val alpha = sin(w0) / (2 * q)
-            val a0 = 1 + alpha / a
-            b0[i] = ((1 + alpha * a) / a0).toFloat()
-            b1[i] = ((-2 * cos(w0)) / a0).toFloat()
-            b2[i] = ((1 - alpha * a) / a0).toFloat()
-            a1[i] = ((-2 * cos(w0)) / a0).toFloat()
-            a2[i] = ((1 - alpha / a) / a0).toFloat()
-        }
-    }
-
-    /** buf: チャンネルが交互に並んだ float の音声。その場で書き換える */
-    fun process(buf: FloatArray, samples: Int) {
-        var i = 0
-        while (i < samples) {
-            for (c in 0 until channels) {
-                var x = buf[i + c]
-                val s1 = z1[c]
-                val s2 = z2[c]
-                for (k in 0 until n) {
-                    if (!active[k]) continue
-                    // 転置直接形 II
-                    val y = b0[k] * x + s1[k]
-                    s1[k] = b1[k] * x - a1[k] * y + s2[k]
-                    s2[k] = b2[k] * x - a2[k] * y
-                    x = y
-                }
-                buf[i + c] = x
-            }
-            i += channels
-        }
-    }
-}
-
 
 /** PCM エンコーディングごとの 1 サンプルのバイト数(扱えないものは 0) */
 fun pcmBytes(enc: Int): Int = when (enc) {
@@ -313,7 +261,9 @@ class AudioOutput(
     private val dacSession: Int
     private val up: Upsampler?
     private val upFactor: Int
-    private val eq = Equalizer10(sampleRate, channels)
+    private val eq = ParamEqualizer(sampleRate, channels)
+    /** USB DAC 直接出力のときのイコライザー(DAC のチャンネル数で作る) */
+    private var usbEq: ParamEqualizer? = null
     private var fbuf = FloatArray(0)
     private var fbuf2 = FloatArray(0)
     private var bbuf = ByteArray(0)
@@ -350,9 +300,11 @@ class AudioOutput(
             bitPerfect = up == null
             exactOk = up == null
             val softVol = !usbDac.hwVolume && usbDac.volume() < 100
-            val perfect = up == null && !softVol
+            val eqOn = !exact && AudioEngine.eqEnabled
+            val perfect = up == null && !softVol && !eqOn
             val title = when {
                 perfect -> T("ビットパーフェクト", "Bit-perfect")
+                eqOn && up == null -> T("USB DAC 直接出力(イコライザーを使用中)", "USB DAC direct (equalizer on)")
                 up != null && darMax > 0 -> T("DAR: PCM アップサンプリング", "DAR: PCM upsampling")
                 up != null -> T("USB DAC 直接出力(DAC が非対応の周波数のためアップサンプリング)", "USB DAC direct (upsampled: rate not supported by the DAC)")
                 else -> T("USB DAC 直接出力(ソフトウェア音量を使用中。音量 100 でビットパーフェクト)", "USB DAC direct (software volume; set 100 for bit-perfect)")
@@ -483,7 +435,9 @@ class AudioOutput(
         val slot = d.subslot
         val dch = d.channels
         val up = up
-        if (up == null) {
+        // イコライザー(ソースダイレクトがオフで、イコライザーを使うとき)。DoP には掛けない
+        val useEq = !exact && AudioEngine.eqEnabled
+        if (up == null && !useEq) {
             ensureB(frames * d.frameBytes)
             var o = 0
             for (f in 0 until frames) {
@@ -498,7 +452,7 @@ class AudioOutput(
             pushUsb(o, stop)
             return
         }
-        // アップサンプリング: float で計算してから DAC の形式に戻す
+        // イコライザー・アップサンプリング: float で計算してから DAC の形式に戻す
         val inSamples = frames * dch
         if (fbuf.size < inSamples) fbuf = FloatArray(inSamples)
         var k = 0
@@ -506,14 +460,31 @@ class AudioOutput(
             for (c in 0 until channels) frameTmp[c] = readI32(src, srcEnc)
             for (c in 0 until dch) fbuf[k++] = frameTmp[if (c < channels) c else 0] / 2147483648f
         }
-        val outSamples = inSamples * upFactor
-        if (fbuf2.size < outSamples) fbuf2 = FloatArray(outSamples)
-        up.process(fbuf, frames, fbuf2)
+        var g = gain.toFloat()
+        if (useEq) {
+            val e = usbEq ?: ParamEqualizer(sampleRate, dch).also { usbEq = it }
+            if (e.version != AudioEngine.version) {
+                e.update(AudioEngine.bands)
+                e.version = AudioEngine.version
+            }
+            e.process(fbuf, inSamples)
+            g *= AudioEngine.preampGain()
+        }
+        val outBuf: FloatArray
+        val outSamples: Int
+        if (up != null) {
+            outSamples = inSamples * upFactor
+            if (fbuf2.size < outSamples) fbuf2 = FloatArray(outSamples)
+            up.process(fbuf, frames, fbuf2)
+            outBuf = fbuf2
+        } else {
+            outSamples = inSamples
+            outBuf = fbuf
+        }
         ensureB(outSamples * slot)
         var o = 0
-        val g = gain.toFloat()
         for (i in 0 until outSamples) {
-            var x = fbuf2[i] * g
+            var x = outBuf[i] * g
             if (x > 0.9999999f) x = 0.9999999f else if (x < -1f) x = -1f
             putSlot(f2i(x), slot, o)
             o += slot
@@ -560,7 +531,7 @@ class AudioOutput(
         }
         if (AudioEngine.eqEnabled) {
             if (eq.version != AudioEngine.version) {
-                eq.update(AudioEngine.gains)
+                eq.update(AudioEngine.bands)
                 eq.version = AudioEngine.version
             }
             eq.process(fbuf, samples)

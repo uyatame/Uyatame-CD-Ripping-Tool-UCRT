@@ -89,6 +89,10 @@ data class AppSettings(
     val libTiles: String = "",
     /** ギャップレス再生 */
     val gapless: Boolean = true,
+    /** ソースダイレクト: オンなら、イコライザーと DAR を使わずに音源のまま出す */
+    val sourceDirect: Boolean = false,
+    /** イコライザーの帯域(パラメトリック EQ。空なら以前の 10 バンドの eqGains から作る) */
+    val eqBands: String = "",
     /** DAR: 0 = オフ, 1 = PCM アップサンプリング, 2 = DSD に変換 */
     val darMode: Int = 0,
     /** DAR の PCM アップサンプリングの上限: 0 = DAC の最大, 1 = 2 倍, 2 = 4 倍, 3 = 8 倍, 4 = 16 倍 */
@@ -96,6 +100,17 @@ data class AppSettings(
     /** DAR の DSD 変換の周波数: 0 = DSD64, 1 = DSD128, 2 = DSD256 */
     val darDsd: Int = 0,
 )
+
+/** イコライザーの帯域(保存されていなければ、以前の 10 バンドの設定から作る) */
+val AppSettings.eqBandList: List<com.uyatame.ucrt.player.EqBand>
+    get() = if (eqBands.isNotEmpty()) com.uyatame.ucrt.player.ParamEq.decode(eqBands)
+    else com.uyatame.ucrt.player.ParamEq.fromGains(com.uyatame.ucrt.player.EqBands.decode(eqGains))
+
+/** 実際にイコライザーを掛けるか(ソースダイレクトのときは掛けない) */
+val AppSettings.eqActive: Boolean get() = eqEnabled && !sourceDirect
+
+/** 実際に使う DAR の方式(ソースダイレクトのときはオフ) */
+val AppSettings.darEffective: Int get() = if (sourceDirect) 0 else darMode
 
 /** 出力方式: 0 = 通常, 2 = ビットパーフェクト(USB DAC 直接出力)。以前の版の bitPerfect もこちらに移す */
 val AppSettings.outputMode: Int get() = if (usbDirect || bitPerfect) 2 else 0
@@ -159,6 +174,8 @@ object Keys {
     val verboseLog = booleanPreferencesKey("verboseLog")
     val libTiles = stringPreferencesKey("libTiles")
     val gapless = booleanPreferencesKey("gapless")
+    val sourceDirect = booleanPreferencesKey("sourceDirect")
+    val eqBands = stringPreferencesKey("eqBands")
     val darMode = intPreferencesKey("darMode")
     val darPcm = intPreferencesKey("darPcm")
     val darDsd = intPreferencesKey("darDsd")
@@ -210,6 +227,8 @@ class SettingsRepository(private val context: Context) {
             verboseLog = p[Keys.verboseLog] ?: d.verboseLog,
             libTiles = p[Keys.libTiles] ?: d.libTiles,
             gapless = p[Keys.gapless] ?: d.gapless,
+            sourceDirect = p[Keys.sourceDirect] ?: d.sourceDirect,
+            eqBands = p[Keys.eqBands] ?: d.eqBands,
             darMode = p[Keys.darMode] ?: d.darMode,
             darPcm = p[Keys.darPcm] ?: d.darPcm,
             darDsd = p[Keys.darDsd] ?: d.darDsd,
