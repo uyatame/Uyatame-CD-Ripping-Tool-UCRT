@@ -43,6 +43,10 @@ data class PlayItem(
     val artCoverUri: String? = null,
     /** 曲が入っているフォルダ(歌詞ファイルを探すのに使う) */
     val folderId: String? = null,
+    /** CUE シートで分けた曲の、元のファイルの中での始まり(ミリ秒) */
+    val startMs: Long = 0,
+    /** CUE シートで分けた曲の終わり(0 ならファイルの終わりまで) */
+    val endMs: Long = 0,
     /** 再生リストの中で 1 曲ずつ区別するための番号(同じ曲を 2 回入れても別物として扱う) */
     val id: Long = PlayItem.nextId(),
 ) {
@@ -110,7 +114,8 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     /** 再生中の曲が DSD か */
     val isDsd: Boolean get() = current?.uri?.let { isDsdUri(it) } == true
 
-    private fun isDsdUri(uri: Uri): Boolean {
+    private fun isDsdUri(uri0: Uri): Boolean {
+        val uri = fileOf(uri0)
         val s = Uri.decode(uri.toString())
         if (com.uyatame.ucrt.player.dsd.DsdFile.isDsd(s)) return true
         // 拡張子が分かるなら、ファイル名の問い合わせはしない
@@ -120,6 +125,10 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     }
 
     var onStateChanged: (() -> Unit)? = null
+
+    /** 開く音声ファイル(CUE シートで分けた曲は、印を外した元のファイル) */
+    private fun fileOf(u: Uri): Uri =
+        if (com.uyatame.ucrt.library.Cue.isCue(u.toString())) Uri.parse(com.uyatame.ucrt.library.Cue.fileUri(u.toString())) else u
 
     private val main = Handler(Looper.getMainLooper())
     private val attrs = AudioAttributes.Builder()
@@ -807,6 +816,48 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         abstract fun close()
     }
 
+    /**
+     * 元のファイルの一部(CUE シートの 1 曲)だけを出す。
+     * 位置(firstPtsUs)は曲の始まりを 0 として数え、終わり(endMs)に来たら打ち切る
+     */
+    private class RangeSource(private val src: PcmSource, startMs: Long, endMs: Long) : PcmSource() {
+        private val startUs = startMs * 1000
+        private val endUs = endMs * 1000
+        /** 残りのフレーム数(最初の音が来てから決まる。-1 = まだ / 終わりなし) */
+        private var left = -1L
+        private var done = false
+
+        init {
+            rate = src.rate
+            channels = src.channels
+            bits = src.bits
+            val end = if (endMs > 0) endMs else src.durationMs
+            durationMs = (end - startMs).coerceAtLeast(0L)
+        }
+
+        override fun read(sink: (java.nio.ByteBuffer, Int) -> Unit): Boolean {
+            if (done) return false
+            val more = src.read { bb, enc ->
+                if (firstPtsUs < 0 && src.firstPtsUs >= 0) firstPtsUs = (src.firstPtsUs - startUs).coerceAtLeast(0L)
+                if (endUs <= 0) {
+                    sink(bb, enc)
+                } else if (!done) {
+                    val fb = (pcmBytes(enc).takeIf { it > 0 } ?: 2) * channels
+                    if (left < 0) left = ((endUs - src.firstPtsUs.coerceAtLeast(0L)) * rate / 1_000_000L).coerceAtLeast(0L)
+                    val maxBytes = left * fb
+                    if (bb.remaining() > maxBytes) bb.limit(bb.position() + maxBytes.toInt())
+                    left -= bb.remaining() / fb
+                    if (bb.hasRemaining()) sink(bb, enc)
+                    if (left <= 0) done = true
+                }
+            }
+            if (firstPtsUs < 0 && src.firstPtsUs >= 0) firstPtsUs = (src.firstPtsUs - startUs).coerceAtLeast(0L)
+            return more && !done
+        }
+
+        override fun close() = src.close()
+    }
+
     /** WAV を直接読む(デコーダーを通すと 24bit が 16bit に丸められることがあるため) */
     private inner class WavSource(private val inp: java.io.InputStream, w: WavInfo, fromMs: Long) : PcmSource() {
         private val enc = w.enc
@@ -865,6 +916,8 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
 
     /** OS 内蔵のデコーダーで PCM にする */
     private inner class CodecSource(uri: Uri, fromMs: Long) : PcmSource() {
+        /** 途中から再生するとき、ここより前の音は捨てる(キーフレームから読み始めるため、少し前から出てくる) */
+        private val trimUs = if (fromMs > 0) fromMs * 1000 else 0L
         private val ex = MediaExtractor()
         private var codec: MediaCodec? = null
         private val info = MediaCodec.BufferInfo()
@@ -960,11 +1013,20 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             if (o < 0) return true
             val f = outFmt ?: c.outputFormat
             val enc = if (f.containsKey(MediaFormat.KEY_PCM_ENCODING)) f.getInteger(MediaFormat.KEY_PCM_ENCODING) else AFormat.ENCODING_PCM_16BIT
-            if (firstPtsUs < 0) firstPtsUs = info.presentationTimeUs.coerceAtLeast(0)
-            if (info.size > 0) {
+            var off = info.offset
+            var size = info.size
+            val pts = info.presentationTimeUs.coerceAtLeast(0)
+            if (trimUs > 0 && pts < trimUs && size > 0 && rate > 0) {
+                val fb = (pcmBytes(enc).takeIf { it > 0 } ?: 2) * channels
+                val skip = ((trimUs - pts) * rate / 1_000_000L * fb).coerceAtMost(size.toLong()).toInt() / fb * fb
+                off += skip
+                size -= skip
+            }
+            if (firstPtsUs < 0 && size > 0) firstPtsUs = maxOf(pts, trimUs)
+            if (size > 0) {
                 val bb = c.getOutputBuffer(o)!!
-                bb.position(info.offset)
-                bb.limit(info.offset + info.size)
+                bb.position(off)
+                bb.limit(off + size)
                 sink(bb, enc)
             }
             c.releaseOutputBuffer(o, false)
@@ -1011,8 +1073,11 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         }
 
         private fun open(item: PlayItem, from: Long): PcmSource {
-            val uri = item.uri ?: throw java.io.IOException("no file")
-            return openWav(uri, from) ?: CodecSource(uri, from)
+            val uri = fileOf(item.uri ?: throw java.io.IOException("no file"))
+            val start = item.startMs + from
+            val src = openWav(uri, start) ?: CodecSource(uri, start)
+            // CUE シートで分けた曲は、元のファイルの中のその曲の範囲だけを出す
+            return if (item.startMs > 0 || item.endMs > 0) RangeSource(src, item.startMs, item.endMs) else src
         }
 
         override fun run() {

@@ -221,6 +221,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ---- ライブラリ ----
     var albums by mutableStateOf<List<LibAlbum>>(emptyList())
         private set
+    /** 読み込んだすべての曲(CUE シートで分けたため一覧に出さない元のファイルも含む。次の読み込みで使う) */
+    private var libAll: List<com.uyatame.ucrt.library.LibTrack> = emptyList()
 
     private class LibIndex(val tracks: Map<String, com.uyatame.ucrt.library.LibTrack>, val albumOf: Map<String, String>)
     private var indexFor: List<LibAlbum>? = null
@@ -343,7 +345,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch {
             store.load()
-            albums = Library.group(withContext(Dispatchers.IO) { library.loadCache() })
+            libAll = withContext(Dispatchers.IO) { library.loadCache() }
+            albums = Library.group(libAll)
             restoreQueue()
             val s = repo.flow.first()
             if (s.outputUri != null || s.libraryFolders.isNotEmpty()) {
@@ -1177,7 +1180,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         try {
             val sk: AudioSink = when (s.format) {
                 AudioFormat.WAV -> {
-                    val o = BufferedOutputStream(openOut(file), 1 shl 16); os = o; WavSink(o, bytes)
+                    val o = BufferedOutputStream(openOut(file), 1 shl 16); os = o
+                    val meta = com.uyatame.ucrt.tags.WavTags.metaChunks(
+                        Id3Tags(title, artist, m.title, m.artist, m.date.take(4), t.number, total, m.discNo, m.discTotal),
+                        cover,
+                    )
+                    WavSink(o, bytes, meta)
                 }
                 AudioFormat.FLAC -> {
                     val o = BufferedOutputStream(openOut(file), 1 shl 16); os = o; FlacSink(o, bytes / 4, s.flacLevel, tags, cover)
@@ -1283,14 +1291,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         base: AppSettings = settings.value,
     ) {
         val trees = (listOfNotNull(treeOverride, base.outputUri) + (folders ?: base.libraryFolders)).distinct()
-        if (trees.isEmpty()) { albums = emptyList(); return }
+        if (trees.isEmpty()) { albums = emptyList(); libAll = emptyList(); return }
         if (libScanning) return
         viewModelScope.launch {
             libScanning = true
             libFull = fresh
             libNew = 0
             try {
-                val old = if (fresh) emptyList() else albums.flatMap { it.tracks }
+                val old = if (fresh) emptyList() else libAll
                 val light = player.isPlaying
                 val list = withContext(Dispatchers.IO) {
                     val all = ArrayList<com.uyatame.ucrt.library.LibTrack>()
@@ -1303,6 +1311,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     all.distinctBy { Library.docKey(it.uri) }.also { library.saveCache(it) }
                 }
                 ArtLoader.clearMisses()
+                libAll = list
                 albums = Library.group(list)
             } catch (e: Exception) {
                 log(T("ライブラリの読み込み失敗: ${e.message}", "Library scan failed: ${e.message}"))
@@ -1457,7 +1466,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 ArtLoader.forget(a.key)
                 snack = buildString {
                     append(T("${ok}曲の曲情報を保存しました", "Saved track info for ${ok} tracks"))
-                    if (skipped > 0) append(T("(WAVなど${skipped}曲は対象外)", " (${skipped} WAV or other tracks skipped)"))
+                    if (skipped > 0) append(T("(書き換えられない形式の${skipped}曲は対象外)", " (${skipped} tracks in formats that cannot be edited were skipped)"))
                     if (failed > 0) append(T("。${failed}曲は失敗しました", ". ${failed} tracks failed"))
                 }
                 refreshLibrary()
@@ -1476,6 +1485,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         PlayItem(
             t.title, t.artist, t.album, t.durationMs, Uri.parse(t.uri), null,
             albumKeyOf(t.uri) ?: t.uri, t.uri, t.coverUri, t.folderId,
+            startMs = t.startMs, endMs = t.endMs,
         )
 
     fun playAlbum(a: LibAlbum, start: Int, shuffle: Boolean = false) = playTracks(a.tracks, start, shuffle)

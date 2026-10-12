@@ -23,6 +23,8 @@ class Lyrics(val lines: List<LyricLine>, val synced: Boolean)
 object LyricsLoader {
     fun load(ctx: Context, item: PlayItem): Lyrics? {
         val uri = item.uri ?: return null
+        // CUE シートで分けた曲は、元のファイルの歌詞では時刻が合わないので出さない
+        if (com.uyatame.ucrt.library.Cue.isCue(uri.toString())) return null
         runCatching { sidecar(ctx, uri, item.folderId) }.getOrNull()?.let { return it }
         return runCatching { embedded(ctx, uri) }.getOrNull()
     }

@@ -25,7 +25,8 @@ object AudioInfo {
 
     fun detail(ctx: Context, item: PlayItem): Detail? {
         if (item.cdTrack != null) return Detail("CD-DA", 44100, 16, 1411, false, "CD-DA 44.1 kHz / 16 bit · 1411 kbps", 0L)
-        val uri = item.uri ?: return null
+        // CUE シートで分けた曲は、元のファイルを調べる
+        val uri = item.uri?.let { Uri.parse(com.uyatame.ucrt.library.Cue.fileUri(it.toString())) } ?: return null
         if (com.uyatame.ucrt.player.dsd.DsdFile.isDsd(Uri.decode(uri.toString()))) {
             val d = com.uyatame.ucrt.player.dsd.DsdTags.read(ctx, uri)?.info
                 ?: return Detail("DSD", 0, 1, 0, true, "DSD", size(ctx, uri) ?: 0L)

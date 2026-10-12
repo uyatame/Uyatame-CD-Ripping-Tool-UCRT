@@ -39,7 +39,7 @@ val QUALITY_PRESETS: List<QualityPreset> get() = listOf(
     QualityPreset(T("標準(AAC 256kbps)", "Standard (AAC 256 kbps)"), T("音質と容量のバランス型。1曲 約8MB", "Balanced quality and size. About 8 MB per song"), AudioFormat.AAC, 5, 256),
     QualityPreset(T("互換性重視(MP3 320kbps)", "Compatible (MP3 320 kbps)"), T("古いプレーヤーやカーオーディオでも再生しやすい形式。1曲 約10MB", "Plays on older players and car audio. About 10 MB per song"), AudioFormat.MP3, 5, 256, 320),
     QualityPreset(T("省容量(AAC 128kbps)", "Small (AAC 128 kbps)"), T("容量を優先。1曲 約4MB", "Prioritizes size. About 4 MB per song"), AudioFormat.AAC, 5, 128),
-    QualityPreset(T("無圧縮(WAV)", "Uncompressed (WAV)"), T("編集向け。容量が大きく、曲情報は保存されません", "For editing. Large files, no track info"), AudioFormat.WAV, 5, 256),
+    QualityPreset(T("無圧縮(WAV)", "Uncompressed (WAV)"), T("CD と同じデータのまま保存。容量は FLAC の約 2 倍です(曲情報とジャケットも保存します)", "Saves the CD data as is. About twice the size of FLAC (track info and cover art are saved too)"), AudioFormat.WAV, 5, 256),
 )
 
 data class AppSettings(

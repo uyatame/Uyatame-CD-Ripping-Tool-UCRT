@@ -56,13 +56,33 @@ fun prepareCoverImage(b: ByteArray): ByteArray {
 
 /** 取り込み済みファイル(FLAC / MP3 / M4A)の曲情報を書き換える */
 object TagEditor {
-    fun supported(uri: String): Boolean = extOf(uri) in setOf("flac", "mp3", "m4a", "dsf")
+    /** 曲情報を書き換えられるか(CUE シートで分けた曲は、元のファイルが共通なので書き換えない) */
+    fun supported(uri: String): Boolean = '#' !in uri && extOf(uri) in setOf("flac", "mp3", "m4a", "dsf", "wav")
 
     private fun extOf(uri: String) = Uri.decode(uri).substringAfterLast('.', "").lowercase()
 
     /** 書き換えたら true、未対応形式なら false */
     fun edit(ctx: Context, uri: Uri, v: TagValues, newCover: ByteArray?): Boolean {
+        if (!supported(uri.toString())) return false
         val ext = extOf(uri.toString())
+        if (ext == "wav") {
+            // WAV は大きいので、元のファイルから読みながら新しい内容を作り、書き戻す
+            val outF = File(ctx.cacheDir, "tag_out.wav")
+            try {
+                outF.outputStream().buffered(1 shl 16).use { o ->
+                    WavTags.rewrite(
+                        ctx, uri, o,
+                        Id3Tags(v.title, v.artist, v.album, v.albumArtist, v.year, v.track, v.trackTotal, v.disc, v.discTotal),
+                        newCover?.let { coverFrom(it) },
+                    )
+                }
+                val os = ctx.contentResolver.openOutputStream(uri, "wt") ?: throw IOException(T("ファイルに書き込めません", "Cannot write to the file"))
+                os.use { o -> outF.inputStream().use { it.copyTo(o, 1 shl 16) } }
+                return true
+            } finally {
+                outF.delete()
+            }
+        }
         if (ext == "dsf") {
             // DSF は大きいので、コピーせずにファイル末尾のタグだけを書き換える
             com.uyatame.ucrt.player.dsd.DsdTags.writeDsf(

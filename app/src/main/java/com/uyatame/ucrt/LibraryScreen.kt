@@ -1207,7 +1207,7 @@ private fun EditTagsDialog(vm: MainViewModel, a: LibAlbum, onDismiss: () -> Unit
                 if (unsupported > 0) {
                     item {
                         Text(
-                            T("WAVなど${unsupported}曲は、曲情報を保存できない形式のため変更されません", "${unsupported} tracks (such as WAV) use a format that cannot store tags and will not be changed"),
+                            T("${unsupported}曲は、曲情報を書き換えられない形式(CUE シートで分けた曲など)のため変更されません", "${unsupported} tracks use a format whose tags cannot be edited (such as tracks split by a CUE sheet) and will not be changed"),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
                         )
                     }

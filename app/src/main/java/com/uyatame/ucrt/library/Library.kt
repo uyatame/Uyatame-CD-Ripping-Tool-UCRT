@@ -35,6 +35,14 @@ data class LibTrack(
     val rate: Int = 0,
     /** 量子化ビット数(DSD は 1)。分からなければ 0 */
     val bits: Int = 0,
+    /** CUE シートで分けた曲の、元のファイルの中での始まり(ミリ秒) */
+    val startMs: Long = 0,
+    /** CUE シートで分けた曲の終わり(0 ならファイルの終わりまで) */
+    val endMs: Long = 0,
+    /** CUE シートで曲に分けたため、一覧には出さない元のファイル */
+    val hidden: Boolean = false,
+    /** CUE シートで分けた曲の、CUE シートの URI */
+    val sheet: String? = null,
 )
 
 data class LibAlbum(val key: String, val title: String, val artist: String, val tracks: List<LibTrack>) {
@@ -88,6 +96,7 @@ class Library(private val ctx: Context) {
                     o.optInt("n"), o.optInt("d", 1), o.optLong("ms"), o.optString("f"),
                     if (o.has("c")) o.getString("c") else null, o.optLong("m"), o.optString("y"),
                     o.optString("g"), o.optInt("sr"), o.optInt("bt"),
+                    o.optLong("ss"), o.optLong("se"), o.optBoolean("h"), if (o.has("cs")) o.getString("cs") else null,
                 )
             }.distinctBy { docKey(it.uri) }
         }
@@ -106,6 +115,10 @@ class Library(private val ctx: Context) {
             if (t.genre.isNotEmpty()) o.put("g", t.genre)
             if (t.rate > 0) o.put("sr", t.rate)
             if (t.bits > 0) o.put("bt", t.bits)
+            if (t.startMs > 0) o.put("ss", t.startMs)
+            if (t.endMs > 0) o.put("se", t.endMs)
+            if (t.hidden) o.put("h", true)
+            if (t.sheet != null) o.put("cs", t.sheet)
             a.put(o)
         }
         val root = JSONObject().put("v", CACHE_VERSION).put("tracks", a)
@@ -135,13 +148,15 @@ class Library(private val ctx: Context) {
             val found = java.util.Collections.synchronizedList(ArrayList<Triple<Uri, String, Long>>())
             val names = java.util.concurrent.ConcurrentHashMap<String, String>()
             val covers = java.util.concurrent.ConcurrentHashMap<String, String>()
+            // CUE シート(フォルダの ID → CUE シートの URI)
+            val cues = java.util.concurrent.ConcurrentHashMap<String, MutableList<String>>()
             // フォルダを階層ごとにまとめて、同時に一覧を取る
             var level = listOf(DocumentsContract.getTreeDocumentId(tree))
             var depth = 0
             while (level.isNotEmpty() && depth <= 8) {
                 val next = java.util.Collections.synchronizedList(ArrayList<String>())
                 pool.invokeAll(level.map { id ->
-                    java.util.concurrent.Callable { list(tree, id, found, names, covers, next) }
+                    java.util.concurrent.Callable { list(tree, id, found, names, covers, cues, next) }
                 })
                 level = next.toList()
                 depth++
@@ -162,13 +177,64 @@ class Library(private val ctx: Context) {
                     Unit
                 }
             })
-            return all.mapNotNull { (uri, folder, _) ->
+            val tracks = all.mapNotNull { (uri, folder, _) ->
                 val key = uri.toString()
-                read[key] ?: oldMap[docKey(key)]?.copy(uri = key, folderId = folder, coverUri = covers[folder])
+                read[key] ?: oldMap[docKey(key)]?.copy(uri = key, folderId = folder, coverUri = covers[folder], hidden = false)
             }
+            return if (cues.isEmpty()) tracks else applyCues(tracks, cues, names)
         } finally {
             pool.shutdownNow()
         }
+    }
+
+    /**
+     * CUE シートがあるフォルダでは、CUE シートが指す音声ファイルを曲ごとに分ける。
+     * 元のファイルは一覧から隠し(次の読み込みで変わっていないか確かめるため、キャッシュには残す)、分けた曲を加える
+     */
+    private fun applyCues(tracks: List<LibTrack>, cues: Map<String, List<String>>, names: Map<String, String>): List<LibTrack> {
+        val byFolder = tracks.groupBy { it.folderId }
+        val hide = HashSet<String>()
+        val added = ArrayList<LibTrack>()
+        for ((folder, sheets) in cues) {
+            val inFolder = byFolder[folder] ?: continue
+            for (cueUri in sheets) {
+                val sheet = runCatching {
+                    StorageAccess.open(ctx, Uri.parse(cueUri))?.use { Cue.parse(Cue.decode(it.readBytes())) }
+                }.getOrNull() ?: continue
+                for (cf in sheet.files) {
+                    // FILE の名前でファイルを探す(拡張子だけ違うもの(WAV → FLAC に変換した)も認める)
+                    val want = cf.name.substringAfterLast('/').substringAfterLast('\\')
+                    val base = inFolder.firstOrNull { names[it.uri].equals(want, ignoreCase = true) }
+                        ?: inFolder.firstOrNull { names[it.uri]?.substringBeforeLast('.').equals(want.substringBeforeLast('.'), ignoreCase = true) }
+                        ?: continue
+                    if (base.uri in hide) continue
+                    hide.add(base.uri)
+                    cf.tracks.forEachIndexed { i, ct ->
+                        val next = cf.tracks.getOrNull(i + 1)
+                        val end = next?.startMs ?: 0L
+                        val dur = (if (end > 0) end else base.durationMs) - ct.startMs
+                        added.add(
+                            base.copy(
+                                uri = Cue.trackUri(base.uri, ct.number),
+                                title = ct.title ?: T("トラック %02d", "Track %02d").format(ct.number),
+                                artist = ct.performer ?: sheet.performer ?: base.artist,
+                                album = sheet.title ?: base.album,
+                                albumArtist = sheet.performer ?: base.albumArtist,
+                                track = ct.number,
+                                durationMs = dur.coerceAtLeast(0L),
+                                year = sheet.date ?: base.year,
+                                genre = sheet.genre ?: base.genre,
+                                startMs = ct.startMs,
+                                endMs = end,
+                                hidden = false,
+                                sheet = cueUri,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        return tracks.map { if (it.uri in hide) it.copy(hidden = true) else it } + added
     }
 
     /** 1 つのフォルダの中身を一覧にする(サブフォルダは next に入れる) */
@@ -178,8 +244,13 @@ class Library(private val ctx: Context) {
         found: MutableList<Triple<Uri, String, Long>>,
         names: MutableMap<String, String>,
         covers: MutableMap<String, String>,
+        cues: java.util.concurrent.ConcurrentHashMap<String, MutableList<String>>,
         next: MutableList<String>,
     ) {
+        fun addCue(id: String) {
+            cues.computeIfAbsent(docId) { java.util.Collections.synchronizedList(ArrayList()) }
+                .add(DocumentsContract.buildDocumentUriUsingTree(tree, id).toString())
+        }
         // 「すべてのファイルへのアクセス」があれば、フォルダの中身をファイルから直接読む(URI は同じものを作る)
         if (StorageAccess.isExternalTree(tree)) {
             val dir = StorageAccess.fileOfDocId(docId)
@@ -197,6 +268,8 @@ class Library(private val ctx: Context) {
                         names[uri.toString()] = name
                     } else if (lower in COVER_NAMES) {
                         covers[docId] = DocumentsContract.buildDocumentUriUsingTree(tree, id).toString()
+                    } else if (lower.endsWith(".cue")) {
+                        addCue(id)
                     }
                 }
                 return
@@ -224,6 +297,8 @@ class Library(private val ctx: Context) {
                         names[uri.toString()] = name
                     } else if (lower in COVER_NAMES) {
                         covers[docId] = DocumentsContract.buildDocumentUriUsingTree(tree, id).toString()
+                    } else if (lower.endsWith(".cue")) {
+                        addCue(id)
                     }
                 }
             }
@@ -340,8 +415,30 @@ class Library(private val ctx: Context) {
         )
     }
 
+    /** WAV は Android 標準の機能では曲情報を読めないので、自前で読む(LIST/INFO と id3 チャンク) */
+    private fun readWavTags(uri: Uri, name: String, folder: String, cover: String?, mod: Long): LibTrack? {
+        val w = runCatching { com.uyatame.ucrt.tags.WavTags.read(ctx, uri) }.getOrNull() ?: return null
+        val base = name.substringBeforeLast('.')
+        val t = w.tags
+        return LibTrack(
+            uri.toString(),
+            t?.title ?: base,
+            t?.artist ?: UNKNOWN_ARTIST,
+            t?.album ?: UNKNOWN_ALBUM,
+            t?.albumArtist ?: "",
+            t?.track ?: base.take(2).toIntOrNull() ?: 0,
+            t?.disc ?: 1,
+            w.durationMs,
+            folder, cover, mod,
+            t?.year ?: "",
+            cleanGenre(t?.genre),
+            w.rate, w.bits,
+        )
+    }
+
     private fun readTags(uri: Uri, name: String, folder: String, cover: String?, mod: Long): LibTrack {
         if (com.uyatame.ucrt.player.dsd.DsdFile.isDsd(name)) return readDsdTags(uri, name, folder, cover, mod)
+        if (name.lowercase().endsWith(".wav")) readWavTags(uri, name, folder, cover, mod)?.let { return it }
         if (name.lowercase().endsWith(".flac")) readFlacTags(uri, name, folder, cover, mod)?.let { return it }
         val base = name.substringBeforeLast('.')
         val r = MediaMetadataRetriever()
@@ -397,7 +494,8 @@ class Library(private val ctx: Context) {
          */
         fun docKey(uri: String): String = runCatching {
             val u = Uri.parse(uri)
-            u.authority + "\u0000" + DocumentsContract.getDocumentId(u)
+            // CUE シートで分けた曲は、元のファイルと区別するため印(#cue=曲番号)も含める
+            u.authority + "\u0000" + DocumentsContract.getDocumentId(u) + (u.fragment?.let { "#$it" } ?: "")
         }.getOrDefault(uri)
 
         /** 一覧の形式の版(音質・ジャンルを追加したので 2) */
@@ -415,7 +513,7 @@ class Library(private val ctx: Context) {
         )
 
         fun group(tracks: List<LibTrack>): List<LibAlbum> =
-            tracks.groupBy { t ->
+            tracks.filter { !it.hidden }.groupBy { t ->
                 if (t.album == UNKNOWN_ALBUM || t.album == "不明なアルバム" || t.album == "Unknown album") "f:" + t.folderId
                 else "a:" + t.albumArtist.ifEmpty { t.artist } + "\u0000" + t.album
             }.map { (k, list) ->
@@ -454,10 +552,14 @@ object ArtLoader {
         }
     }
 
-    private fun loadNow(ctx: Context, key: String, trackUri: String?, coverUri: String?, size: Int): ImageBitmap? {
+    private fun loadNow(ctx: Context, key: String, trackUri0: String?, coverUri: String?, size: Int): ImageBitmap? {
         var bytes: ByteArray? = null
+        // CUE シートで分けた曲は、元のファイルの画像を使う
+        val trackUri = trackUri0?.let { Cue.fileUri(it) }
         if (trackUri != null && com.uyatame.ucrt.player.dsd.DsdFile.isDsd(Uri.decode(trackUri))) {
             bytes = runCatching { com.uyatame.ucrt.player.dsd.DsdTags.picture(ctx, Uri.parse(trackUri)) }.getOrNull()
+        } else if (trackUri != null && Uri.decode(trackUri).lowercase().endsWith(".wav")) {
+            bytes = runCatching { com.uyatame.ucrt.tags.WavTags.picture(ctx, Uri.parse(trackUri)) }.getOrNull()
         } else if (trackUri != null) {
             val r = MediaMetadataRetriever()
             try {

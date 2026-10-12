@@ -13,7 +13,8 @@ object Quality {
 
     fun ext(uri: String): String {
         // ほとんどの URI は区切りの "/" が "%2F" になっているので、そのときだけ戻す(毎回戻すと遅い)
-        val s = if ('%' in uri) Uri.decode(uri) else uri
+        val u = Cue.fileUri(uri)
+        val s = if ('%' in u) Uri.decode(u) else u
         return s.substringAfterLast('/').substringAfterLast('.', "").lowercase()
     }
 
