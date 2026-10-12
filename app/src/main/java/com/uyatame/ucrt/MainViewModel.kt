@@ -1035,7 +1035,91 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ================= 取り込み =================
 
-    fun startRip(treeOverride: String? = null) {
+    /** 取り込みの確認に出す内容 */
+    class RipPlan(
+        val tree: String,
+        val count: Int,
+        /** 保存先(「SDカード / Music / アーティスト / アルバム」など) */
+        val dest: String,
+        val sizeBytes: Long,
+        /** 保存先に同じ名前のファイルがある曲 */
+        val existing: List<String>,
+    )
+
+    /** 取り込みの確認ダイアログ(null なら出さない) */
+    var ripPlan by mutableStateOf<RipPlan?>(null)
+        private set
+
+    /** 取り込む前に、保存先・容量・同じ名前のファイルを調べて確認を出す */
+    fun prepareRip(treeOverride: String? = null) {
+        if (drive == null || busy || discBusy) return
+        val s = settings.value
+        val tree = treeOverride ?: s.outputUri
+        if (tree == null) { snack = T("設定で保存先フォルダを選んでください", "Choose a save folder in Settings"); return }
+        val m = meta ?: fitMeta(AlbumMeta(UNKNOWN_ALBUM, UNKNOWN_ARTIST))
+        val targets = audioTracks.filter { selected[it.number] == true }
+        if (targets.isEmpty()) { snack = T("取り込む曲を選んでください", "Select tracks to rip"); return }
+        viewModelScope.launch {
+            val existing = withContext(Dispatchers.IO) {
+                runCatching {
+                    val dir = findAlbumDir(tree, s, m) ?: return@runCatching emptyList()
+                    val names = dir.listFiles().mapNotNull { it.name }.toHashSet()
+                    targets.map { fileName(it, s, m) }.filter { it in names }
+                }.getOrDefault(emptyList())
+            }
+            val sec = targets.sumOf { (it.endLba - it.startLba).toLong() } / 75.0
+            val size = when (s.format) {
+                AudioFormat.WAV -> sec * 176_400
+                AudioFormat.FLAC -> sec * 176_400 * 0.6
+                AudioFormat.AAC -> sec * s.aacKbps * 125
+                AudioFormat.MP3 -> sec * s.mp3Kbps * 125
+            }.toLong()
+            val sub = when (s.folderMode) {
+                0 -> " / ${safe(m.artist)} / ${safe(m.title)}"
+                1 -> " / ${safe(m.title)}"
+                else -> ""
+            }
+            ripPlan = RipPlan(tree, targets.size, folderLabel(tree) + sub, size, existing)
+        }
+    }
+
+    fun dismissRipPlan() { ripPlan = null }
+
+    /** 確認ダイアログで「取り込む」を押した。skipExisting なら、同じ名前のファイルがある曲は取り込まない */
+    fun confirmRip(skipExisting: Boolean) {
+        val p = ripPlan ?: return
+        ripPlan = null
+        startRip(p.tree, skipExisting)
+    }
+
+    /** 保存先のアルバムのフォルダ(まだ無ければ null。作らない) */
+    private fun findAlbumDir(tree: String, s: AppSettings, m: AlbumMeta): DocumentFile? {
+        var dir = DocumentFile.fromTreeUri(ctx, Uri.parse(tree)) ?: return null
+        val parts = when (s.folderMode) {
+            0 -> listOf(safe(m.artist), safe(m.title))
+            1 -> listOf(safe(m.title))
+            else -> emptyList()
+        }
+        for (p in parts) dir = dir.findFile(p)?.takeIf { it.isDirectory } ?: return null
+        return dir
+    }
+
+    /** 取り込む曲のファイル名 */
+    private fun fileName(t: TocTrack, s: AppSettings, m: AlbumMeta): String {
+        val ai = audioTracks.indexOf(t)
+        val title = m.tracks.getOrNull(ai)?.title?.takeIf { it.isNotBlank() } ?: T("トラック %02d", "Track %02d").format(t.number)
+        val artist = m.tracks.getOrNull(ai)?.artist?.takeIf { it.isNotBlank() } ?: m.artist
+        val n = "%02d".format(t.number)
+        val dp = if (m.discTotal > 1) "${m.discNo}-" else ""
+        val base = when (s.fileNameMode) {
+            0 -> "$dp$n ${safe(title)}"
+            1 -> "$dp$n - ${safe(artist)} - ${safe(title)}"
+            else -> "${dp}Track$n"
+        }
+        return "$base.${s.format.ext}"
+    }
+
+    fun startRip(treeOverride: String? = null, skipExisting: Boolean = false) {
         val d = drive ?: return
         if (busy || discBusy) return
         val s = settings.value
@@ -1057,13 +1141,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             targets.forEach { trackStatus[it.number] = T("待機中", "Waiting"); progress[it.number] = 0f }
             updateService()
             var errors = 0
+            var skipped = 0
             try {
                 withContext(Dispatchers.IO) {
                     val dir = albumDir(tree, s, m)
                     if (s.saveCover && cover != null) saveCoverFile(dir, cover)
+                    val have = if (skipExisting) dir.listFiles().mapNotNull { it.name }.toHashSet() else emptySet()
                     targets.forEachIndexed { i, t ->
                         ensureActive()
                         ripIndex = i
+                        if (fileName(t, s, m) in have) {
+                            // すでにある曲は取り込まない(確認で選んだとき)
+                            skipped++
+                            trackStatus[t.number] = T("スキップ", "Skipped")
+                            progress[t.number] = 1f
+                            ripOverall = (i + 1f) / targets.size
+                            return@forEachIndexed
+                        }
                         updateService()
                         errors += ripTrack(d, t, s, m, dir, if (s.embedCover) cover else null, { p ->
                             ripOverall = (i + p) / targets.size
@@ -1078,7 +1172,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     else T("取り込み完了(読み取りエラー ${errors}セクター)", "Ripping finished (${errors} sectors had read errors)"),
                     m.title, m.artist,
                 )
-                log(T("取り込み完了: ${m.title}(${targets.size}曲)", "Ripped: ${m.title} (${targets.size} tracks)"))
+                log(T("取り込み完了: ${m.title}(${targets.size - skipped}曲)", "Ripped: ${m.title} (${targets.size - skipped} tracks)"))
                 if (s.ejectAfter) withContext(Dispatchers.IO) { runCatching { d.eject() } }
             } catch (e: CancellationException) {
                 snack = T("取り込みを中止しました", "Ripping cancelled")
@@ -1151,16 +1245,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val total = audioTracks.size
         trackStatus[t.number] = T("取り込み中", "Ripping")
         progress[t.number] = 0f
-        val n = "%02d".format(t.number)
-        val dp = if (m.discTotal > 1) "${m.discNo}-" else ""
-        val base = when (s.fileNameMode) {
-            0 -> "$dp$n ${safe(title)}"
-            1 -> "$dp$n - ${safe(artist)} - ${safe(title)}"
-            else -> "${dp}Track$n"
-        }
-        val name = "$base.${s.format.ext}"
-        dir.findFile(name)?.delete()
-        val file = dir.createFile(s.format.mime, name) ?: throw IOException(T("ファイルを作成できません", "Cannot create the file"))
+        val name = fileName(t, s, m)
+        // 同じ名前のファイルがあるときは、いったん別の名前で取り込み、うまくいってから置き換える
+        // (途中で失敗・中止しても、元のファイルが消えないように)
+        val existing = dir.findFile(name)
+        val file = if (existing == null) {
+            dir.createFile(s.format.mime, name)
+        } else {
+            dir.findFile("$name.part")?.delete()
+            dir.createFile("application/octet-stream", "$name.part")
+        } ?: throw IOException(T("ファイルを作成できません", "Cannot create the file"))
         val bytes = (t.endLba - t.startLba).toLong() * 2352
         val tags = buildList {
             add("TITLE" to title)
@@ -1212,6 +1306,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 if (p - last >= 0.01f) { last = p; progress[t.number] = p; onP(p) }
             }, check)
             sk.finish()
+            // 置き換える前に書き込みを閉じる
+            os?.close()
+            os = null
             if (s.format == AudioFormat.AAC) {
                 Mp4Tagger.tag(
                     tmp,
@@ -1221,6 +1318,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 openOut(file).use { o -> tmp.inputStream().use { it.copyTo(o, 1 shl 16) } }
                 tmp.delete()
             }
+            if (existing != null) replaceFile(dir, existing, file, name, s.format.mime)
             progress[t.number] = 1f
             trackStatus[t.number] = if (res.errorSectors == 0) T("完了", "Done") else T("完了(エラー${res.errorSectors})", "Done (${res.errorSectors} errors)")
             if (res.c2Disabled) log(T("このドライブはC2エラー検出に非対応のため無効にしました", "C2 error detection is not supported by this drive and was turned off"))
@@ -1235,6 +1333,72 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             throw e
         } finally {
             runCatching { os?.close() }
+        }
+    }
+
+    /** 取り込み終えた一時ファイルで、元のファイルを置き換える */
+    private fun replaceFile(dir: DocumentFile, old: DocumentFile, tmp: DocumentFile, name: String, mime: String) {
+        if (!old.delete()) {
+            tmp.delete()
+            throw IOException(T("元のファイルを置き換えられません: $name", "Cannot replace the existing file: $name"))
+        }
+        if (tmp.renameTo(name)) return
+        // 名前を変えられない保存先では、中身を写す
+        val f = dir.createFile(mime, name) ?: throw IOException(T("ファイルを作成できません", "Cannot create the file"))
+        openOut(f).use { o -> ctx.contentResolver.openInputStream(tmp.uri)?.use { it.copyTo(o, 1 shl 16) } }
+        tmp.delete()
+    }
+
+    // ================= 曲の削除 =================
+
+    /** 削除の確認を出す曲(null なら出さない) */
+    var deleteRequest by mutableStateOf<List<com.uyatame.ucrt.library.LibTrack>?>(null)
+
+    /**
+     * 曲のファイルを削除する(元に戻せない)。
+     * CUE シートで分けた曲は、同じファイルのすべての曲を選んだときだけ、元のファイルと CUE シートを消す
+     */
+    fun deleteTracks(list: List<com.uyatame.ucrt.library.LibTrack>) {
+        deleteRequest = null
+        if (list.isEmpty()) return
+        val cue = com.uyatame.ucrt.library.Cue
+        val chosen = list.map { it.uri }.toHashSet()
+        val files = LinkedHashSet<String>()
+        var kept = 0
+        list.filter { !cue.isCue(it.uri) }.forEach { files.add(it.uri) }
+        list.filter { cue.isCue(it.uri) }.groupBy { cue.fileUri(it.uri) }.forEach { (file, parts) ->
+            val all = libAll.filter { !it.hidden && cue.isCue(it.uri) && cue.fileUri(it.uri) == file }
+            if (all.all { it.uri in chosen }) {
+                files.add(file)
+                parts.mapNotNull { it.sheet }.distinct().forEach { files.add(it) }
+            } else {
+                kept += parts.size
+            }
+        }
+        // 再生リストから外す(再生中の曲なら次の曲へ)
+        val gone = list.map { it.uri }.toHashSet()
+        for (i in player.queue.indices.reversed()) {
+            if (player.queue[i].uri?.toString() in gone) player.removeAt(i)
+        }
+        viewModelScope.launch {
+            var ok = 0
+            var failed = 0
+            withContext(Dispatchers.IO) {
+                for (u in files) {
+                    val done = runCatching { android.provider.DocumentsContract.deleteDocument(ctx.contentResolver, Uri.parse(u)) }
+                        .getOrDefault(false)
+                    if (done) ok++ else {
+                        failed++
+                        log(T("削除できませんでした: ${Uri.decode(u).substringAfterLast('/')}", "Could not delete: ${Uri.decode(u).substringAfterLast('/')}"))
+                    }
+                }
+            }
+            snack = buildString {
+                append(T("${ok}個のファイルを削除しました", "Deleted ${ok} files"))
+                if (failed > 0) append(T("。${failed}個は削除できませんでした", ". ${failed} could not be deleted"))
+                if (kept > 0) append(T("(CUE シートの一部の曲だけは削除できません)", " (individual tracks of a CUE sheet cannot be deleted)"))
+            }
+            refreshLibrary()
         }
     }
 

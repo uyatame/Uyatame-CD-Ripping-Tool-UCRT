@@ -292,7 +292,17 @@ private fun DrivePage(vm: MainViewModel, s: AppSettings) {
             T("低いほどドライブの動作音が静かになります", "Lower speeds make the drive quieter"),
         ) { vm.set(Keys.cdPlaySpeed, it) }
     }
-    OutlinedButton({ vm.resetDriveSettings() }, Modifier.fillMaxWidth()) { Text(T("CDドライブの設定を初期値に戻す", "Reset CD drive settings")) }
+    var confirmReset by remember { mutableStateOf(false) }
+    OutlinedButton({ confirmReset = true }, Modifier.fillMaxWidth()) { Text(T("CDドライブの設定を初期値に戻す", "Reset CD drive settings")) }
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text(T("初期値に戻しますか?", "Reset to defaults?")) },
+            text = { Text(T("読み取り速度・リトライ・オフセットなど、CDドライブの設定が初期値に戻ります", "Read speed, retries, offset and other CD drive settings will be reset")) },
+            confirmButton = { TextButton({ confirmReset = false; vm.resetDriveSettings() }) { Text(T("戻す", "Reset")) } },
+            dismissButton = { TextButton({ confirmReset = false }) { Text(T("キャンセル", "Cancel")) } },
+        )
+    }
 }
 
 @Composable
@@ -316,14 +326,31 @@ private fun LibraryFoldersPage(vm: MainViewModel, s: AppSettings) {
                 supportingContent = { Text(T("取り込みの保存先", "Rip folder")) },
             )
         }
+        var removing by remember { mutableStateOf<String?>(null) }
         s.libraryFolders.sorted().forEach { f ->
             ListItem(
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 leadingContent = { Icon(AppIcons.Library, null) },
                 headlineContent = { Text(folderLabel(f)) },
                 trailingContent = {
-                    IconButton({ vm.removeLibraryFolder(f) }) { Icon(Icons.Filled.Clear, T("ライブラリから外す", "Remove from library")) }
+                    IconButton({ removing = f }) { Icon(Icons.Filled.Clear, T("ライブラリから外す", "Remove from library")) }
                 },
+            )
+        }
+        removing?.let { f ->
+            AlertDialog(
+                onDismissRequest = { removing = null },
+                title = { Text(T("ライブラリから外しますか?", "Remove from library?")) },
+                text = {
+                    Text(
+                        folderLabel(f) + "\n\n" + T(
+                            "このフォルダの曲はライブラリに表示されなくなります(ファイルは削除されません)",
+                            "Songs in this folder will no longer appear in the library (the files are not deleted)",
+                        ),
+                    )
+                },
+                confirmButton = { TextButton({ removing = null; vm.removeLibraryFolder(f) }) { Text(T("外す", "Remove")) } },
+                dismissButton = { TextButton({ removing = null }) { Text(T("キャンセル", "Cancel")) } },
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

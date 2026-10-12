@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -79,7 +80,7 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             vm.setOutputFolder(uri)
-            vm.startRip(uri.toString())
+            vm.prepareRip(uri.toString())
         }
     }
     val requestRip: () -> Unit = {
@@ -87,7 +88,7 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
             vm.audioTracks.none { vm.selected[it.number] == true } -> vm.snack = T("取り込む曲を選んでください", "Select tracks to rip")
             vm.meta?.title == null || vm.meta?.title == UNKNOWN_ALBUM -> confirmUnknown = true
             s.outputUri == null -> folderPicker.launch(null)
-            else -> vm.startRip()
+            else -> vm.prepareRip()
         }
     }
 
@@ -199,7 +200,7 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
             confirmButton = {
                 TextButton({
                     confirmUnknown = false
-                    if (s.outputUri == null) folderPicker.launch(null) else vm.startRip()
+                    if (s.outputUri == null) folderPicker.launch(null) else vm.prepareRip()
                 }) { Text(T("このまま取り込む", "Rip anyway")) }
             },
             dismissButton = {
@@ -207,6 +208,7 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
             },
         )
     }
+    vm.ripPlan?.let { RipConfirmDialog(vm, s, it) }
     if (showEdit) EditMetaDialog(vm) { showEdit = false }
     if (showQuality) {
         AlertDialog(
@@ -496,5 +498,60 @@ private fun EditMetaDialog(vm: MainViewModel, onDismiss: () -> Unit) {
                 }
             }
         },
+    )
+}
+
+/** 取り込む前の確認(保存先・曲数・容量・同じ名前のファイル) */
+@Composable
+private fun RipConfirmDialog(vm: MainViewModel, s: AppSettings, plan: MainViewModel.RipPlan) {
+    var skip by remember(plan) { mutableStateOf(true) }
+    AlertDialog(
+        onDismissRequest = { vm.dismissRipPlan() },
+        title = { Text(T("取り込みの確認", "Confirm ripping")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(T("${plan.count}曲 ・ ${s.qualityLabel()}", "${plan.count} tracks · ${s.qualityLabel()}"))
+                Text(
+                    T("保存先: ", "Save to: ") + plan.dest,
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    T("容量: 約 ", "Size: about ") + String.format(java.util.Locale.US, "%.0f MB", plan.sizeBytes / 1048576.0) +
+                        T("(空き容量を確認してください)", " (make sure there is enough free space)"),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (plan.existing.isNotEmpty()) {
+                    Text(
+                        T(
+                            "保存先に同じ名前のファイルが${plan.existing.size}個あります",
+                            "${plan.existing.size} files with the same name already exist",
+                        ),
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        plan.existing.take(5).joinToString("\n") + if (plan.existing.size > 5) "\n…" else "",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { skip = true },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(skip, { skip = true })
+                        Text(T("すでにある曲は取り込まない", "Skip tracks that already exist"))
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { skip = false },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(!skip, { skip = false })
+                        Text(T("上書きする(取り込みに成功してから置き換えます)", "Overwrite (replaced only after a successful rip)"))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton({ vm.confirmRip(plan.existing.isNotEmpty() && skip) }) { Text(T("取り込む", "Rip")) }
+        },
+        dismissButton = { TextButton({ vm.dismissRipPlan() }) { Text(T("キャンセル", "Cancel")) } },
     )
 }

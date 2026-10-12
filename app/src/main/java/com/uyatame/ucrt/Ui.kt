@@ -407,6 +407,23 @@ fun RipBar(vm: MainViewModel, onOpen: () -> Unit) {
     val p = vm.ripOverall
     val elapsed = System.currentTimeMillis() - vm.ripStartMs
     val eta = if (p > 0.03f && vm.ripStartMs > 0) ((elapsed / p) * (1 - p)).toLong() else -1L
+    var confirmCancel by remember { mutableStateOf(false) }
+    if (confirmCancel) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmCancel = false },
+            title = { Text(T("取り込みを中止しますか?", "Stop ripping?")) },
+            text = {
+                Text(
+                    T(
+                        "取り込み中の曲は保存されません(取り込み終えた曲と、上書きしようとしていた元のファイルは残ります)",
+                        "The track being ripped will not be saved (finished tracks and any files being overwritten are kept)",
+                    ),
+                )
+            },
+            confirmButton = { TextButton({ confirmCancel = false; vm.cancelRip() }) { Text(T("中止する", "Stop")) } },
+            dismissButton = { TextButton({ confirmCancel = false }) { Text(T("続ける", "Continue")) } },
+        )
+    }
     Surface(color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
         Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -422,7 +439,7 @@ fun RipBar(vm: MainViewModel, onOpen: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                TextButton({ vm.cancelRip() }) { Text(T("中止", "Cancel")) }
+                TextButton({ confirmCancel = true }) { Text(T("中止", "Cancel")) }
             }
             LinearProgressIndicator({ p }, Modifier.fillMaxWidth().padding(top = 4.dp, end = 12.dp))
         }

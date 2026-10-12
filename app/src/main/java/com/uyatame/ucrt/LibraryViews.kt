@@ -371,6 +371,44 @@ fun GlobalSheets(vm: MainViewModel) {
     AlbumMenuSheet(vm)
     PlaylistPickDialog(vm)
     TrackInfoDialog(vm)
+    DeleteConfirmDialog(vm)
+}
+
+/** 曲のファイルを削除する前の確認(元に戻せないので、曲名を見せて確かめる) */
+@Composable
+private fun DeleteConfirmDialog(vm: MainViewModel) {
+    val list = vm.deleteRequest ?: return
+    var agree by remember(list) { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = { vm.deleteRequest = null },
+        icon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
+        title = { Text(T("${list.size}曲のファイルを削除しますか?", "Delete ${list.size} song files?")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    T("端末からファイルを削除します。元に戻すことはできません。", "The files will be deleted from your device. This cannot be undone."),
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Text(
+                    list.take(6).joinToString("\n") { it.title } + if (list.size > 6) "\n…" else "",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { agree = !agree },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.Checkbox(agree, { agree = it })
+                    Text(T("元に戻せないことを理解しました", "I understand this cannot be undone"))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton({ vm.deleteTracks(list) }, enabled = agree) {
+                Text(T("削除", "Delete"), color = if (agree) MaterialTheme.colorScheme.error else androidx.compose.ui.graphics.Color.Unspecified)
+            }
+        },
+        dismissButton = { TextButton({ vm.deleteRequest = null }) { Text(T("キャンセル", "Cancel")) } },
+    )
 }
 
 /** 曲の「アーティストを表示」で開くアーティスト(アルバムアーティストがあればそちら) */
@@ -413,6 +451,8 @@ private fun TrackMenuSheet(vm: MainViewModel) {
         }
         SheetAction(Icons.Filled.Person, T("アーティストを表示", "Go to artist")) { close(); vm.openRoute("artist:" + artistOf(t)) }
         SheetAction(Icons.Filled.Info, T("曲の詳細情報", "Song details")) { vm.infoItem = vm.itemOf(t); close() }
+        HorizontalDivider()
+        SheetAction(Icons.Filled.Delete, T("ファイルを削除…", "Delete file…")) { vm.deleteRequest = listOf(t); close() }
         Spacer(Modifier.size(16.dp))
     }
 }
@@ -449,6 +489,8 @@ private fun AlbumMenuSheet(vm: MainViewModel) {
         if (vm.libStack.lastOrNull() != "album:" + a.key) {
             SheetAction(AppIcons.Album, T("アルバムを開く", "Open album")) { close(); vm.openRoute("album:" + a.key) }
         }
+        HorizontalDivider()
+        SheetAction(Icons.Filled.Delete, T("アルバムのファイルを削除…", "Delete album files…")) { vm.deleteRequest = a.tracks; close() }
         Spacer(Modifier.size(16.dp))
     }
 }
