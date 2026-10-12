@@ -201,9 +201,10 @@ object UsbDac {
 
     /**
      * PCM 用に準備する。使えなければ null(呼び出し側は通常の出力に切り替える)。exact なら周波数の変換もソフトウェア音量も使わない(DoP 用)。
+     * darMaxRate が 0 より大きければ(DAR の PCM アップサンプリング)、その周波数までで DAC が対応するいちばん高い整数倍に上げる。
      */
-    internal fun prepare(srcRate: Int, srcCh: Int, srcBits: Int, exact: Boolean = false): DacFormat? {
-        return synchronized(lock) { prepareLocked(srcRate, srcCh, srcBits, exact) }
+    internal fun prepare(srcRate: Int, srcCh: Int, srcBits: Int, exact: Boolean = false, darMaxRate: Int = 0): DacFormat? {
+        return synchronized(lock) { prepareLocked(srcRate, srcCh, srcBits, exact, darMaxRate) }
     }
 
     /** ネイティブ DSD 用に準備する。DAC が対応していなければ null */
@@ -266,7 +267,7 @@ object UsbDac {
         return info != null
     }
 
-    private fun prepareLocked(srcRate: Int, srcCh: Int, srcBits: Int, exact: Boolean): DacFormat? {
+    private fun prepareLocked(srcRate: Int, srcCh: Int, srcBits: Int, exact: Boolean, darMaxRate: Int): DacFormat? {
         if (!ensureOpen()) return null
         val inf = info ?: return null
         // 形式(代替設定)を選ぶ
@@ -278,15 +279,19 @@ object UsbDac {
             close(reattach = true)
             return null
         }
-        // サンプリング周波数: そのまま使えなければ整数倍に上げる
+        // サンプリング周波数: そのまま使えなければ整数倍に上げる。
+        // DAR のときは、上限までで対応しているいちばん高い倍率を先に探す
         var rate = 0
         var alt: UacAlt? = null
-        for (mul in 1..(if (exact) 1 else 8)) {
+        val muls = (if (darMaxRate > 0 && !exact) (16 downTo 2).filter { srcRate.toLong() * it <= darMaxRate } else emptyList()) +
+            (1..(if (exact) 1 else 8))
+        for (mul in muls) {
             val r = srcRate * mul
             val cands = chOk.filter { supports(it, r) }
             if (cands.isNotEmpty()) {
                 rate = r
-                alt = cands.filter { it.bits >= wantBits }.minByOrNull { it.subslot * 100 + it.bits }
+                // アップサンプリングするときは計算で細かい値が出るので、いちばん細かいビット数で送る
+                alt = (if (mul > 1) null else cands.filter { it.bits >= wantBits }.minByOrNull { it.subslot * 100 + it.bits })
                     ?: cands.maxByOrNull { it.bits * 10 + it.subslot }
                 break
             }

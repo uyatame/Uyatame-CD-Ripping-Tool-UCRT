@@ -89,7 +89,7 @@ class Library(private val ctx: Context) {
                     if (o.has("c")) o.getString("c") else null, o.optLong("m"), o.optString("y"),
                     o.optString("g"), o.optInt("sr"), o.optInt("bt"),
                 )
-            }
+            }.distinctBy { docKey(it.uri) }
         }
     } catch (e: Exception) {
         emptyList()
@@ -146,9 +146,10 @@ class Library(private val ctx: Context) {
                 level = next.toList()
                 depth++
             }
-            val oldMap = old.associateBy { it.uri }
+            // 同じファイルでも、別のフォルダの指定から見ると URI が変わるので、ドキュメント ID で照らし合わせる
+            val oldMap = old.associateBy { docKey(it.uri) }
             val all = found.toList()
-            val need = all.filter { (uri, _, mod) -> oldMap[uri.toString()]?.modified != mod }
+            val need = all.filter { (uri, _, mod) -> oldMap[docKey(uri.toString())]?.modified != mod }
             val done = java.util.concurrent.atomic.AtomicInteger(0)
             val read = java.util.concurrent.ConcurrentHashMap<String, LibTrack>()
             pool.invokeAll(need.map { (uri, folder, mod) ->
@@ -163,7 +164,7 @@ class Library(private val ctx: Context) {
             })
             return all.mapNotNull { (uri, folder, _) ->
                 val key = uri.toString()
-                read[key] ?: oldMap[key]?.copy(coverUri = covers[folder])
+                read[key] ?: oldMap[docKey(key)]?.copy(uri = key, folderId = folder, coverUri = covers[folder])
             }
         } finally {
             pool.shutdownNow()
@@ -389,6 +390,16 @@ class Library(private val ctx: Context) {
     }
 
     companion object {
+        /**
+         * 同じファイルかを見分けるキー。
+         * 保存先とライブラリのフォルダが重なっていると(例: 「Music」と「Music/cd」)、同じファイルが
+         * 指定したフォルダごとに別の URI になるため、URI そのものではなく保存場所とドキュメント ID で比べる
+         */
+        fun docKey(uri: String): String = runCatching {
+            val u = Uri.parse(uri)
+            u.authority + "\u0000" + DocumentsContract.getDocumentId(u)
+        }.getOrDefault(uri)
+
         /** 一覧の形式の版(音質・ジャンルを追加したので 2) */
         const val CACHE_VERSION = 2
 
