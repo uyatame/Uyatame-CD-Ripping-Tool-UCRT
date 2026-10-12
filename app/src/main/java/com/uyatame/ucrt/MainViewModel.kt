@@ -1299,7 +1299,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                             all.addAll(library.scan(Uri.parse(t), old, light) { i, n -> libProgress = "$i / $n"; libNew = n })
                         }.onFailure { log(T("フォルダを読めません: ${folderLabel(t)}", "Cannot read folder: ${folderLabel(t)}")) }
                     }
-                    all.distinctBy { it.uri }.also { library.saveCache(it) }
+                    // 重なったフォルダから同じファイルが 2 回見つかっても、1 曲として扱う(先に読んだ保存先のものを残す)
+                    all.distinctBy { Library.docKey(it.uri) }.also { library.saveCache(it) }
                 }
                 ArtLoader.clearMisses()
                 albums = Library.group(list)
