@@ -512,18 +512,52 @@ class Library(private val ctx: Context) {
             "Trailer", "Lo-Fi", "Tribal", "Acid Punk", "Acid Jazz", "Polka", "Retro", "Musical", "Rock & Roll", "Hard Rock",
         )
 
-        fun group(tracks: List<LibTrack>): List<LibAlbum> =
-            tracks.filter { !it.hidden }.groupBy { t ->
-                if (t.album == UNKNOWN_ALBUM || t.album == "不明なアルバム" || t.album == "Unknown album") "f:" + t.folderId
-                else "a:" + t.albumArtist.ifEmpty { t.artist } + "\u0000" + t.album
-            }.map { (k, list) ->
+        private fun isUnknownAlbum(a: String) = a == UNKNOWN_ALBUM || a == "不明なアルバム" || a == "Unknown album"
+
+        /** いちばん多い値(空は数えない。無ければ null) */
+        private fun mostCommon(values: List<String>): String? =
+            values.filter { it.isNotEmpty() }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
+
+        /**
+         * 曲をアルバムにまとめる。
+         * 同じフォルダにあって同じアルバム名の曲は、曲ごとのアーティスト(「feat. ○○」など)が違っても 1 枚のアルバムにする。
+         * アルバムアーティストがあれば、別のフォルダ(Disc 1 / Disc 2 など)の曲も同じアルバムにまとめる
+         */
+        fun group(tracks: List<LibTrack>): List<LibAlbum> {
+            // 1) フォルダとアルバム名でまとめる
+            val byFolder = tracks.filter { !it.hidden }.groupBy { t ->
+                if (isUnknownAlbum(t.album)) "f:" + t.folderId else t.folderId + "\u0000" + t.album
+            }
+            // 2) まとまりごとに、アルバムのキーを決める(同じキーのまとまりは 1 枚にする)
+            val merged = LinkedHashMap<String, MutableList<LibTrack>>()
+            for ((fk, list) in byFolder) {
+                val first = list.first()
+                val key = when {
+                    isUnknownAlbum(first.album) -> fk
+                    else -> {
+                        val aa = mostCommon(list.map { it.albumArtist })
+                        val artists = list.map { it.artist }.distinct()
+                        when {
+                            aa != null -> "a:" + aa + "\u0000" + first.album
+                            // 全曲が同じアーティストなら、以前と同じキー(お気に入りなどがそのまま使える)
+                            artists.size == 1 -> "a:" + artists[0] + "\u0000" + first.album
+                            else -> "d:" + first.folderId + "\u0000" + first.album
+                        }
+                    }
+                }
+                merged.getOrPut(key) { ArrayList() }.addAll(list)
+            }
+            return merged.map { (k, list) ->
                 val sorted = list.sortedWith(compareBy({ it.disc }, { it.track }, { it.title }))
                 val f = sorted.first()
-                val artist = f.albumArtist.ifEmpty {
-                    if (sorted.all { it.artist == f.artist }) f.artist else T("さまざまなアーティスト", "Various artists")
+                val artist = mostCommon(sorted.map { it.albumArtist }) ?: run {
+                    // アルバムアーティストが無ければ、半分以上の曲のアーティスト(feat. 付きの曲が混ざっていても)
+                    val top = sorted.groupingBy { it.artist }.eachCount().maxByOrNull { it.value }
+                    if (top != null && top.value * 2 >= sorted.size) top.key else T("さまざまなアーティスト", "Various artists")
                 }
                 LibAlbum(k, f.album, artist, sorted)
             }.sortedBy { it.artist.lowercase() + "\u0000" + it.title.lowercase() }
+        }
     }
 }
 
