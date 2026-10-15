@@ -329,6 +329,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val eng = com.uyatame.ucrt.player.AudioEngine
                 val dar = s.darEffective
                 val darChanged = eng.darMode != dar || eng.darPcm != s.darPcm || eng.darDsd != s.darDsd
+                // DSD の周波数を選び直したら、自動で下げた上限は解除する
+                if (eng.darDsd != s.darDsd) eng.darDsdLimit = 0
                 eng.darMode = dar
                 eng.darPcm = s.darPcm
                 eng.darDsd = s.darDsd

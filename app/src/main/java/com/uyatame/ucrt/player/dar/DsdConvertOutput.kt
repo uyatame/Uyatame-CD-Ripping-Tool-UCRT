@@ -24,17 +24,29 @@ internal class DsdConvertOutput private constructor(
     override val sampleRate: Int,
     private val srcChannels: Int,
     private val sink: DsdSink,
-    private val conv: PcmToDsd,
     /** DSD の周波数 ÷ 入力の周波数 */
     private val ratio: Int,
+    align: Int,
+    /** DSD64 なら 64 など(処理が追いつかないときに下げるため) */
+    private val mult: Int,
 ) : PcmOut {
     @Volatile override var framesWritten = 0L
         private set
     override val failed: Boolean get() = sink.failed
 
+    @Volatile private var released = false
+    /** 変調が追いつかない状態が続いた回数(約 2 秒ごとに数える) */
+    private var overload = 0
+
+    /** 変換(複数のコアで流れ作業)。出来た DSD は変換のスレッドから出力先へ送る */
+    private val conv = PcmToDsd(
+        sampleRate, ratio, align,
+        out = { bytes, n -> sink.write(bytes, n) { released } },
+        onLoad = { load -> checkLoad(load) },
+    )
+
     private var fbuf = FloatArray(0)
     private val toFloat = PcmToFloat()
-    private var out = Array(OUT_CH) { ByteArray(0) }
     /** イコライザー(ソースダイレクトがオフで、イコライザーを使うとき。DSD にする前に掛ける) */
     private val eq = ParamEqualizer(sampleRate, OUT_CH)
 
@@ -49,8 +61,27 @@ internal class DsdConvertOutput private constructor(
     override fun play() = sink.play()
     override fun pause() = sink.pause()
     override fun release() {
-        sink.release()
+        released = true
         conv.close()
+        sink.release()
+    }
+
+    /**
+     * 変調の忙しさを見て、この端末では追いつかない(音が途切れ続ける)と分かったら、
+     * DSD の周波数を 1 段下げて出力を作り直す(途切れ続けるよりはよいので)
+     */
+    private fun checkLoad(load: Double) {
+        if (load > 0.97) overload++ else overload = 0
+        if (overload < 3 || mult <= 64 || released) return
+        overload = 0
+        val lower = mult / 2
+        AudioEngine.darDsdLimit = lower
+        AudioEngine.log("dar: DSD$mult conversion is too slow on this device (load %.2f), switching to DSD$lower".format(java.util.Locale.US, load))
+        AudioEngine.report(
+            false,
+            T("DAR: この端末では DSD$mult への変換が間に合わないため、DSD$lower に下げました", "DAR: DSD$mult conversion is too slow on this device; switched to DSD$lower"),
+        )
+        UsbDac.onChanged?.invoke()
     }
 
     override fun write(src: ByteBuffer, srcEnc0: Int, stop: () -> Boolean) {
@@ -64,6 +95,7 @@ internal class DsdConvertOutput private constructor(
         val samples = frames * OUT_CH
         if (fbuf.size < samples) fbuf = FloatArray(samples)
         toFloat.read(src, enc, frames, srcChannels, OUT_CH, fbuf)
+        // DAC 本体で音量を変えられないときは、ソフトウェアの音量を変換の前に掛ける
         var gain = UsbDac.softGain.toFloat()
         if (AudioEngine.eqEnabled) {
             if (eq.version != AudioEngine.version) {
@@ -73,11 +105,7 @@ internal class DsdConvertOutput private constructor(
             eq.process(fbuf, samples)
             gain *= AudioEngine.preampGain()
         }
-        val need = conv.maxOut(frames)
-        if (out[0].size < need) out = Array(OUT_CH) { ByteArray(need) }
-        // DAC 本体で音量を変えられないときは、ソフトウェアの音量を変換の前に掛ける
-        val n = conv.process(fbuf, frames, gain, out)
-        if (n > 0) sink.write(out, n, stop)
+        conv.submit(fbuf, frames, gain, stop)
     }
 
     companion object {
@@ -94,11 +122,12 @@ internal class DsdConvertOutput private constructor(
                 srcRate % 48000 == 0 -> 48000
                 else -> return null
             }
+            val limit = AudioEngine.darDsdLimit
             val mults = when (AudioEngine.darDsd) {
                 2 -> listOf(256, 128, 64)
                 1 -> listOf(128, 64)
                 else -> listOf(64)
-            }
+            }.filter { limit <= 0 || it <= limit }.ifEmpty { listOf(64) }
             for (m in mults) {
                 val dsdRate = family * m
                 if (dsdRate % srcRate != 0) continue
@@ -107,14 +136,13 @@ internal class DsdConvertOutput private constructor(
                 val sink = openSink(ctx, attrs, dsdRate) ?: continue
                 // ネイティブ DSD は 4 バイト、DoP は 2 バイト単位で送る
                 val align = if (sink.label == "DoP") 2 else 4
-                val conv = PcmToDsd(srcRate, OUT_CH, ratio, align)
                 val how = if (sink.label == "DoP") "DoP" else T("ネイティブ DSD", "Native DSD")
                 AudioEngine.report(
                     false,
                     T("DAR: DSD$m に変換", "DAR: converted to DSD$m") + " · ${AudioEngine.khz(srcRate)} → ${"%.4f".format(java.util.Locale.US, dsdRate / 1e6)} MHz ($how)",
                 )
                 AudioEngine.log("dar: pcm ${AudioEngine.khz(srcRate)} ${srcChannels}ch -> DSD$m ($dsdRate Hz, x$ratio) via $how")
-                return DsdConvertOutput(srcRate, srcChannels, sink, conv, ratio)
+                return DsdConvertOutput(srcRate, srcChannels, sink, ratio, align, m)
             }
             return null
         }

@@ -42,7 +42,7 @@ internal class NativeDsdSink(private val fmt: DacFormat, private val channels: I
     }
     override val sampleRate: Int = fmt.rate
     override val bytesPerFrame: Double = fmt.subslot.toDouble()
-    override var framesWritten = 0L
+    @Volatile override var framesWritten = 0L
         private set
     private var buf = ByteArray(0)
     override val label = "Native DSD"

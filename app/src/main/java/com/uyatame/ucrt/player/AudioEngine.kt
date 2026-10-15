@@ -102,6 +102,8 @@ object AudioEngine {
     @Volatile var darPcm = 0
     /** DAR の DSD 変換の周波数: 0 = DSD64, 1 = DSD128, 2 = DSD256 */
     @Volatile var darDsd = 0
+    /** この端末で間に合う DSD 変換の上限(DSD64 なら 64。0 なら制限なし。変換が追いつかなかったときに下げる) */
+    @Volatile var darDsdLimit = 0
 
     /** DAR の PCM アップサンプリングで目指す周波数の上限(DAR を使わないなら 0) */
     fun darMaxRate(srcRate: Int): Int {
