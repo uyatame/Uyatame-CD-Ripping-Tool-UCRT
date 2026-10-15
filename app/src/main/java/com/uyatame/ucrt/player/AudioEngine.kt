@@ -509,7 +509,7 @@ class AudioOutput(
                 )
             }
             AudioEngine.log(
-                "output: ${khz(sampleRate)} ${channels}ch ${AudioEngine.encName(outEnc)}" +
+                "output: ${khz(sampleRate * upFactor)} ${channels}ch ${AudioEngine.encName(outEnc)}" +
                     " mixer",
             )
         }

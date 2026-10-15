@@ -56,6 +56,19 @@ object OutputDevices {
 
     /** 「最大 24bit / 192kHz」のような表記(分からなければ空) */
     private fun specOf(d: AudioDeviceInfo): String {
+        // Android 12 からは、形式ごとに受け付ける周波数が分かる。いちばん高い周波数を受け付ける形式で表す
+        // (例: Xperia のイヤホンジャックは 16bit なら 48kHz まで、float なら 192kHz まで)
+        if (Build.VERSION.SDK_INT >= 31) {
+            val best = runCatching {
+                d.audioProfiles.mapNotNull { p ->
+                    val r = p.sampleRates.maxOrNull() ?: return@mapNotNull null
+                    val b = bitsOf(p.format)
+                    val name = if (p.format == AFormat.ENCODING_PCM_FLOAT) "float" else if (b > 0) "${b}bit" else return@mapNotNull null
+                    Triple(r, if (p.format == AFormat.ENCODING_PCM_FLOAT) 33 else b, name)
+                }.maxWithOrNull(compareBy({ it.first }, { it.second }))
+            }.getOrNull()
+            if (best != null) return T("最大 ", "Up to ") + "${best.third} / " + khz(best.first)
+        }
         val rate = d.sampleRates.maxOrNull() ?: 0
         val bits = encodingsOf(d).maxOfOrNull { bitsOf(it) } ?: 0
         if (rate <= 0) return ""
