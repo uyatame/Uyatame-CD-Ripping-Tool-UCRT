@@ -71,6 +71,9 @@ object AudioEngine {
     /** 画面表示用: 出力の状態の説明 */
     var outputStatus by mutableStateOf("")
         private set
+    /** 画面表示用: DAR が効いているときの中身(どう変換して、実際に何で送っているか)。効いていなければ "" */
+    var darInfo by mutableStateOf("")
+        private set
 
 
     fun setEq(enabled: Boolean, b: List<EqBand>, preamp: Float, auto: Boolean) {
@@ -149,12 +152,18 @@ object AudioEngine {
         main.post { runCatching { l("[audio] $msg") } }
     }
 
-    internal fun report(active: Boolean, status: String) {
+    internal fun report(active: Boolean, status: String, dar: String = "") {
         main.post {
             bitPerfectActive = active
             outputStatus = status
+            darInfo = dar
         }
     }
+
+    /** ビットレートの表示(1 秒あたりのビット数から。10 Mbps 以上は Mbps で) */
+    fun bitrateText(bitsPerSec: Long): String =
+        if (bitsPerSec >= 10_000_000) "%.1f Mbps".format(java.util.Locale.US, bitsPerSec / 1e6)
+        else "${bitsPerSec / 1000} kbps"
 
     fun encName(enc: Int): String = when (enc) {
         AFormat.ENCODING_PCM_8BIT -> "8bit"
@@ -422,7 +431,11 @@ class AudioOutput(
                 up != null -> T("USB DAC 直接出力(DAC が非対応の周波数のためアップサンプリング)", "USB DAC direct (upsampled: rate not supported by the DAC)")
                 else -> T("USB DAC 直接出力(ソフトウェア音量を使用中。音量 100 でビットパーフェクト)", "USB DAC direct (software volume; set 100 for bit-perfect)")
             }
-            AudioEngine.report(perfect, title + " · ${khz(sampleRate)}" + (if (up != null) " → ${khz(d.rate)}" else "") + " / ${d.bits} bit")
+            val darText = if (up != null && darMax > 0) {
+                "DAR · PCM ×$upFactor · ${khz(sampleRate)} → ${khz(d.rate)} / ${d.bits} bit · " +
+                    AudioEngine.bitrateText(d.rate.toLong() * d.bits * d.channels)
+            } else ""
+            AudioEngine.report(perfect, title + " · ${khz(sampleRate)}" + (if (up != null) " → ${khz(d.rate)}" else "") + " / ${d.bits} bit", darText)
             AudioEngine.log("output: usb direct ${khz(d.rate)} ${d.channels}ch ${d.bits}bit" + (if (up != null) " (x$upFactor)" else ""))
             AudioEngine.setOutput(
                 OutputDevice(

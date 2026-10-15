@@ -140,6 +140,8 @@ internal class DsdConvertOutput private constructor(
                 AudioEngine.report(
                     false,
                     T("DAR: DSD$m に変換", "DAR: converted to DSD$m") + " · ${AudioEngine.khz(srcRate)} → ${"%.4f".format(java.util.Locale.US, dsdRate / 1e6)} MHz ($how)",
+                    "DAR · DSD$m ($how) · ${AudioEngine.khz(srcRate)} → ${"%.4f".format(java.util.Locale.US, dsdRate / 1e6)} MHz · " +
+                        AudioEngine.bitrateText(dsdRate.toLong() * OUT_CH),
                 )
                 AudioEngine.log("dar: pcm ${AudioEngine.khz(srcRate)} ${srcChannels}ch -> DSD$m ($dsdRate Hz, x$ratio) via $how")
                 return DsdConvertOutput(srcRate, srcChannels, sink, ratio, align, m)

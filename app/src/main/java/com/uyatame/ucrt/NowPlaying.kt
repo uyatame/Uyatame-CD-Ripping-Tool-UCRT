@@ -486,31 +486,34 @@ private fun PlayerPage(
                     border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = false),
                     modifier = Modifier.widthIn(max = 180.dp),
                 )
-                val mode = s.outputMode
-                val bpSel = mode != 0
-                val eqSel = s.eqEnabled && !(mode != 0 && AudioEngine.bitPerfectActive)
+                val border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = true)
+                // 状態の表示は、実際にその状態のときだけ出す
+                val perfect = AudioEngine.bitPerfectActive
+                if (perfect) {
+                    FilterChip(selected = true, onClick = onSound, label = { Text("Bit-perfect") }, colors = chipColors, border = border)
+                } else if (s.sourceDirect) {
+                    FilterChip(selected = true, onClick = onSound, label = { Text("Source Direct") }, colors = chipColors, border = border)
+                }
+                if (!perfect && !s.sourceDirect && s.eqEnabled) {
+                    val name = EqBands.PRESETS.getOrNull(s.eqPreset)?.let { T(it.ja, it.en) } ?: T("カスタム", "Custom")
+                    FilterChip(selected = true, onClick = onSound, label = { Text("EQ · $name") }, colors = chipColors, border = border)
+                }
+                // 音質設定を開く(いつでも開けるように、アイコンだけのボタン)
                 FilterChip(
-                    selected = bpSel,
+                    selected = false,
                     onClick = onSound,
-                    label = { Text(if (mode != 0 && AudioEngine.bitPerfectActive) "Bit-perfect ✓" else "Bit-perfect") },
+                    label = { Icon(AppIcons.Tune, T("音質設定", "Sound settings"), Modifier.size(18.dp)) },
                     colors = chipColors,
-                    border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = bpSel),
+                    border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = false),
                 )
-                FilterChip(
-                    selected = eqSel,
-                    onClick = onSound,
-                    label = {
-                        val name = EqBands.PRESETS.getOrNull(s.eqPreset)?.let { T(it.ja, it.en) } ?: T("カスタム", "Custom")
-                        Text(
-                            when {
-                                s.sourceDirect -> "Source Direct"
-                                s.eqEnabled -> "EQ · $name"
-                                else -> "EQ OFF"
-                            },
-                        )
-                    },
-                    colors = chipColors,
-                    border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = eqSel),
+            }
+            // ---- DAR が効いているときの中身(変換の方法と、実際に送っている周波数・ビットレート) ----
+            AudioEngine.darInfo.takeIf { it.isNotEmpty() }?.let { dar ->
+                Spacer(Modifier.height(if (compact) 2.dp else 6.dp))
+                Text(
+                    dar, style = MaterialTheme.typography.labelMedium, color = col.accent,
+                    maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onSound).padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
             Spacer(Modifier.height(if (compact) 4.dp else 10.dp))
