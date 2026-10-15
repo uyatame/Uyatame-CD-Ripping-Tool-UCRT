@@ -231,6 +231,102 @@ internal fun readI32(src: ByteBuffer, enc: Int): Int = when (enc) {
     else -> f2i(src.float)
 }
 
+/**
+ * PCM を float にまとめて変換する(サンプルごとに形式を判定しないので速い)。
+ * 結果はチャンネル交互で outCh チャンネル(入力に無いチャンネルは 1 チャンネル目を写す)。
+ * 値は以前の 1 サンプルずつの変換(readI32 / 2^31)と同じになる
+ */
+internal class PcmToFloat {
+    private var bytes = ByteArray(0)
+
+    fun read(src: ByteBuffer, enc: Int, frames: Int, ch: Int, outCh: Int, out: FloatArray) {
+        val bps = pcmBytes(enc).takeIf { it > 0 } ?: 2
+        val n = frames * ch * bps
+        if (bytes.size < n) bytes = ByteArray(n)
+        val b = bytes
+        src.get(b, 0, n)
+        val samples = frames * ch
+        // まず入力のチャンネル数のまま、形式ごとの専用ループで変換する
+        val dst = if (ch == outCh) out else {
+            if (tmp.size < samples) tmp = FloatArray(samples)
+            tmp
+        }
+        val s = 1f / 2147483648f
+        var p = 0
+        when (if (bps == 2 && enc != AFormat.ENCODING_PCM_16BIT) AFormat.ENCODING_PCM_16BIT else enc) {
+            AFormat.ENCODING_PCM_24BIT_PACKED -> for (i in 0 until samples) {
+                dst[i] = (((b[p + 2].toInt() shl 16) or ((b[p + 1].toInt() and 0xFF) shl 8) or (b[p].toInt() and 0xFF)) shl 8) * s
+                p += 3
+            }
+            AFormat.ENCODING_PCM_32BIT -> for (i in 0 until samples) {
+                dst[i] = ((b[p + 3].toInt() shl 24) or ((b[p + 2].toInt() and 0xFF) shl 16) or
+                    ((b[p + 1].toInt() and 0xFF) shl 8) or (b[p].toInt() and 0xFF)) * s
+                p += 4
+            }
+            AFormat.ENCODING_PCM_FLOAT -> for (i in 0 until samples) {
+                val x = java.lang.Float.intBitsToFloat(
+                    (b[p + 3].toInt() shl 24) or ((b[p + 2].toInt() and 0xFF) shl 16) or
+                        ((b[p + 1].toInt() and 0xFF) shl 8) or (b[p].toInt() and 0xFF),
+                )
+                dst[i] = if (x > 1f) 1f else if (x < -1f) -1f else if (x.isNaN()) 0f else x
+                p += 4
+            }
+            AFormat.ENCODING_PCM_8BIT -> for (i in 0 until samples) {
+                dst[i] = (((b[p].toInt() and 0xFF) - 128) shl 24) * s
+                p += 1
+            }
+            else -> for (i in 0 until samples) {
+                dst[i] = (((b[p + 1].toInt() shl 8) or (b[p].toInt() and 0xFF)) shl 16) * s
+                p += 2
+            }
+        }
+        if (ch == outCh) return
+        // チャンネル数を合わせる(足りないチャンネルは 1 チャンネル目を写し、多い分は捨てる)
+        var i = 0
+        var o = 0
+        for (f in 0 until frames) {
+            for (c in 0 until outCh) out[o + c] = dst[i + if (c < ch) c else 0]
+            i += ch
+            o += outCh
+        }
+    }
+
+    private var tmp = FloatArray(0)
+}
+
+/**
+ * float(-1〜1)を、DAC に送るサンプル(slot バイト、リトルエンディアン、上位詰め)にまとめて書く。
+ * 値は以前の 1 サンプルずつの変換(f2i → putSlot)と同じになる。書き終えた位置を返す
+ */
+internal fun floatToSlots(src: FloatArray, n: Int, gain: Float, slot: Int, dst: ByteArray, o0: Int): Int {
+    var o = o0
+    val k = 2147483648f
+    when (slot) {
+        2 -> for (i in 0 until n) {
+            var x = src[i] * gain
+            if (x > 0.9999999f) x = 0.9999999f else if (x < -1f) x = -1f
+            val v = Math.round(x * k)
+            dst[o] = (v shr 16).toByte(); dst[o + 1] = (v shr 24).toByte()
+            o += 2
+        }
+        3 -> for (i in 0 until n) {
+            var x = src[i] * gain
+            if (x > 0.9999999f) x = 0.9999999f else if (x < -1f) x = -1f
+            val v = Math.round(x * k)
+            dst[o] = (v shr 8).toByte(); dst[o + 1] = (v shr 16).toByte(); dst[o + 2] = (v shr 24).toByte()
+            o += 3
+        }
+        else -> for (i in 0 until n) {
+            var x = src[i] * gain
+            if (x > 0.9999999f) x = 0.9999999f else if (x < -1f) x = -1f
+            val v = Math.round(x * k)
+            dst[o] = v.toByte(); dst[o + 1] = (v shr 8).toByte(); dst[o + 2] = (v shr 16).toByte(); dst[o + 3] = (v shr 24).toByte()
+            o += 4
+        }
+    }
+    return o
+}
+
 internal fun f2i(f: Float): Int = (f.toDouble() * 2147483648.0).roundToLong().coerceIn(-2147483648L, 2147483647L).toInt()
 
 /**
@@ -262,6 +358,7 @@ class AudioOutput(
     private val up: Upsampler?
     private val upFactor: Int
     private val eq = ParamEqualizer(sampleRate, channels)
+    private val toFloat = PcmToFloat()
     /** USB DAC 直接出力のときのイコライザー(DAC のチャンネル数で作る) */
     private var usbEq: ParamEqualizer? = null
     private var fbuf = FloatArray(0)
@@ -455,11 +552,7 @@ class AudioOutput(
         // イコライザー・アップサンプリング: float で計算してから DAC の形式に戻す
         val inSamples = frames * dch
         if (fbuf.size < inSamples) fbuf = FloatArray(inSamples)
-        var k = 0
-        for (f in 0 until frames) {
-            for (c in 0 until channels) frameTmp[c] = readI32(src, srcEnc)
-            for (c in 0 until dch) fbuf[k++] = frameTmp[if (c < channels) c else 0] / 2147483648f
-        }
+        toFloat.read(src, srcEnc, frames, channels, dch, fbuf)
         var g = gain.toFloat()
         if (useEq) {
             val e = usbEq ?: ParamEqualizer(sampleRate, dch).also { usbEq = it }
@@ -482,13 +575,7 @@ class AudioOutput(
             outBuf = fbuf
         }
         ensureB(outSamples * slot)
-        var o = 0
-        for (i in 0 until outSamples) {
-            var x = outBuf[i] * g
-            if (x > 0.9999999f) x = 0.9999999f else if (x < -1f) x = -1f
-            putSlot(f2i(x), slot, o)
-            o += slot
-        }
+        val o = floatToSlots(outBuf, outSamples, g, slot, bbuf, 0)
         pushUsb(o, stop)
     }
 

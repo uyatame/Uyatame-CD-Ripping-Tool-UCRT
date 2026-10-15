@@ -677,7 +677,8 @@ object UsbDac {
     /** USB への等時転送を回し続けるスレッド */
     private class StreamThread(val fd: Int, val alt: UacAlt, val fmt: DacFormat, speed: Int) : Thread("usb-dac") {
         @Volatile private var stopping = false
-        val ring = Ring(fmt.frameBytes, fmt.rate / 2)
+        // 1 秒分(アップサンプリングや DSD 変換で計算が一瞬遅れても、途切れないように)
+        val ring = Ring(fmt.frameBytes, fmt.rate)
 
         private val highSpeed = speed >= 3 || (speed == 0 && alt.epOutInterval <= 4 && alt.maxPacketBytes > 192)
         private val busRate = if (highSpeed) 8000 else 1000

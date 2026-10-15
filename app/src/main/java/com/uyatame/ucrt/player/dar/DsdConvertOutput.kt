@@ -11,7 +11,7 @@ import com.uyatame.ucrt.player.dsd.DopSink
 import com.uyatame.ucrt.player.dsd.DsdSink
 import com.uyatame.ucrt.player.dsd.NativeDsdSink
 import com.uyatame.ucrt.player.pcmBytes
-import com.uyatame.ucrt.player.readI32
+import com.uyatame.ucrt.player.PcmToFloat
 import com.uyatame.ucrt.player.usb.UsbDac
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -33,6 +33,7 @@ internal class DsdConvertOutput private constructor(
     override val failed: Boolean get() = sink.failed
 
     private var fbuf = FloatArray(0)
+    private val toFloat = PcmToFloat()
     private var out = Array(OUT_CH) { ByteArray(0) }
     /** イコライザー(ソースダイレクトがオフで、イコライザーを使うとき。DSD にする前に掛ける) */
     private val eq = ParamEqualizer(sampleRate, OUT_CH)
@@ -47,7 +48,10 @@ internal class DsdConvertOutput private constructor(
 
     override fun play() = sink.play()
     override fun pause() = sink.pause()
-    override fun release() = sink.release()
+    override fun release() {
+        sink.release()
+        conv.close()
+    }
 
     override fun write(src: ByteBuffer, srcEnc0: Int, stop: () -> Boolean) {
         src.order(ByteOrder.LITTLE_ENDIAN)
@@ -59,15 +63,7 @@ internal class DsdConvertOutput private constructor(
         // DSD の出力先は 2ch で開くので、モノラルは左右に同じ音を入れる
         val samples = frames * OUT_CH
         if (fbuf.size < samples) fbuf = FloatArray(samples)
-        var k = 0
-        for (f in 0 until frames) {
-            val l = readI32(src, enc) / 2147483648f
-            val r = if (srcChannels > 1) readI32(src, enc) / 2147483648f else l
-            // 3ch 以上は来ない(呼び出し側で除外)が、念のため残りは読み飛ばす
-            for (c in 2 until srcChannels) readI32(src, enc)
-            fbuf[k++] = l
-            fbuf[k++] = r
-        }
+        toFloat.read(src, enc, frames, srcChannels, OUT_CH, fbuf)
         var gain = UsbDac.softGain.toFloat()
         if (AudioEngine.eqEnabled) {
             if (eq.version != AudioEngine.version) {

@@ -46,6 +46,21 @@ internal class PcmToDsd(srcRate: Int, private val channels: Int, private val rat
     private val carry = Array(channels) { ByteArray(align) }
     private var carryLen = 0
 
+    private var exec: java.util.concurrent.ExecutorService? = null
+
+    private fun worker(): java.util.concurrent.ExecutorService = exec ?: java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread({
+            runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO) }
+            r.run()
+        }, "dsd-convert").apply { isDaemon = true }
+    }.also { exec = it }
+
+    /** 使い終わったら呼ぶ(計算用のスレッドを止める) */
+    fun close() {
+        exec?.shutdownNow()
+        exec = null
+    }
+
     /** frames フレームを変換したときに出る最大のバイト数(1 チャンネルあたり) */
     fun maxOut(frames: Int): Int = (frames.toLong() * ratio / 8 + align + 1).toInt()
 
@@ -72,8 +87,16 @@ internal class PcmToDsd(srcRate: Int, private val channels: Int, private val rat
         for (c in 0 until channels) System.arraycopy(carry[c], 0, out[c], 0, carryLen)
         val startBits = bits
         val startO = o
-        for (c in 0 until channels) {
-            o = modulate(c, src, n1, gain, out[c], startO, startBits)
+        if (channels == 2) {
+            // 左右は互いに関係なく計算できるので、右を別のスレッドで同時に計算する(結果は 1 スレッドのときと同じ)
+            val w = worker()
+            val right = w.submit(java.util.concurrent.Callable { modulate(1, src, n1, gain, out[1], startO, startBits) })
+            modulate(0, src, n1, gain, out[0], startO, startBits)
+            o = right.get()
+        } else {
+            for (c in 0 until channels) {
+                o = modulate(c, src, n1, gain, out[c], startO, startBits)
+            }
         }
         // 全チャンネルで同じだけ進むので、最後のチャンネルの値を使う
         val total = o
