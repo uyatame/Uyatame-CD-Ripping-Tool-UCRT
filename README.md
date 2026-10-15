@@ -39,6 +39,12 @@ echo "sdk.dir=$HOME/android-sdk" > local.properties   # Android SDK(platform 36)
 gradle assembleRelease --no-daemon
 ```
 
+2 回目からは、`tools/termux-build.sh` で「最新のソースを取得 → ビルド → ダウンロードフォルダに APK を置く」までをまとめて実行できます。次の 1 行を一度だけ実行しておくと、`ucrt` と打つだけで動きます。
+
+```bash
+echo "alias ucrt='bash ~/UyatameCdRipper/tools/termux-build.sh'" >> ~/.bashrc && source ~/.bashrc
+```
+
 ### PC(Android Studio / コマンドライン)
 
 Android Studio でプロジェクトを開いてビルドするか、Gradle 8.9 以上で `gradle assembleRelease` を実行してください。
