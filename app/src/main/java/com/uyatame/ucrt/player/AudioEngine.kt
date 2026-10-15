@@ -171,6 +171,7 @@ object AudioEngine {
         AFormat.ENCODING_PCM_24BIT_PACKED -> "24bit"
         AFormat.ENCODING_PCM_32BIT -> "32bit"
         AFormat.ENCODING_PCM_FLOAT -> "float"
+        31 -> "DSD" // AudioFormat.ENCODING_DSD(新しい Android にだけある)
         else -> "enc$enc"
     }
 
@@ -370,6 +371,11 @@ class AudioOutput(
     private val upFactor: Int
     /** 複数のコアでアップサンプリングするときの流れ作業(使わなければ null) */
     private val pipe: UpsamplePipeline?
+    /** DAR(通常の出力): 整数倍で上げたあと、出力先の周波数に合わせる変換(44.1 kHz の系統 → 48 kHz の系統。不要なら null) */
+    private val frac: RationalResampler?
+    /** 通常の出力の周波数(DAR で上げていれば上げたあと。USB DAC 直接出力では 0) */
+    private val trackRate: Int
+    private var fracBuf = FloatArray(0)
     private val eq = ParamEqualizer(sampleRate, channels)
     private val toFloat = PcmToFloat()
     /** USB DAC 直接出力のときのイコライザー(DAC のチャンネル数で作る) */
@@ -404,6 +410,8 @@ class AudioOutput(
             dac = d
             dacSession = usbDac.begin()
             upFactor = (d.rate / sampleRate).coerceAtLeast(1)
+            frac = null
+            trackRate = 0
             up = if (upFactor > 1) Upsampler(upFactor, d.channels) else null
             // コアが 4 つ以上あれば、ステレオのアップサンプリングを段 × 左右ごとのスレッドで同時に計算する
             val cores = Runtime.getRuntime().availableProcessors()
@@ -448,27 +456,35 @@ class AudioOutput(
             dacSession = -1
             // DAR の PCM アップサンプリング: 出力先(イヤホンジャックなど)が受け付ける周波数まで、アプリの中で上げてから渡す
             val target = OutputDevices.find(ctx, AudioEngine.preferredKey) ?: OutputDevices.defaultDeviceInfo(ctx)
-            val nf = if (dar && !exact && channels in 1..2) normalDarFactor(target) else 1
+            val outRate = if (dar && !exact && channels in 1..2) normalDarRate(target) else sampleRate
+            // 整数倍なら 1 段(Upsampler)で。そうでなければ 2 のべき乗倍で近くまで上げてから、残りを RationalResampler で合わせる
+            val nf = if (outRate % sampleRate == 0) outRate / sampleRate
+            else Integer.highestOneBit((outRate / sampleRate).coerceAtLeast(1))
             upFactor = nf
+            trackRate = outRate
             up = if (nf > 1) Upsampler(nf, channels) else null
+            frac = if (outRate != sampleRate * nf) RationalResampler(sampleRate * nf, outRate, channels) else null
             val cores = Runtime.getRuntime().availableProcessors()
             pipe = if (up != null && channels == 2 && cores >= 4) {
-                UpsamplePipeline(nf) { buf, n, _ -> writeTrack(buf, n * 2) }
+                UpsamplePipeline(nf) { buf, n, _ -> writeFrac(buf, n) }
                     .also { AudioEngine.log("upsample: ${it.threadCount} threads on $cores cores") }
             } else null
             if (AudioEngine.wantUsbDirect && channels > 2) {
                 AudioEngine.report(false, T("多チャンネル音源のため、通常の出力で再生しています", "Multichannel source; using normal output"))
                 runCatching { usbDac.close(reattach = true) }
             }
-            val outRate = sampleRate * nf
-            if (nf > 1) {
+            if (outRate != sampleRate) {
+                val how = if (frac != null) "×%.3f".format(java.util.Locale.US, outRate.toDouble() / sampleRate) else "×$nf"
                 AudioEngine.report(
                     false,
                     T("DAR: PCM アップサンプリング", "DAR: PCM upsampling") + " · ${khz(sampleRate)} → ${khz(outRate)}",
-                    "DAR · PCM ×$nf · ${khz(sampleRate)} → ${khz(outRate)} / 32 bit float · " +
+                    "DAR · PCM $how · ${khz(sampleRate)} → ${khz(outRate)} / 32 bit float · " +
                         AudioEngine.bitrateText(outRate.toLong() * 32 * channels),
                 )
-                AudioEngine.log("dar: normal output x$nf ${khz(sampleRate)} -> ${khz(outRate)} (${target?.productName}, type ${target?.type})")
+                AudioEngine.log(
+                    "dar: normal output x$nf ${khz(sampleRate)} -> ${khz(sampleRate * nf)}" +
+                        (frac?.let { " -> ${khz(outRate)} (${it.up}/${it.down})" } ?: "") + " (${target?.productName}, type ${target?.type})",
+                )
             } else if (!AudioEngine.wantUsbDirect) AudioEngine.report(false, "")
             val stereo = if (channels == 1) AFormat.CHANNEL_OUT_MONO else AFormat.CHANNEL_OUT_STEREO
             val enc = AFormat.ENCODING_PCM_FLOAT
@@ -509,7 +525,7 @@ class AudioOutput(
                 )
             }
             AudioEngine.log(
-                "output: ${khz(sampleRate * upFactor)} ${channels}ch ${AudioEngine.encName(outEnc)}" +
+                "output: ${khz(trackRate)} ${channels}ch ${AudioEngine.encName(outEnc)}" +
                     " mixer",
             )
         }
@@ -519,19 +535,41 @@ class AudioOutput(
     private fun khz(hz: Int) = AudioEngine.khz(hz)
 
     /**
-     * 通常の出力で DAR の PCM アップサンプリングに使う倍率。出力先が受け付ける周波数のうち、
-     * 元の周波数の整数倍で、設定の上限(DAR の倍率)以下のいちばん高いものにする。
-     * 出力先が高い周波数を受け付けない(または分からない)ときは 1(上げても Android がまた下げるだけなので)
+     * 通常の出力で DAR の PCM アップサンプリングをするときの、出力の周波数。
+     * 出力先が受け付ける周波数のうち、設定の上限(DAR の倍率)以下のいちばん高いものにする。
+     * 元の周波数の整数倍でなくてもよい(44.1 kHz → 192 kHz など)が、そのときは 2 倍以上に限る。
+     * 上げられない(出力先が高い周波数を受け付けない・分からない)ときは元の周波数(上げても Android がまた下げるだけなので)
      */
-    private fun normalDarFactor(dev: android.media.AudioDeviceInfo?): Int {
+    private fun normalDarRate(dev: android.media.AudioDeviceInfo?): Int {
+        if (dev != null && AudioEngine.darMode == 2) {
+            // DSD への変換は、いまは USB DAC だけ。出力先が DSD を受け付けるかを調べられるよう、形式を残す
+            AudioEngine.log("dar: DSD to ${dev.productName} (type ${dev.type}) is not supported; ${OutputDevices.formatsText(dev)}")
+        }
         val max = AudioEngine.darMaxRate(sampleRate)
-        if (max <= 0 || dev == null) return 1
-        // Android 11 以前の通常の出力は 192 kHz まで
-        val cap = minOf(max, if (android.os.Build.VERSION.SDK_INT >= 31) 768000 else 192000)
-        val rates = runCatching { dev.sampleRates }.getOrNull() ?: return 1
+        if (max <= 0 || dev == null) return sampleRate
+        val rates = runCatching { dev.sampleRates }.getOrNull() ?: return sampleRate
         AudioEngine.log("dar: output ${dev.productName} (type ${dev.type}) ${OutputDevices.formatsText(dev)}")
-        val best = rates.filter { it > sampleRate && it % sampleRate == 0 && it <= cap }.maxOrNull() ?: return 1
-        return best / sampleRate
+        // Android 11 以前の通常の出力は 192 kHz まで
+        val sdkCap = if (android.os.Build.VERSION.SDK_INT >= 31) 768000L else 192000L
+        // 倍率の上限は、44.1 kHz の系統から 48 kHz の系統へ移るときは、その分(160/147)だけ広げる(例: ×4 なら 176.4 → 192 kHz まで)
+        val maxL = max.toLong()
+        val ok = rates.filter { it > sampleRate && it <= sdkCap }
+        // 整数倍で上げられる周波数があればそちらを使う(1 段で済み、いちばんきれい)
+        ok.filter { it % sampleRate == 0 && it <= maxL }.maxOrNull()?.let { return it }
+        return ok.filter { it >= sampleRate * 2L && it <= maxL * 160 / 147 }.maxOrNull() ?: sampleRate
+    }
+
+    /** DAR(通常の出力): 整数倍で上げた音を、必要なら出力先の周波数に合わせてから書き込む */
+    private fun writeFrac(buf: FloatArray, frames: Int, stop: () -> Boolean = { false }) {
+        val f = frac
+        if (f == null) {
+            writeTrack(buf, frames * channels, stop)
+            return
+        }
+        val need = f.maxOut(frames) * channels
+        if (fracBuf.size < need) fracBuf = FloatArray(need)
+        val n = f.process(buf, frames, fracBuf)
+        writeTrack(fracBuf, n * channels, stop)
     }
 
     private fun build(f: AFormat, enc: Int, rate: Int): AudioTrack {
@@ -587,7 +625,8 @@ class AudioOutput(
             if (raw < lastRaw && lastRaw - raw > 0x80000000L) wrapHi += 0x100000000L
             lastRaw = raw
             // DAR で上げているときは、出力の周波数で数えた位置を音源の周波数に戻す
-            return (wrapHi + raw) / upFactor
+            val pos = wrapHi + raw
+            return if (trackRate == sampleRate || trackRate <= 0) pos else pos * sampleRate / trackRate
         }
     }
 
@@ -720,7 +759,7 @@ class AudioOutput(
             val n = samples * upFactor
             if (fbuf2.size < n) fbuf2 = FloatArray(n)
             u.process(fbuf, frames, fbuf2)
-            writeTrack(fbuf2, n, stop)
+            writeFrac(fbuf2, frames * upFactor, stop)
         } else {
             writeTrack(fbuf, samples, stop)
         }
