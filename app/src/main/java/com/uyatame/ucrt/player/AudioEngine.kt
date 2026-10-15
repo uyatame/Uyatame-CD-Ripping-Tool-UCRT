@@ -446,27 +446,43 @@ class AudioOutput(
         } else {
             dac = null
             dacSession = -1
-            up = null
-            upFactor = 1
-            pipe = null
+            // DAR の PCM アップサンプリング: 出力先(イヤホンジャックなど)が受け付ける周波数まで、アプリの中で上げてから渡す
+            val target = OutputDevices.find(ctx, AudioEngine.preferredKey) ?: OutputDevices.defaultDeviceInfo(ctx)
+            val nf = if (dar && !exact && channels in 1..2) normalDarFactor(target) else 1
+            upFactor = nf
+            up = if (nf > 1) Upsampler(nf, channels) else null
+            val cores = Runtime.getRuntime().availableProcessors()
+            pipe = if (up != null && channels == 2 && cores >= 4) {
+                UpsamplePipeline(nf) { buf, n, _ -> writeTrack(buf, n * 2) }
+                    .also { AudioEngine.log("upsample: ${it.threadCount} threads on $cores cores") }
+            } else null
             if (AudioEngine.wantUsbDirect && channels > 2) {
                 AudioEngine.report(false, T("多チャンネル音源のため、通常の出力で再生しています", "Multichannel source; using normal output"))
                 runCatching { usbDac.close(reattach = true) }
             }
-            if (!AudioEngine.wantUsbDirect) AudioEngine.report(false, "")
+            val outRate = sampleRate * nf
+            if (nf > 1) {
+                AudioEngine.report(
+                    false,
+                    T("DAR: PCM アップサンプリング", "DAR: PCM upsampling") + " · ${khz(sampleRate)} → ${khz(outRate)}",
+                    "DAR · PCM ×$nf · ${khz(sampleRate)} → ${khz(outRate)} / 32 bit float · " +
+                        AudioEngine.bitrateText(outRate.toLong() * 32 * channels),
+                )
+                AudioEngine.log("dar: normal output x$nf ${khz(sampleRate)} -> ${khz(outRate)} (${target?.productName}, type ${target?.type})")
+            } else if (!AudioEngine.wantUsbDirect) AudioEngine.report(false, "")
             val stereo = if (channels == 1) AFormat.CHANNEL_OUT_MONO else AFormat.CHANNEL_OUT_STEREO
             val enc = AFormat.ENCODING_PCM_FLOAT
             // 2) 通常の出力
             val t = try {
-                build(AFormat.Builder().setSampleRate(sampleRate).setChannelMask(stereo).setEncoding(enc).build(), enc)
+                build(AFormat.Builder().setSampleRate(outRate).setChannelMask(stereo).setEncoding(enc).build(), enc, outRate)
             } catch (e: Exception) {
                 // Android 11 以前の通常の出力は 192 kHz までしか扱えない
-                if (sampleRate > 192000 && android.os.Build.VERSION.SDK_INT < 31) {
+                if (outRate > 192000 && android.os.Build.VERSION.SDK_INT < 31) {
                     AudioEngine.report(
                         false,
                         T(
-                            "この Android では ${khz(sampleRate)} を通常の出力で再生できません。USB DAC 直接出力を使ってください",
-                            "This Android version can't play ${khz(sampleRate)} through the normal output. Use USB DAC direct output",
+                            "この Android では ${khz(outRate)} を通常の出力で再生できません。USB DAC 直接出力を使ってください",
+                            "This Android version can't play ${khz(outRate)} through the normal output. Use USB DAC direct output",
                         ),
                     )
                 }
@@ -502,15 +518,31 @@ class AudioOutput(
 
     private fun khz(hz: Int) = AudioEngine.khz(hz)
 
-    private fun build(f: AFormat, enc: Int): AudioTrack {
-        val min = AudioTrack.getMinBufferSize(sampleRate, f.channelMask.takeIf { it != 0 } ?: AFormat.CHANNEL_OUT_STEREO, enc)
+    /**
+     * 通常の出力で DAR の PCM アップサンプリングに使う倍率。出力先が受け付ける周波数のうち、
+     * 元の周波数の整数倍で、設定の上限(DAR の倍率)以下のいちばん高いものにする。
+     * 出力先が高い周波数を受け付けない(または分からない)ときは 1(上げても Android がまた下げるだけなので)
+     */
+    private fun normalDarFactor(dev: android.media.AudioDeviceInfo?): Int {
+        val max = AudioEngine.darMaxRate(sampleRate)
+        if (max <= 0 || dev == null) return 1
+        // Android 11 以前の通常の出力は 192 kHz まで
+        val cap = minOf(max, if (android.os.Build.VERSION.SDK_INT >= 31) 768000 else 192000)
+        val rates = runCatching { dev.sampleRates }.getOrNull() ?: return 1
+        AudioEngine.log("dar: output ${dev.productName} (type ${dev.type}) rates=${rates.joinToString(",")}")
+        val best = rates.filter { it > sampleRate && it % sampleRate == 0 && it <= cap }.maxOrNull() ?: return 1
+        return best / sampleRate
+    }
+
+    private fun build(f: AFormat, enc: Int, rate: Int): AudioTrack {
+        val min = AudioTrack.getMinBufferSize(rate, f.channelMask.takeIf { it != 0 } ?: AFormat.CHANNEL_OUT_STEREO, enc)
             .coerceAtLeast(4096)
         val bytesPerFrame = channels * pcmBytes(enc).coerceAtLeast(2)
         // 約 1.5 秒分のバッファ(ほかの処理で読み込みが遅れても途切れないように)
         return AudioTrack.Builder()
             .setAudioAttributes(attrs)
             .setAudioFormat(f)
-            .setBufferSizeInBytes(max(min * 2, sampleRate * bytesPerFrame * 3 / 2))
+            .setBufferSizeInBytes(max(min * 2, rate * bytesPerFrame * 3 / 2))
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
     }
@@ -554,7 +586,8 @@ class AudioOutput(
                 .getOrElse { return wrapHi + lastRaw }
             if (raw < lastRaw && lastRaw - raw > 0x80000000L) wrapHi += 0x100000000L
             lastRaw = raw
-            return wrapHi + raw
+            // DAR で上げているときは、出力の周波数で数えた位置を音源の周波数に戻す
+            return (wrapHi + raw) / upFactor
         }
     }
 
@@ -676,13 +709,34 @@ class AudioOutput(
             val g = AudioEngine.preampGain()
             if (g != 1f) for (k in 0 until samples) fbuf[k] *= g
         }
+        val p = pipe
+        if (p != null) {
+            // DAR: 流れ作業でアップサンプリング(出力への書き込みは流れ作業の出力のスレッド)
+            p.submit(fbuf, frames, 1f, stop)
+            return
+        }
+        val u = up
+        if (u != null) {
+            val n = samples * upFactor
+            if (fbuf2.size < n) fbuf2 = FloatArray(n)
+            u.process(fbuf, frames, fbuf2)
+            writeTrack(fbuf2, n, stop)
+        } else {
+            writeTrack(fbuf, samples, stop)
+        }
+        checkUnderrun(t)
+    }
+
+    /** 通常の出力へ書き込む(音割れしないよう ±1 に収める) */
+    private fun writeTrack(buf: FloatArray, samples: Int, stop: () -> Boolean = { false }) {
+        val t = track ?: return
         for (k in 0 until samples) {
-            val v = fbuf[k]
-            if (v > 1f) fbuf[k] = 1f else if (v < -1f) fbuf[k] = -1f else if (v.isNaN()) fbuf[k] = 0f
+            val v = buf[k]
+            if (v > 1f) buf[k] = 1f else if (v < -1f) buf[k] = -1f else if (v.isNaN()) buf[k] = 0f
         }
         var off = 0
-        while (off < samples && !stop() && !failed) {
-            val w = t.write(fbuf, off, samples - off, AudioTrack.WRITE_BLOCKING)
+        while (off < samples && !stop() && !failed && !released) {
+            val w = t.write(buf, off, samples - off, AudioTrack.WRITE_BLOCKING)
             if (w < 0) {
                 AudioEngine.log("write error $w")
                 failed = true
@@ -690,7 +744,6 @@ class AudioOutput(
             }
             if (w == 0) Thread.sleep(20) else off += w
         }
-        checkUnderrun(t)
     }
 
     private var lastUnderrun = 0

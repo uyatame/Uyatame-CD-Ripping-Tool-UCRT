@@ -112,7 +112,10 @@ object OutputDevices {
     }
 
     /** 自動のときに Android が使う出力先 */
-    fun defaultDevice(ctx: Context): OutputDevice? {
+    fun defaultDevice(ctx: Context): OutputDevice? = defaultDeviceInfo(ctx)?.let { describe(it) }
+
+    /** 自動のときに Android が使う出力先(Android 13 からは Android に聞き、それより前は推測する) */
+    fun defaultDeviceInfo(ctx: Context): AudioDeviceInfo? {
         val am = ctx.getSystemService(AudioManager::class.java)
         val d = if (Build.VERSION.SDK_INT >= 33) {
             runCatching {
@@ -123,6 +126,5 @@ object OutputDevices {
         } else null
         return (d ?: am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.type in usable && it.type != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
             ?: am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER })
-            ?.let { describe(it) }
     }
 }
