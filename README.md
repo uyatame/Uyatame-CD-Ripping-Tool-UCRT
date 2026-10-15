@@ -45,8 +45,6 @@ gradle assembleRelease --no-daemon
 echo "alias ucrt='bash ~/UyatameCdRipper/tools/termux-build.sh'" >> ~/.bashrc && source ~/.bashrc
 ```
 
-このスクリプトで作った APK は、テスト用として版の名前に `.test<テスト版>` が付きます(例: `UCRT_v0.5.0.test0.0.1.apk`。テスト版は `tools/test-version.txt`)。
-
 ### PC(Android Studio / コマンドライン)
 
 Android Studio でプロジェクトを開いてビルドするか、Gradle 8.9 以上で `gradle assembleRelease` を実行してください。
