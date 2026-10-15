@@ -304,6 +304,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             app, detachReceiver, IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED), ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         MediaBridge.player = player
+        // 起動したら、新しい版が出ていないか確かめる(設定を読み込んで、画面が落ち着いてから)
+        viewModelScope.launch {
+            if (repo.flow.first().updateCheck) {
+                kotlinx.coroutines.delay(2000)
+                checkUpdate(manual = false)
+            }
+        }
         // 再生エンジンの診断メッセージをアプリのログに出す
         com.uyatame.ucrt.player.AudioEngine.logger = { msg -> log(msg) }
         // 音量キーで DAC の音量を変えたら保存する
@@ -398,6 +405,42 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun <T> set(key: Preferences.Key<T>, v: T) {
         viewModelScope.launch { repo.set(key, v) }
+    }
+
+    // ---- 新しい版の確認 ----
+
+    /** 知らせる新しい版(ダイアログを出す)。null なら出さない */
+    var updateOffer by mutableStateOf<com.uyatame.ucrt.meta.ReleaseInfo?>(null)
+    /** 確認中 */
+    var updateChecking by mutableStateOf(false)
+        private set
+    private var updateChecked = false
+
+    /**
+     * 新しい版が出ていないか確かめる。manual でなければ、起動して最初の 1 回だけ、
+     * 設定でオンのときに、「この版は通知しない」にした版でなければ知らせる
+     */
+    fun checkUpdate(manual: Boolean) {
+        val s = settings.value
+        if (!manual && (updateChecked || !s.updateCheck)) return
+        if (updateChecking) return
+        updateChecked = true
+        updateChecking = true
+        viewModelScope.launch {
+            val cur = BuildConfigVersion.name(ctx)
+            val r = runCatching { withContext(Dispatchers.IO) { com.uyatame.ucrt.meta.UpdateCheck.latest(cur) } }
+                .onFailure { log("update check failed: ${it.javaClass.simpleName}: ${it.message}") }
+                .getOrNull()
+            updateChecking = false
+            val newer = r != null && com.uyatame.ucrt.meta.UpdateCheck.isNewer(r.version, cur)
+            if (r != null) log("update check: latest v${r.version}, this $cur" + if (newer) " (update available)" else "")
+            when {
+                newer && (manual || r!!.version != settings.value.updateSkip) -> updateOffer = r
+                !manual -> {}
+                r == null -> snack = T("新しい版を確認できませんでした(ネットワークにつながっているか確かめてください)", "Couldn't check for updates (check your network connection)")
+                else -> snack = T("最新の版を使っています(v$cur)", "You're on the latest version (v$cur)")
+            }
+        }
     }
 
     /** イコライザーの帯域を動かしている途中(保存はせず、音だけすぐ変える) */

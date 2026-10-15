@@ -79,7 +79,7 @@ fun SettingsScreen(vm: MainViewModel, s: AppSettings, page: Int, onPage: (Int) -
         4 -> SettingsPage(T("ライブラリ", "Library"), back) { LibraryFoldersPage(vm, s) }
         5 -> SettingsPage(T("表示", "Display"), back) { DisplayPage(vm, s) }
         6 -> LogPage(vm, s, back)
-        7 -> LicensePage(back)
+        7 -> LicensePage(vm, s, back)
         8 -> SettingsPage(SoundPage.title(SoundPage.MAIN), back) { SoundMain(vm, s) { onPage(80 + it) } }
         in 81..89 -> SettingsPage(SoundPage.title(page - 80), { onPage(8) }) { SoundSubPage(vm, s, page - 80) }
         else -> MainSettings(vm, s, onPage)
@@ -585,7 +585,7 @@ private fun LicenseTextPage(title: String, asset: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun LicensePage(onBack: () -> Unit) {
+private fun LicensePage(vm: MainViewModel, s: AppSettings, onBack: () -> Unit) {
     val ctx = LocalContext.current
     BackHandler(onBack = onBack)
     var open by remember { mutableStateOf<LicenseInfo?>(null) }
@@ -611,6 +611,19 @@ private fun LicensePage(onBack: () -> Unit) {
                     T("外付けUSBドライブで音楽CDを取り込み・再生するアプリです。", "Rip and play audio CDs with an external USB drive."),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            Section(T("アップデート", "Updates")) {
+                SwitchRow(
+                    T("起動時に新しい版を確認する", "Check for updates at startup"),
+                    T("新しい版が公開されていたら、ダウンロードのページへのリンクを表示します", "Shows a link to the download page when a new version is out"),
+                    s.updateCheck,
+                ) { vm.set(Keys.updateCheck, it) }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton({ vm.checkUpdate(manual = true) }, enabled = !vm.updateChecking) {
+                        Text(if (vm.updateChecking) T("確認しています…", "Checking…") else T("今すぐ確認", "Check now"))
+                    }
+                    TextButton({ browse(com.uyatame.ucrt.meta.UpdateCheck.RELEASES_PAGE) }) { Text(T("リリースのページ", "Releases page")) }
+                }
             }
             Text(
                 T("ライセンス情報", "Licenses"), style = MaterialTheme.typography.titleMedium,

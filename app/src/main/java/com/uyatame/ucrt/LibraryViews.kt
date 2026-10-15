@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -372,6 +375,57 @@ fun GlobalSheets(vm: MainViewModel) {
     PlaylistPickDialog(vm)
     TrackInfoDialog(vm)
     DeleteConfirmDialog(vm)
+    UpdateDialog(vm)
+}
+
+/** 新しい版が出ていることを知らせ、ダウンロードのページへのリンクを出す */
+@Composable
+private fun UpdateDialog(vm: MainViewModel) {
+    val r = vm.updateOffer ?: return
+    val ctx = LocalContext.current
+    val cur = BuildConfigVersion.name(ctx)
+    fun open() {
+        runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(r.pageUrl))) }
+        vm.updateOffer = null
+    }
+    AlertDialog(
+        onDismissRequest = { vm.updateOffer = null },
+        title = { Text(T("新しい版があります", "Update available")) },
+        text = {
+            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                Text(
+                    T("v${r.version} が公開されています(いまの版は v$cur)。", "v${r.version} is out (you have v$cur)."),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                // リンクをそのまま見せる(タップでも開ける)
+                Text(
+                    r.pageUrl, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
+                    textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                    modifier = Modifier.clickable { open() },
+                )
+                if (r.notes.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(T("変更点", "What's new"), style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        r.notes.lines().joinToString("\n") { it.trimStart('#', ' ').replace("**", "") }.take(3000),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton({ open() }) { Text(T("ダウンロードのページを開く", "Open download page")) } },
+        dismissButton = {
+            Row {
+                TextButton({
+                    vm.set(com.uyatame.ucrt.data.Keys.updateSkip, r.version)
+                    vm.updateOffer = null
+                }) { Text(T("この版は通知しない", "Skip this version")) }
+                TextButton({ vm.updateOffer = null }) { Text(T("あとで", "Later")) }
+            }
+        },
+    )
 }
 
 /** 曲のファイルを削除する前の確認(元に戻せないので、曲名を見せて確かめる) */

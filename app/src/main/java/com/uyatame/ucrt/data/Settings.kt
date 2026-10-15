@@ -91,6 +91,10 @@ data class AppSettings(
     val gapless: Boolean = true,
     /** ソースダイレクト: オンなら、イコライザーと DAR を使わずに音源のまま出す */
     val sourceDirect: Boolean = false,
+    /** 起動したときに、新しい版が出ていないか確かめる */
+    val updateCheck: Boolean = true,
+    /** 「この版は通知しない」にした版 */
+    val updateSkip: String = "",
     /** イコライザーの帯域(パラメトリック EQ。空なら以前の 10 バンドの eqGains から作る) */
     val eqBands: String = "",
     /** DAR: 0 = オフ, 1 = PCM アップサンプリング, 2 = DSD に変換 */
@@ -175,6 +179,8 @@ object Keys {
     val libTiles = stringPreferencesKey("libTiles")
     val gapless = booleanPreferencesKey("gapless")
     val sourceDirect = booleanPreferencesKey("sourceDirect")
+    val updateCheck = booleanPreferencesKey("updateCheck")
+    val updateSkip = stringPreferencesKey("updateSkip")
     val eqBands = stringPreferencesKey("eqBands")
     val darMode = intPreferencesKey("darMode")
     val darPcm = intPreferencesKey("darPcm")
@@ -228,6 +234,8 @@ class SettingsRepository(private val context: Context) {
             libTiles = p[Keys.libTiles] ?: d.libTiles,
             gapless = p[Keys.gapless] ?: d.gapless,
             sourceDirect = p[Keys.sourceDirect] ?: d.sourceDirect,
+            updateCheck = p[Keys.updateCheck] ?: d.updateCheck,
+            updateSkip = p[Keys.updateSkip] ?: d.updateSkip,
             eqBands = p[Keys.eqBands] ?: d.eqBands,
             darMode = p[Keys.darMode] ?: d.darMode,
             darPcm = p[Keys.darPcm] ?: d.darPcm,
