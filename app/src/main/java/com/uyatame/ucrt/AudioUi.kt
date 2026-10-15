@@ -145,6 +145,17 @@ fun DarPanel(vm: MainViewModel, s: AppSettings) {
                     FilterChip(s.darPcm == i, { vm.set(Keys.darPcm, i) }, label = { Text(l) })
                 }
             }
+            SwitchRow(
+                T("整数倍だけで変換する", "Integer multiples only"),
+                T(
+                    "オン: 44.1 kHz → 176.4 kHz のように整数倍だけで上げます(いちばんきれい)。出力先が整数倍の周波数を受け付けないときは、仕方なく出力先に合わせ、そのことを赤字で表示します。\nオフ: 出力先が受け付けるいちばん高い周波数に合わせます(44.1 kHz → 192 kHz など、整数倍でない変換も使います)。\nUSB DAC 直接出力では、いつも整数倍です",
+                    "On: raises only by integer multiples (e.g. 44.1 → 176.4 kHz), the cleanest. If the output accepts no integer multiple, it is converted to the output's rate anyway and shown in red.\nOff: uses the highest rate the output accepts (may be non-integer, e.g. 44.1 → 192 kHz).\nUSB DAC direct output always uses integer multiples",
+                ),
+                s.darInteger,
+            ) { vm.set(Keys.darInteger, it) }
+            AudioEngine.darWarn.takeIf { it.isNotEmpty() }?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
         }
         if (s.darMode == 2) {
             Text(T("DSD の周波数", "DSD rate"), style = MaterialTheme.typography.labelLarge)
@@ -163,11 +174,11 @@ fun DarPanel(vm: MainViewModel, s: AppSettings) {
         }
         Text(
             T(
-                "DAR は USB DAC 直接出力がオンで、ソースダイレクトがオフのときに、PCM の曲(ファイル・CD)に使われます。DSD の曲はそのまま再生します。オンにするとビットパーフェクトではなくなり、電池の減りが早くなります",
-                "DAR is applied to PCM tracks (files and CDs) when USB DAC direct output is on and source direct is off. DSD tracks play as is. With DAR on, playback is no longer bit-perfect and uses more battery",
+                "DAR は、ソースダイレクトがオフのときに PCM の曲(ファイル・CD)に使われます。PCM アップサンプリングは USB DAC 直接出力でもイヤホンジャックなどの通常の出力でも使え、通常の出力では出力先が受け付ける周波数まで上げます。DSD への変換は USB DAC 直接出力のときだけです。DSD の曲はそのまま再生します。オンにするとビットパーフェクトではなくなり、電池の減りが早くなります",
+                "DAR is applied to PCM tracks (files and CDs) when source direct is off. PCM upsampling works with USB DAC direct output and with the normal output (headphone jack etc.), where it goes up to the rates the output accepts. DSD conversion needs USB DAC direct output. DSD tracks play as is. With DAR on, playback is no longer bit-perfect and uses more battery",
             ),
             style = MaterialTheme.typography.bodySmall,
-            color = if (s.darMode != 0 && (s.outputMode != 2 || s.sourceDirect)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (s.darMode != 0 && (s.sourceDirect || (s.darMode == 2 && s.outputMode != 2))) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

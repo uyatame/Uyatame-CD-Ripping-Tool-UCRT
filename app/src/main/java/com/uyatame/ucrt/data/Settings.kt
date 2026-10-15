@@ -103,6 +103,8 @@ data class AppSettings(
     val darPcm: Int = 0,
     /** DAR の DSD 変換の周波数: 0 = DSD64, 1 = DSD128, 2 = DSD256 */
     val darDsd: Int = 0,
+    /** DAR の PCM アップサンプリングを整数倍だけで行う(通常の出力で、整数倍にできない出力先なら仕方なく合わせる) */
+    val darInteger: Boolean = true,
 )
 
 /** イコライザーの帯域(保存されていなければ、以前の 10 バンドの設定から作る) */
@@ -185,6 +187,7 @@ object Keys {
     val darMode = intPreferencesKey("darMode")
     val darPcm = intPreferencesKey("darPcm")
     val darDsd = intPreferencesKey("darDsd")
+    val darInteger = booleanPreferencesKey("darInteger")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -240,6 +243,7 @@ class SettingsRepository(private val context: Context) {
             darMode = p[Keys.darMode] ?: d.darMode,
             darPcm = p[Keys.darPcm] ?: d.darPcm,
             darDsd = p[Keys.darDsd] ?: d.darDsd,
+            darInteger = p[Keys.darInteger] ?: d.darInteger,
         )
     }
 

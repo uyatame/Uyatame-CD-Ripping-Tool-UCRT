@@ -515,6 +515,14 @@ private fun PlayerPage(
                     maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onSound).padding(horizontal = 8.dp, vertical = 2.dp),
                 )
+                // 設定どおりにできなかったとき(整数倍だけの設定で、出力先に合わせて整数倍でない変換をしているなど)
+                AudioEngine.darWarn.takeIf { it.isNotEmpty() }?.let { w ->
+                    Text(
+                        w, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error,
+                        maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
+                }
             }
             Spacer(Modifier.height(if (compact) 4.dp else 10.dp))
             // ---- 曲名(タップでアルバム・アーティストへ)とお気に入り ----

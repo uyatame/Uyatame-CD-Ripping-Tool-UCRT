@@ -74,6 +74,9 @@ object AudioEngine {
     /** 画面表示用: DAR が効いているときの中身(どう変換して、実際に何で送っているか)。効いていなければ "" */
     var darInfo by mutableStateOf("")
         private set
+    /** 画面表示用: DAR が設定どおりにできなかったときの注意(赤字で出す)。なければ "" */
+    var darWarn by mutableStateOf("")
+        private set
 
 
     fun setEq(enabled: Boolean, b: List<EqBand>, preamp: Float, auto: Boolean) {
@@ -107,6 +110,8 @@ object AudioEngine {
     @Volatile var darDsd = 0
     /** この端末で間に合う DSD 変換の上限(DSD64 なら 64。0 なら制限なし。変換が追いつかなかったときに下げる) */
     @Volatile var darDsdLimit = 0
+    /** DAR の PCM アップサンプリングを整数倍だけで行うか(通常の出力) */
+    @Volatile var darInteger = true
 
     /** DAR の PCM アップサンプリングで目指す周波数の上限(DAR を使わないなら 0) */
     fun darMaxRate(srcRate: Int): Int {
@@ -152,11 +157,12 @@ object AudioEngine {
         main.post { runCatching { l("[audio] $msg") } }
     }
 
-    internal fun report(active: Boolean, status: String, dar: String = "") {
+    internal fun report(active: Boolean, status: String, dar: String = "", warn: String = "") {
         main.post {
             bitPerfectActive = active
             outputStatus = status
             darInfo = dar
+            darWarn = warn
         }
     }
 
@@ -376,6 +382,8 @@ class AudioOutput(
     /** 通常の出力の周波数(DAR で上げていれば上げたあと。USB DAC 直接出力では 0) */
     private val trackRate: Int
     private var fracBuf = FloatArray(0)
+    /** 整数倍だけの設定なのに、出力先に合わせて整数倍でない変換をしているか */
+    private var forcedFrac = false
     private val eq = ParamEqualizer(sampleRate, channels)
     private val toFloat = PcmToFloat()
     /** USB DAC 直接出力のときのイコライザー(DAC のチャンネル数で作る) */
@@ -480,6 +488,12 @@ class AudioOutput(
                     T("DAR: PCM アップサンプリング", "DAR: PCM upsampling") + " · ${khz(sampleRate)} → ${khz(outRate)}",
                     "DAR · PCM $how · ${khz(sampleRate)} → ${khz(outRate)} / 32 bit float · " +
                         AudioEngine.bitrateText(outRate.toLong() * 32 * channels),
+                    if (forcedFrac) {
+                        T(
+                            "この出力先は ${khz(sampleRate)} の整数倍の周波数を受け付けないため、整数倍でない変換で ${khz(outRate)} に合わせています",
+                            "This output doesn't accept integer multiples of ${khz(sampleRate)}, so it is converted to ${khz(outRate)} (non-integer)",
+                        )
+                    } else "",
                 )
                 AudioEngine.log(
                     "dar: normal output x$nf ${khz(sampleRate)} -> ${khz(sampleRate * nf)}" +
@@ -554,9 +568,15 @@ class AudioOutput(
         // 倍率の上限は、44.1 kHz の系統から 48 kHz の系統へ移るときは、その分(160/147)だけ広げる(例: ×4 なら 176.4 → 192 kHz まで)
         val maxL = max.toLong()
         val ok = rates.filter { it > sampleRate && it <= sdkCap }
-        // 整数倍で上げられる周波数があればそちらを使う(1 段で済み、いちばんきれい)
-        ok.filter { it % sampleRate == 0 && it <= maxL }.maxOrNull()?.let { return it }
-        return ok.filter { it >= sampleRate * 2L && it <= maxL * 160 / 147 }.maxOrNull() ?: sampleRate
+        val integer = ok.filter { it % sampleRate == 0 && it <= maxL }.maxOrNull()
+        val other = ok.filter { it % sampleRate != 0 && it >= sampleRate * 2L && it <= maxL * 160 / 147 }.maxOrNull()
+        forcedFrac = false
+        return when {
+            // 整数倍だけ: 整数倍で上げられればそれ。できない出力先なら、仕方なく出力先の周波数に合わせる(画面に赤字で出す)
+            AudioEngine.darInteger -> integer ?: other?.also { forcedFrac = true } ?: sampleRate
+            // そうでなければ、出力先が受け付けるいちばん高い周波数
+            else -> listOfNotNull(integer, other).maxOrNull() ?: sampleRate
+        }
     }
 
     /** DAR(通常の出力): 整数倍で上げた音を、必要なら出力先の周波数に合わせてから書き込む */
