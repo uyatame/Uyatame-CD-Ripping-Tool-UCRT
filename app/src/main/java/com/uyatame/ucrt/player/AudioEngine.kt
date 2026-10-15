@@ -529,7 +529,7 @@ class AudioOutput(
         // Android 11 以前の通常の出力は 192 kHz まで
         val cap = minOf(max, if (android.os.Build.VERSION.SDK_INT >= 31) 768000 else 192000)
         val rates = runCatching { dev.sampleRates }.getOrNull() ?: return 1
-        AudioEngine.log("dar: output ${dev.productName} (type ${dev.type}) rates=${rates.joinToString(",")}")
+        AudioEngine.log("dar: output ${dev.productName} (type ${dev.type}) ${OutputDevices.formatsText(dev)}")
         val best = rates.filter { it > sampleRate && it % sampleRate == 0 && it <= cap }.maxOrNull() ?: return 1
         return best / sampleRate
     }

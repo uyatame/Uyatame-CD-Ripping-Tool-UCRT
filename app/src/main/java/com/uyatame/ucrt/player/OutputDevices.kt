@@ -57,16 +57,38 @@ object OutputDevices {
     /** 「最大 24bit / 192kHz」のような表記(分からなければ空) */
     private fun specOf(d: AudioDeviceInfo): String {
         val rate = d.sampleRates.maxOrNull() ?: 0
-        val bits = d.encodings.maxOfOrNull {
-            when (it) {
-                AFormat.ENCODING_PCM_16BIT -> 16
-                AFormat.ENCODING_PCM_24BIT_PACKED -> 24
-                AFormat.ENCODING_PCM_32BIT -> 32
-                else -> 0
-            }
-        } ?: 0
+        val bits = encodingsOf(d).maxOfOrNull { bitsOf(it) } ?: 0
         if (rate <= 0) return ""
         return T("最大 ", "Up to ") + (if (bits > 0) "${bits}bit / " else "") + khz(rate)
+    }
+
+    /** PCM の形式のビット数(float は 32 bit として数える。PCM 以外は 0) */
+    private fun bitsOf(enc: Int): Int = when (enc) {
+        AFormat.ENCODING_PCM_16BIT -> 16
+        AFormat.ENCODING_PCM_24BIT_PACKED -> 24
+        AFormat.ENCODING_PCM_32BIT, AFormat.ENCODING_PCM_FLOAT -> 32
+        else -> 0
+    }
+
+    /**
+     * 出力先が受け付ける形式。端末によっては encodings に一部しか載らず、
+     * Android 12 からの「プロファイル」(形式ごとの周波数の組)のほうに 24bit などが載っていることがあるので、両方を合わせる
+     */
+    fun encodingsOf(d: AudioDeviceInfo): Set<Int> {
+        val s = d.encodings.toMutableSet()
+        if (Build.VERSION.SDK_INT >= 31) runCatching { d.audioProfiles.forEach { s.add(it.format) } }
+        return s
+    }
+
+    /** ログ用: 出力先が Android に伝えている形式と周波数 */
+    fun formatsText(d: AudioDeviceInfo): String {
+        val enc = d.encodings.joinToString(",") { AudioEngine.encName(it) }
+        val prof = if (Build.VERSION.SDK_INT >= 31) {
+            runCatching {
+                d.audioProfiles.joinToString(" ") { p -> AudioEngine.encName(p.format) + "@" + p.sampleRates.joinToString("/") }
+            }.getOrDefault("")
+        } else ""
+        return "encodings=[$enc] rates=[${d.sampleRates.joinToString(",")}]" + if (prof.isNotEmpty()) " profiles=[$prof]" else ""
     }
 
     fun describe(d: AudioDeviceInfo): OutputDevice {
