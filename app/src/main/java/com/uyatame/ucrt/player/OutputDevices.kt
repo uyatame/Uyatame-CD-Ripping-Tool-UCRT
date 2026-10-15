@@ -62,11 +62,14 @@ object OutputDevices {
         return T("最大 ", "Up to ") + (if (bits > 0) "${bits}bit / " else "") + khz(rate)
     }
 
-    /** PCM の形式のビット数(float は 32 bit として数える。PCM 以外は 0) */
+    /**
+     * PCM の形式のビット数(PCM 以外は 0)。
+     * float は Android の中のミキサーが受け取る形式で、出力先のビット数を表さないので数えない
+     */
     private fun bitsOf(enc: Int): Int = when (enc) {
         AFormat.ENCODING_PCM_16BIT -> 16
         AFormat.ENCODING_PCM_24BIT_PACKED -> 24
-        AFormat.ENCODING_PCM_32BIT, AFormat.ENCODING_PCM_FLOAT -> 32
+        AFormat.ENCODING_PCM_32BIT -> 32
         else -> 0
     }
 
