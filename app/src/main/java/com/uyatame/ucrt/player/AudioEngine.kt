@@ -357,6 +357,8 @@ class AudioOutput(
     private val dacSession: Int
     private val up: Upsampler?
     private val upFactor: Int
+    /** 複数のコアでアップサンプリングするときの流れ作業(使わなければ null) */
+    private val pipe: UpsamplePipeline?
     private val eq = ParamEqualizer(sampleRate, channels)
     private val toFloat = PcmToFloat()
     /** USB DAC 直接出力のときのイコライザー(DAC のチャンネル数で作る) */
@@ -392,6 +394,18 @@ class AudioOutput(
             dacSession = usbDac.begin()
             upFactor = (d.rate / sampleRate).coerceAtLeast(1)
             up = if (upFactor > 1) Upsampler(upFactor, d.channels) else null
+            // コアが 4 つ以上あれば、ステレオのアップサンプリングを段 × 左右ごとのスレッドで同時に計算する
+            val cores = Runtime.getRuntime().availableProcessors()
+            pipe = if (up != null && d.channels == 2 && cores >= 4) {
+                val slot = d.subslot
+                val session = dacSession
+                var bytes = ByteArray(0)
+                UpsamplePipeline(upFactor) { buf, n, g ->
+                    if (bytes.size < n * 2 * slot) bytes = ByteArray(n * 2 * slot)
+                    val len = floatToSlots(buf, n * 2, g, slot, bytes, 0)
+                    usbDac.write(session, bytes, len) { released }
+                }.also { AudioEngine.log("upsample: ${it.threadCount} threads on $cores cores") }
+            } else null
             track = null
             outEnc = 0
             bitPerfect = up == null
@@ -419,6 +433,7 @@ class AudioOutput(
             dacSession = -1
             up = null
             upFactor = 1
+            pipe = null
             if (AudioEngine.wantUsbDirect && channels > 2) {
                 AudioEngine.report(false, T("多チャンネル音源のため、通常の出力で再生しています", "Multichannel source; using normal output"))
                 runCatching { usbDac.close(reattach = true) }
@@ -483,6 +498,7 @@ class AudioOutput(
 
     override fun release() {
         released = true
+        pipe?.close()
         if (dac != null) {
             usbDac.end(dacSession)
             return
@@ -562,6 +578,12 @@ class AudioOutput(
             }
             e.process(fbuf, inSamples)
             g *= AudioEngine.preampGain()
+        }
+        val p = pipe
+        if (p != null) {
+            // 流れ作業に渡す(DAC へ送るのは流れ作業の出力のスレッド)
+            p.submit(fbuf, frames, g, stop)
+            return
         }
         val outBuf: FloatArray
         val outSamples: Int
