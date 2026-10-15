@@ -41,10 +41,15 @@ class KeepAliveService : Service() {
         }
         val info = MediaBridge.info ?: NotifInfo(false, T("処理中", "Working"), "")
         val n = build(this, info)
-        try {
-            startForeground(ID, n, info.type)
-        } catch (e: Exception) {
-            runCatching { startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK) }
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            try {
+                startForeground(ID, n, info.type)
+            } catch (e: Exception) {
+                runCatching { startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK) }
+            }
+        } else {
+            // Android 9 以前は種類を指定しない
+            startForeground(ID, n)
         }
         MediaBridge.running = true
         return START_NOT_STICKY

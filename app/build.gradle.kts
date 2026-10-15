@@ -15,7 +15,7 @@ android {
     defaultConfig {
         // アプリ ID は公開済みの版から変えない(変えると別のアプリ扱いになり、上書き更新や設定の引き継ぎができなくなる)
         applicationId = "com.uyatame.cdripper"
-        minSdk = 31
+        minSdk = 26
         targetSdk = 36
         versionCode = 41
         versionName = "0.5.0"

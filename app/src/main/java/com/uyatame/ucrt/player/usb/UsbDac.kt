@@ -137,7 +137,7 @@ object UsbDac {
         if (!asked.add(dev.deviceName)) return
         val pi = PendingIntent.getBroadcast(
             app, 7, Intent(ACTION_PERMISSION).setPackage(app.packageName),
-            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            com.uyatame.ucrt.mutablePendingFlags(),
         )
         main.post { runCatching { usb().requestPermission(dev, pi) } }
         AudioEngine.log("usb dac: requesting permission for ${dev.productName}")
@@ -250,7 +250,7 @@ object UsbDac {
             if (asked.add(dev.deviceName)) {
                 val pi = PendingIntent.getBroadcast(
                     app, 7, Intent(ACTION_PERMISSION).setPackage(app.packageName),
-                    PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                    com.uyatame.ucrt.mutablePendingFlags(),
                 )
                 main.post { runCatching { usb().requestPermission(dev, pi) } }
             }

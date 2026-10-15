@@ -444,7 +444,21 @@ class AudioOutput(
             val stereo = if (channels == 1) AFormat.CHANNEL_OUT_MONO else AFormat.CHANNEL_OUT_STEREO
             val enc = AFormat.ENCODING_PCM_FLOAT
             // 2) 通常の出力
-            val t = build(AFormat.Builder().setSampleRate(sampleRate).setChannelMask(stereo).setEncoding(enc).build(), enc)
+            val t = try {
+                build(AFormat.Builder().setSampleRate(sampleRate).setChannelMask(stereo).setEncoding(enc).build(), enc)
+            } catch (e: Exception) {
+                // Android 11 以前の通常の出力は 192 kHz までしか扱えない
+                if (sampleRate > 192000 && android.os.Build.VERSION.SDK_INT < 31) {
+                    AudioEngine.report(
+                        false,
+                        T(
+                            "この Android では ${khz(sampleRate)} を通常の出力で再生できません。USB DAC 直接出力を使ってください",
+                            "This Android version can't play ${khz(sampleRate)} through the normal output. Use USB DAC direct output",
+                        ),
+                    )
+                }
+                throw e
+            }
             // 選ばれている出力先があれば、そこへ出す
             OutputDevices.find(ctx, AudioEngine.preferredKey)?.let { dev -> runCatching { t.setPreferredDevice(dev) } }
             // 実際に音が出ている先を画面に出す

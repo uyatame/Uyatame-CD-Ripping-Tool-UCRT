@@ -40,7 +40,7 @@ object OutputDevices {
         AudioDeviceInfo.TYPE_BLE_SPEAKER,
     )
 
-    fun keyOf(d: AudioDeviceInfo) = "${d.type}|${d.address}"
+    fun keyOf(d: AudioDeviceInfo) = "${d.type}|" + (if (Build.VERSION.SDK_INT >= 28) d.address else d.id.toString())
 
     private fun kindOf(type: Int) = when (type) {
         AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> OutputKind.Speaker

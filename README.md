@@ -11,14 +11,14 @@
 - **正確な読み取り**: リトライ、C2エラー検出、読み取りオフセット補正、読み取り速度の指定
 - **ライブラリ**: 取り込んだ曲と端末内の音楽フォルダの曲を、カテゴリー(アルバム・アーティスト・全曲・お気に入り・プレイリスト・最近追加・最近再生・よく聴く曲・音質別・ジャンル・発売年・フォルダ)から探せるトップ画面。横断検索、形式と音質の表示(ハイレゾは金色)、長押しメニュー(次に再生・再生リストに追加・プレイリストに追加など)、高速スクロール
 - **プレイヤー**: CDの直接再生、全画面プレイヤー(左右のページでお気に入り・再生リスト、ジャケットのスワイプで曲送り、アンビエントモード、形式・音質表示)、再生リストの並べ替え、歌詞表示(LRC・埋め込み歌詞)、スリープタイマー、前回の続きから再生、シャッフル・リピート、通知とロック画面からの操作
-- **音響**: ビットパーフェクト再生(独自の USB オーディオドライバーで USB DAC を直接駆動、UAC1/UAC2、Android 12 以降、PCM 768 kHz / 32bit)、DSD 再生(DSF / DFF、ネイティブ DSD512・DoP・PCM 変換)、DAR(PCM アップサンプリング・DSD への変換)、曲線で自由に調整できるパラメトリックイコライザー(最大 16 バンド)、ソースダイレクト
+- **音響**: ビットパーフェクト再生(独自の USB オーディオドライバーで USB DAC を直接駆動、UAC1/UAC2、PCM 768 kHz / 32bit)、DSD 再生(DSF / DFF、ネイティブ DSD512・DoP・PCM 変換)、DAR(PCM アップサンプリング・DSD への変換)、曲線で自由に調整できるパラメトリックイコライザー(最大 16 バンド)、ソースダイレクト
 - **曲情報の編集**: 曲名・アーティスト・アルバム・年・ジャケットの変更(FLAC / MP3 / M4A / WAV / DSF)、取り込み済みの曲への曲情報の後付け
 - **CUE シート**: 1 つの WAV / FLAC を CUE シートで曲に分けて表示・再生(Shift_JIS / UTF-8)
 - Material Design 3、ダイナミックカラー、日本語 / English
 
 ## 動作環境
 
-- Android 12 以上
+- Android 8.0 以上(ダイナミックカラーは Android 12 以上、すべてのファイルへのアクセスは Android 11 以上、アプリ別の表示言語は Android 13 以上。Android 11 以前の通常の出力は 192 kHz まで)
 - USB OTG(USBホスト)に対応した端末
 - USB接続の光学ドライブ(Bulk-Only Transport 対応のもの。動作確認: Pioneer BDR-XS07JL)
 - スマホからの給電で動かないドライブは、セルフパワーのUSBハブを使ってください
@@ -74,9 +74,9 @@ UCRT turns an Android phone plus a USB optical drive into a CD ripper and player
 - Rip audio CDs to FLAC, AAC, MP3 or WAV (with tags and cover art), with retries, C2 error detection and read offset correction
 - Automatic track info and cover art from MusicBrainz, with a match chooser and name search
 - Library of ripped albums and any music folders you add, with search, sorting, grid/list views and fast scroll
-- Bit-perfect output to USB DACs through the app's own USB audio driver (Android 12+), DSD playback, DAR (PCM upsampling / conversion to DSD), source direct and a parametric equalizer with a curve editor
+- Bit-perfect output to USB DACs through the app's own USB audio driver, DSD playback, DAR (PCM upsampling / conversion to DSD), source direct and a parametric equalizer with a curve editor
 - CUE sheet support (one WAV / FLAC split into tracks)
 - Full-screen player with ambient mode and audio format details, direct CD playback, lock-screen controls
 - Tag editing for ripped and existing files
 
-Requires Android 12+ and a USB OTG capable device. Licensed under the GPL-3.0.
+Requires Android 8.0+ and a USB OTG capable device. Licensed under the GPL-3.0.

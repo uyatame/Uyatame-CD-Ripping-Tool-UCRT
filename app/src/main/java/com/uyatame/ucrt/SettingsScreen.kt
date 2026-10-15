@@ -378,7 +378,7 @@ private fun LibraryFoldersPage(vm: MainViewModel, s: AppSettings) {
             )
         }
     }
-    AllFilesSection(vm)
+    if (com.uyatame.ucrt.library.StorageAccess.allFilesSupported) AllFilesSection(vm)
 }
 
 /** 「すべてのファイルへのアクセス」の許可(任意) */
@@ -422,7 +422,10 @@ private fun AllFilesSection(vm: MainViewModel) {
 private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
     Section(T("見た目", "Appearance")) {
         Segmented(T("テーマ", "Theme"), listOf(T("自動", "Auto"), T("ライト", "Light"), T("ダーク", "Dark")), s.themeMode) { vm.set(Keys.themeMode, it) }
-        SwitchRow(T("ダイナミックカラー", "Dynamic color"), T("壁紙の色に合わせます", "Match your wallpaper colors"), s.dynamicColor) { vm.set(Keys.dynamicColor, it) }
+        // ダイナミックカラーは Android 12 から
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            SwitchRow(T("ダイナミックカラー", "Dynamic color"), T("壁紙の色に合わせます", "Match your wallpaper colors"), s.dynamicColor) { vm.set(Keys.dynamicColor, it) }
+        }
     }
     Section(T("再生画面", "Player")) {
         SwitchRow(

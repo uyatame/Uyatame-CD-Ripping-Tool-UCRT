@@ -580,7 +580,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             val pi = PendingIntent.getBroadcast(
                 ctx, 0, Intent(permAction).setPackage(ctx.packageName),
-                PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                mutablePendingFlags(),
             )
             status = T("USBの使用許可を待っています…", "Waiting for USB permission…")
             usb.requestPermission(dev, pi)

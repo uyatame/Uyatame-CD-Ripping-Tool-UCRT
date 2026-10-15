@@ -955,8 +955,9 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                     c.configure(fmt, null, null, 0)
                 } catch (e: Exception) {
                     if (!wantFloat) throw e
-                    fmt.removeKey(MediaFormat.KEY_PCM_ENCODING)
-                    c.configure(fmt, null, null, 0)
+                    // float で受け取れないデコーダー(古い Android など)は、元の形式のまま
+                    runCatching { c.reset() }
+                    c.configure(ex.getTrackFormat(ti), null, null, 0)
                 }
                 c.start()
                 AudioEngine.log("decoder: ${c.name}")

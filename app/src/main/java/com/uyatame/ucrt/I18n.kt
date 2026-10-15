@@ -25,6 +25,14 @@ object AppLanguage {
     val supported: Boolean get() = Build.VERSION.SDK_INT >= 33
 }
 
+/**
+ * USB の使用許可の結果を受け取る PendingIntent のフラグ(結果をシステムが書き込むので、書き換えられる必要がある)。
+ * FLAG_MUTABLE は Android 12 から。それより前は指定しなければ書き換えられる
+ */
+fun mutablePendingFlags(): Int =
+    if (Build.VERSION.SDK_INT >= 31) android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+    else android.app.PendingIntent.FLAG_UPDATE_CURRENT
+
 /** アプリのバージョン名(build.gradle の versionName) */
 object BuildConfigVersion {
     fun name(ctx: Context): String =

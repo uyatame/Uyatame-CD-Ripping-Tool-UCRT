@@ -24,7 +24,10 @@ object StorageAccess {
     }
 
     /** 「すべてのファイルへのアクセス」が許可されているか */
-    val allFiles: Boolean get() = runCatching { Environment.isExternalStorageManager() }.getOrDefault(false)
+    val allFiles: Boolean get() = android.os.Build.VERSION.SDK_INT >= 30 && runCatching { Environment.isExternalStorageManager() }.getOrDefault(false)
+
+    /** 「すべてのファイルへのアクセス」の許可を出せる Android か(Android 11 から) */
+    val allFilesSupported: Boolean get() = android.os.Build.VERSION.SDK_INT >= 30
 
     /** 許可を出す設定画面を開く */
     fun requestIntent(ctx: Context): Intent =
