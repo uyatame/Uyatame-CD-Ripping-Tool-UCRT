@@ -133,6 +133,74 @@ class UsbScsiDrive private constructor(
         runCatching { clearHalt(epOut) }
     }
 
+    /**
+     * データをドライブへ送るコマンド(WRITE・MODE SELECT・SEND CUE SHEET など)。
+     * 失敗したら ScsiException(センスキー付き)
+     */
+    @Synchronized
+    fun executeOut(cdb: ByteArray, out: ByteArray, off: Int = 0, len: Int = out.size, timeout: Int = 60000) {
+        val cbw = ByteArray(31)
+        val bb = ByteBuffer.wrap(cbw).order(ByteOrder.LITTLE_ENDIAN)
+        val t = tag++
+        bb.putInt(0x43425355)
+        bb.putInt(t)
+        bb.putInt(len)
+        bb.put(0.toByte()) // ホスト → ドライブ
+        bb.put(0.toByte())
+        bb.put(cdb.size.toByte())
+        bb.put(cdb)
+        val op = "cmd=0x%02X".format(cdb[0].toInt() and 0xFF)
+        if (connection.bulkTransfer(epOut, cbw, 31, timeout) != 31) {
+            resetRecovery()
+            throw ScsiException(-1, 0, 0, T("USB送信に失敗しました", "USB send failed"))
+        }
+        var sent = 0
+        var dataFail = false
+        while (sent < len) {
+            val n = minOf(16384, len - sent)
+            val r = connection.bulkTransfer(epOut, out, off + sent, n, timeout)
+            if (r <= 0) {
+                dataFail = true
+                runCatching { clearHalt(epOut) }
+                break
+            }
+            sent += r
+        }
+        val csw = ByteArray(13)
+        var r = connection.bulkTransfer(epIn, csw, 13, timeout)
+        if (r != 13) {
+            runCatching { clearHalt(epIn) }
+            r = connection.bulkTransfer(epIn, csw, 13, timeout)
+            if (r != 13) {
+                resetRecovery()
+                logger?.invoke(T("$op: CSW受信失敗", "$op: CSW receive failed"))
+                throw ScsiException(-1, 0, 0, T("USB受信に失敗しました(ドライブの電力不足の可能性)", "USB receive failed (the drive may lack power)"))
+            }
+        }
+        if (ByteBuffer.wrap(csw).order(ByteOrder.LITTLE_ENDIAN).int != 0x53425355) {
+            resetRecovery()
+            throw ScsiException(-1, 0, 0, T("不正なUSBレスポンスです", "Invalid USB response"))
+        }
+        val status = csw[12].toInt()
+        if (status == 2) {
+            resetRecovery()
+            throw ScsiException(-1, 0, 0, T("USBフェーズエラー", "USB phase error"))
+        }
+        if (status != 0 || dataFail) {
+            val s = try {
+                execute(cdb(0x03, 0, 0, 0, 18, 0), 18, withSense = false).copyOf(18)
+            } catch (e: Exception) {
+                throw ScsiException(-1, 0, 0, T("SCSIコマンド失敗", "SCSI command failed"))
+            }
+            val key = s[2].toInt() and 0x0F
+            val asc = s[12].toInt() and 0xFF
+            val ascq = s[13].toInt() and 0xFF
+            val msg = T("SCSIエラー key=%X asc=%02X/%02X", "SCSI error key=%X asc=%02X/%02X").format(key, asc, ascq)
+            logger?.invoke("$op: $msg")
+            throw ScsiException(key, asc, ascq, msg)
+        }
+    }
+
     @Synchronized
     fun execute(cdb: ByteArray, inLen: Int, timeout: Int = 30000, withSense: Boolean = true): ByteArray {
         val data = ByteArray(inLen)
@@ -304,6 +372,99 @@ class UsbScsiDrive private constructor(
         ),
         count * block,
     )
+
+    // ---- 書き込み(CD-R / CD-RW) ----
+
+    /** ディスクの状態(READ DISC INFORMATION) */
+    class DiscInfo(
+        /** 0 = 空、1 = 追記できる、2 = 書き込み済み(閉じている) */
+        val status: Int,
+        /** 消去できる(CD-RW) */
+        val erasable: Boolean,
+        /** 書き込める最後の位置(リードアウトの始まりの LBA。分からなければ 0) */
+        val lastLeadOut: Int,
+    )
+
+    fun readDiscInfo(): DiscInfo {
+        val d = execute(cdb(0x51, 0, 0, 0, 0, 0, 0, 0, 34, 0), 34)
+        if (d.size < 24) throw ScsiException(-1, 0, 0, T("ディスク情報の応答が短すぎます", "Disc information response too short"))
+        val status = d[2].toInt() and 0x03
+        val erasable = (d[2].toInt() and 0x10) != 0
+        // 20〜23: 書き込める最後のリードアウトの位置(MSF)
+        val m = d[21].toInt() and 0xFF
+        val s = d[22].toInt() and 0xFF
+        val f = d[23].toInt() and 0xFF
+        val lo = if (m == 0xFF && s == 0xFF && f == 0xFF) 0 else (m * 60 + s) * 75 + f - 150
+        return DiscInfo(status, erasable, lo)
+    }
+
+    /** 書き込みの条件(モードページ 05h)を設定する */
+    fun setWriteParameters(writeType: Int, testWrite: Boolean, multiSession: Boolean = false) {
+        val sense = execute(cdb(0x5A, 0x08, 0x05, 0, 0, 0, 0, 0, 0xFF, 0), 0xFF)
+        if (sense.size < 8 + 16) throw ScsiException(-1, 0, 0, T("書き込み条件を読めません", "Cannot read write parameters"))
+        val bdl = ((sense[6].toInt() and 0xFF) shl 8) or (sense[7].toInt() and 0xFF)
+        val p = 8 + bdl
+        val plen = (sense[p + 1].toInt() and 0xFF) + 2
+        val page = sense.copyOfRange(p, minOf(sense.size, p + plen))
+        page[0] = (page[0].toInt() and 0x3F).toByte() // PS は送り返さない
+        // 2: BUFE(バッファーアンダーラン防止)・テスト書き込み・書き込み方式
+        page[2] = ((0x40) or (if (testWrite) 0x10 else 0) or (writeType and 0x0F)).toByte()
+        // 3: マルチセッション・トラックモード(0 = 2ch オーディオ、プリエンファシスなし)
+        page[3] = ((if (multiSession) 0xC0 else 0) or 0x00).toByte()
+        // 4: データブロックの形式(0 = 生の 2352 バイト)
+        page[4] = 0
+        page[8] = 0 // セッションの形式: CD-DA / CD-ROM
+        if (page.size > 15) { page[14] = 0; page[15] = 150.toByte() } // トラック間の無音(TAO): 2 秒
+        val data = ByteArray(8) + page
+        executeOut(cdb(0x55, 0x10, 0, 0, 0, 0, 0, (data.size shr 8) and 0xFF, data.size and 0xFF, 0), data)
+    }
+
+    /** 書き込みの速さ(kB/s。0 で最大)。読み込みは最大のまま */
+    fun setWriteSpeed(writeKbps: Int) {
+        val w = if (writeKbps <= 0) 0xFFFF else writeKbps.coerceAtMost(0xFFFF)
+        execute(cdb(0xBB, 0, 0xFF, 0xFF, (w shr 8) and 0xFF, w and 0xFF, 0, 0, 0, 0, 0, 0), 0)
+    }
+
+    /** SAO の CUE シートを送る */
+    fun sendCueSheet(cue: ByteArray) {
+        executeOut(cdb(0x5D, 0, 0, 0, 0, 0, (cue.size shr 16) and 0xFF, (cue.size shr 8) and 0xFF, cue.size and 0xFF, 0), cue)
+    }
+
+    /** 次に書き込める位置(TAO。まだ書いていないトラックの READ TRACK INFORMATION) */
+    fun nextWritableAddress(): Int {
+        val d = execute(cdb(0x52, 0x01, 0, 0, 0, 0xFF, 0, 0, 36, 0), 36)
+        if (d.size < 16) throw ScsiException(-1, 0, 0, T("トラック情報の応答が短すぎます", "Track information response too short"))
+        val nwaValid = (d[7].toInt() and 0x01) != 0
+        if (!nwaValid) throw ScsiException(-1, 0, 0, T("書き込める位置がありません", "No writable address"))
+        return be32(d, 12).toInt()
+    }
+
+    /** 2352 バイトのセクターを count 個書き込む(lba は負でもよい: SAO の最初の無音) */
+    fun write10(lba: Int, data: ByteArray, off: Int, count: Int) {
+        executeOut(
+            cdb(
+                0x2A, 0,
+                (lba shr 24) and 0xFF, (lba shr 16) and 0xFF, (lba shr 8) and 0xFF, lba and 0xFF,
+                0, (count shr 8) and 0xFF, count and 0xFF, 0,
+            ),
+            data, off, count * 2352,
+        )
+    }
+
+    /** ドライブのバッファーの中身をディスクに書き終える */
+    fun synchronizeCache() {
+        execute(cdb(0x35, 0x02, 0, 0, 0, 0, 0, 0, 0, 0), 0, timeout = 600_000)
+    }
+
+    /** TAO: トラック(func=1)・セッション(func=2)を閉じる */
+    fun closeTrackSession(func: Int, track: Int = 0) {
+        execute(cdb(0x5B, 0x01, func and 0x07, 0, (track shr 8) and 0xFF, track and 0xFF, 0, 0, 0, 0), 0, timeout = 600_000)
+    }
+
+    /** CD-RW の消去(minimal = 目次だけ消す速い消去) */
+    fun blank(minimal: Boolean) {
+        execute(cdb(0xA1, 0x10 or (if (minimal) 0x01 else 0x00), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), 0, timeout = 600_000)
+    }
 
     fun eject() {
         runCatching { execute(cdb(0x1E, 0, 0, 0, 0, 0), 0) }

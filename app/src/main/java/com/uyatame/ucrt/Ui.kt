@@ -431,7 +431,7 @@ fun RipBar(vm: MainViewModel, onOpen: () -> Unit) {
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        T("取り込み中 ${vm.ripIndex + 1} / ${vm.ripCount} 曲目", "Ripping track ${vm.ripIndex + 1} of ${vm.ripCount}"),
+                        vm.busyTitle(),
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(

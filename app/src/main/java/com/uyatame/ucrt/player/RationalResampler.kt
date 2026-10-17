@@ -13,10 +13,17 @@ import kotlin.math.sqrt
  *
  * 入力はチャンネル交互の float。出力の数は入力 1 フレームあたり up/down フレーム前後(端数は次に持ち越す)。
  */
-class RationalResampler(inRate: Int, outRate: Int, private val channels: Int) {
+class RationalResampler(
+    inRate: Int,
+    outRate: Int,
+    private val channels: Int,
+    /** 切る周波数(Hz。null なら入力と出力の低いほうのナイキスト周波数の 0.95 倍) */
+    cutHz: Double? = null,
+    /** 1 位相あたりのタップ数(遷移の幅を狭くするほど多く要る) */
+    private val taps: Int = 24,
+) {
     val up: Int
     val down: Int
-    private val taps = 24
     /** cr[phase][j]: 新しい順に並べた履歴に掛ける係数 */
     private val cr: Array<FloatArray>
     private val hist = Array(channels) { FloatArray(taps * 2) }
@@ -31,7 +38,7 @@ class RationalResampler(inRate: Int, outRate: Int, private val channels: Int) {
         // 仮想の周波数(入力の up 倍)で設計する。入力と出力の低いほうのナイキスト周波数の少し手前で切る
         // (通す帯域 passHz は十分下にあり、前の段の折り返しは入力の周波数 - passHz より上にしかない)
         val virt = inRate.toDouble() * up
-        val cut = minOf(outRate, inRate) / 2.0 * 0.95
+        val cut = cutHz ?: (minOf(outRate, inRate) / 2.0 * 0.95)
         val fc = cut / virt
         val n = up * taps
         val mid = (n - 1) / 2.0

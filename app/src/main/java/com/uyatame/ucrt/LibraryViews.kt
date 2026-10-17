@@ -376,6 +376,8 @@ fun GlobalSheets(vm: MainViewModel) {
     TrackInfoDialog(vm)
     DeleteConfirmDialog(vm)
     UpdateDialog(vm)
+    BurnTracksDialog(vm)
+    BurnDialog(vm)
 }
 
 /** 新しい版が出ていることを知らせ、ダウンロードのページへのリンクを出す */
@@ -543,6 +545,7 @@ private fun AlbumMenuSheet(vm: MainViewModel) {
         if (vm.libStack.lastOrNull() != "album:" + a.key) {
             SheetAction(AppIcons.Album, T("アルバムを開く", "Open album")) { close(); vm.openRoute("album:" + a.key) }
         }
+        SheetAction(AppIcons.Album, T("CD に書き込む…", "Write to CD…")) { vm.burnRequest = a.title to a.tracks; close() }
         HorizontalDivider()
         SheetAction(Icons.Filled.Delete, T("アルバムのファイルを削除…", "Delete album files…")) { vm.deleteRequest = a.tracks; close() }
         Spacer(Modifier.size(16.dp))

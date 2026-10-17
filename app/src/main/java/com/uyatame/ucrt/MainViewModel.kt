@@ -493,7 +493,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             busy -> {
                 val pct = (ripOverall * 100).toInt().coerceIn(0, 100)
                 NotifInfo(
-                    false, T("CDを取り込み中 ${ripIndex + 1}/$ripCount", "Ripping CD ${ripIndex + 1}/$ripCount"),
+                    false, if (busyKind == 0) T("CDを取り込み中 ${ripIndex + 1}/$ripCount", "Ripping CD ${ripIndex + 1}/$ripCount") else busyTitle(),
                     "$pct% ・ " + albumTitle, progress = pct,
                     type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
                 )
@@ -725,7 +725,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         monitorJob = viewModelScope.launch {
             while (isActive && drive === d) {
                 val playingCd = player.isCd && player.current != null
-                if (!busy && !discBusy && !playingCd) {
+                // 書き込みの画面を出しているあいだは、ディスクを読みに行かない(書き込みのコマンドと重ならないように)
+                if (!busy && !discBusy && !playingCd && burn == null) {
                     val st = withContext(Dispatchers.IO) { mediaState(d) }
                     if (!busy && !discBusy && drive === d) {
                         when (st) {
@@ -801,6 +802,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (toc != null && toc.first.any { it.isAudio }) return DiscScan("", toc.first, toc.second)
         val p = try { d.currentProfile() } catch (e: ScsiException) { -1 }
         val pname = if (p < 0) T("種別不明", "Unknown type") else UsbScsiDrive.profileName(p)
+        // 空の CD-R / CD-RW
+        if (p in 0x09..0x0A && runCatching { d.readDiscInfo().status == 0 }.getOrDefault(false)) {
+            return DiscScan(T("空の $pname です。CD のコピーや、曲の書き込みに使えます", "Blank $pname. You can copy a CD or write tracks to it"), emptyList(), 0)
+        }
         if (toc != null) {
             if (p in 0x08..0x0A) return DiscScan(T("データCDです。音楽CDのみ再生・取り込みできます", "This is a data CD. Only audio CDs can be played or ripped"), emptyList(), 0)
         }
@@ -1243,6 +1248,257 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun cancelRip() { job?.cancel() }
+
+    // ---- CD のコピー・書き込み ----
+
+    /** いま busy の作業: 0 = 取り込み、1 = コピーのための読み取り、2 = 曲の変換、3 = 書き込み、4 = 消去 */
+    var busyKind by mutableIntStateOf(0)
+        private set
+
+    /** 進み具合の表示(取り込み以外) */
+    fun busyTitle(): String = when (busyKind) {
+        1 -> T("コピーする CD を読み取り中", "Reading the CD to copy")
+        2 -> T("書き込む曲を準備中 ${ripIndex + 1} / $ripCount 曲目", "Preparing track ${ripIndex + 1} of $ripCount")
+        3 -> T("CD に書き込み中", "Writing the CD")
+        4 -> T("CD-RW を消去中", "Erasing the CD-RW")
+        else -> T("取り込み中 ${ripIndex + 1} / $ripCount 曲目", "Ripping track ${ripIndex + 1} of $ripCount")
+    }
+
+    /** 書き込みの画面(null なら出さない) */
+    class BurnSession(
+        val title: String,
+        val image: com.uyatame.ucrt.rip.BurnImage,
+        /** 0 = ディスク待ち、1 = 書き込み済み */
+        val stage: Int,
+        /** 知らせ(エラーなど)。赤字で出すときは error */
+        val message: String = "",
+        val error: Boolean = false,
+        /** 消去できる CD-RW が入っている */
+        val canErase: Boolean = false,
+    )
+
+    var burn by mutableStateOf<BurnSession?>(null)
+        private set
+
+    /** ライブラリの曲から CD を作る確認(題名と曲)。null なら出さない */
+    var burnRequest by mutableStateOf<Pair<String, List<com.uyatame.ucrt.library.LibTrack>>?>(null)
+
+    private val burnFile: File get() = File(ctx.cacheDir, "burn.pcm")
+
+    /** 書き込む内容を置く場所が足りるか(足りなければ知らせて false) */
+    private fun burnSpaceOk(sectors: Long): Boolean {
+        val need = sectors * 2352 + (50L shl 20)
+        val free = ctx.cacheDir.usableSpace + (if (burnFile.exists()) burnFile.length() else 0L)
+        if (free >= need) return true
+        snack = T("端末の空き容量が足りません(約 %d MB 必要)", "Not enough free storage (about %d MB needed)").format(need shr 20)
+        return false
+    }
+
+    /** いまの音楽 CD をコピーする: まず読み取って端末に置き、そのあと空の CD-R に書き込む */
+    fun startCopy() {
+        val d = drive ?: return
+        if (busy || discBusy) return
+        // 先頭から続いている音楽トラック(エンハンスド CD のデータトラックは除く)
+        val tr = tracks.takeWhile { it.isAudio }
+        if (tr.isEmpty()) { snack = T("音楽 CD を入れてください", "Insert an audio CD"); return }
+        if (!burnSpaceOk((tr.last().endLba - tr.first().startLba).toLong())) return
+        if (player.isCd) player.stop()
+        val s = settings.value
+        val title = albumTitle
+        val lo = leadOut
+        job = viewModelScope.launch {
+            busy = true
+            busyKind = 1
+            ripCount = 1
+            ripIndex = 0
+            ripOverall = 0f
+            ripStartMs = System.currentTimeMillis()
+            notifPct = -1
+            updateService()
+            try {
+                val img = withContext(Dispatchers.IO) {
+                    com.uyatame.ucrt.rip.BurnPrep.fromCd(
+                        d, tr, lo, RipOptions(s.speedX, s.sectorsPerRead, s.retries, s.useC2, s.abortOnError, s.offsetSamples),
+                        burnFile, { p -> ripOverall = p; val pct = (p * 100).toInt(); if (pct >= notifPct + 2) { notifPct = pct; updateService() } },
+                    ) { ensureActive() }
+                }
+                log(T("コピー用に読み取り: $title(${tr.size}曲 %.1f 分)", "Read for copy: $title (${tr.size} tracks, %.1f min)").format(img.seconds / 60))
+                withContext(Dispatchers.IO) { runCatching { d.eject() } }
+                clearDisc(T("空の CD-R を入れてください", "Insert a blank CD-R"))
+                lastMedia = mediaNone
+                burn = BurnSession(title, img, 0)
+            } catch (e: CancellationException) {
+                snack = T("コピーを中止しました", "Copy cancelled")
+                runCatching { burnFile.delete() }
+                throw e
+            } catch (e: Exception) {
+                snack = T("CD を読み取れませんでした: ${e.message}", "Could not read the CD: ${e.message}")
+                log(T("コピーの読み取りエラー: ${e.message}", "Copy read error: ${e.message}"))
+                runCatching { burnFile.delete() }
+            } finally {
+                busy = false
+                busyKind = 0
+                updateService()
+            }
+        }
+    }
+
+    /** ライブラリの曲から CD を作る。gapSec は曲間の無音(秒) */
+    fun startBurnFromTracks(title: String, list: List<com.uyatame.ucrt.library.LibTrack>, gapSec: Int) {
+        if (busy || discBusy) return
+        if (list.isEmpty()) return
+        val secs = list.sumOf { (if (it.endMs > 0) it.endMs - it.startMs else it.durationMs) } / 1000 + gapSec * list.size
+        if (secs > 80 * 60) { snack = T("80 分を超えるため、CD 1 枚に入りません", "Longer than 80 minutes; does not fit on one CD"); return }
+        if (!burnSpaceOk(secs * 75 + 75 * 60)) return
+        val src = list.map {
+            com.uyatame.ucrt.rip.BurnSource(Uri.parse(com.uyatame.ucrt.library.Cue.fileUri(it.uri)), it.startMs, it.endMs)
+        }
+        job = viewModelScope.launch {
+            busy = true
+            busyKind = 2
+            ripCount = list.size
+            ripIndex = 0
+            ripOverall = 0f
+            ripStartMs = System.currentTimeMillis()
+            notifPct = -1
+            updateService()
+            try {
+                val img = withContext(Dispatchers.IO) {
+                    com.uyatame.ucrt.rip.BurnPrep.fromFiles(ctx, src, gapSec * 75, burnFile, { log(it) }, { p ->
+                        ripOverall = p
+                        ripIndex = (p * list.size).toInt().coerceAtMost(list.size - 1)
+                        val pct = (p * 100).toInt()
+                        if (pct >= notifPct + 2) { notifPct = pct; updateService() }
+                    }) { ensureActive() }
+                }
+                log(T("書き込みの準備: $title(${list.size}曲 %.1f 分)", "Prepared for writing: $title (${list.size} tracks, %.1f min)").format(img.seconds / 60))
+                burn = BurnSession(title, img, 0)
+            } catch (e: CancellationException) {
+                snack = T("準備を中止しました", "Cancelled")
+                runCatching { burnFile.delete() }
+                throw e
+            } catch (e: Exception) {
+                snack = T("曲を準備できませんでした: ${e.message}", "Could not prepare the tracks: ${e.message}")
+                log(T("書き込みの準備のエラー: ${e.message}", "Prepare error: ${e.message}"))
+                runCatching { burnFile.delete() }
+            } finally {
+                busy = false
+                busyKind = 0
+                updateService()
+            }
+        }
+    }
+
+    /** 入っているディスクに書き込む */
+    fun writeDisc(speedX: Int, testWrite: Boolean) {
+        val b = burn ?: return
+        val d = drive
+        if (d == null) { burn = b.copyMsg(T("ドライブをつないでください", "Connect the drive"), true); return }
+        if (busy) return
+        if (player.isCd) player.stop()
+        val burner = com.uyatame.ucrt.rip.CdBurner(d, com.uyatame.ucrt.rip.BurnOptions(speedX, testWrite)) { log(it) }
+        job = viewModelScope.launch {
+            // ディスクを確かめる(空か・容量が足りるか)
+            val err = withContext(Dispatchers.IO) {
+                runCatching { d.testUnitReady() }
+                runCatching { burner.checkDisc(b.image); null }.getOrElse { it }
+            }
+            if (err != null) {
+                val erasable = withContext(Dispatchers.IO) { runCatching { d.readDiscInfo() }.getOrNull() }
+                    ?.let { it.erasable && it.status != 0 } == true
+                burn = b.copyMsg(
+                    if (err is ScsiException && err.asc == 0x3A) T("ディスクが入っていません", "No disc inserted") else err.message ?: "",
+                    true, erasable,
+                )
+                return@launch
+            }
+            busy = true
+            busyKind = 3
+            ripCount = 1
+            ripIndex = 0
+            ripOverall = 0f
+            ripStartMs = System.currentTimeMillis()
+            notifPct = -1
+            updateService()
+            try {
+                withContext(Dispatchers.IO) {
+                    burner.burn(b.image, { p ->
+                        ripOverall = p
+                        val pct = (p * 100).toInt()
+                        if (pct >= notifPct + 2) { notifPct = pct; updateService() }
+                    }) { ensureActive() }
+                }
+                log(T("書き込み完了: ${b.title}", "Written: ${b.title}") + if (testWrite) T("(テスト書き込み)", " (test write)") else "")
+                withContext(Dispatchers.IO) { runCatching { d.eject() } }
+                burn = BurnSession(
+                    b.title, b.image, 1,
+                    if (testWrite) T("テスト書き込みが完了しました。問題なく書き込めます(ディスクには何も書かれていません)", "Test write finished; the disc can be written (nothing was written to it)")
+                    else T("書き込みが完了しました", "Finished writing the CD"),
+                )
+            } catch (e: CancellationException) {
+                burn = b.copyMsg(T("書き込みを中止しました。このディスクは使えなくなっている可能性があります", "Writing was stopped; this disc may be unusable"), true)
+                throw e
+            } catch (e: Exception) {
+                log(T("書き込みエラー: ${e.message}", "Write error: ${e.message}"))
+                burn = b.copyMsg(T("書き込みに失敗しました: ${e.message}", "Writing failed: ${e.message}"), true)
+            } finally {
+                busy = false
+                busyKind = 0
+                updateService()
+                lastMedia = 0
+            }
+        }
+    }
+
+    /** 入っている CD-RW を消去する(目次だけを消す速い消去) */
+    fun eraseDisc() {
+        val b = burn ?: return
+        val d = drive ?: return
+        if (busy) return
+        job = viewModelScope.launch {
+            busy = true
+            busyKind = 4
+            ripOverall = 0f
+            ripStartMs = System.currentTimeMillis()
+            updateService()
+            try {
+                withContext(Dispatchers.IO) {
+                    d.blank(minimal = true)
+                    // 消し終わるまで待つ
+                    val t0 = System.currentTimeMillis()
+                    while (System.currentTimeMillis() - t0 < 30 * 60_000) {
+                        ensureActive()
+                        val ok = runCatching { d.testUnitReady() }.isSuccess
+                        if (ok && runCatching { d.readDiscInfo().status == 0 }.getOrDefault(false)) break
+                        Thread.sleep(1000)
+                    }
+                }
+                burn = BurnSession(b.title, b.image, 0, T("消去しました。「書き込む」を押してください", "Erased. Tap Write"))
+            } catch (e: Exception) {
+                burn = b.copyMsg(T("消去できませんでした: ${e.message}", "Could not erase: ${e.message}"), true)
+            } finally {
+                busy = false
+                busyKind = 0
+                updateService()
+            }
+        }
+    }
+
+    /** もう 1 枚書く(同じ内容のまま、ディスク待ちに戻る) */
+    fun burnAgain() {
+        val b = burn ?: return
+        burn = BurnSession(b.title, b.image, 0, T("空の CD-R を入れて「書き込む」を押してください", "Insert a blank CD-R and tap Write"))
+    }
+
+    /** 書き込みの画面を閉じる(端末に置いた内容も消す) */
+    fun closeBurn() {
+        if (busy && busyKind >= 3) return
+        burn = null
+        runCatching { burnFile.delete() }
+    }
+
+    private fun BurnSession.copyMsg(msg: String, error: Boolean, canErase: Boolean = false) =
+        BurnSession(title, image, stage, msg, error, canErase)
 
     private fun safe(s: String): String {
         val t = s.replace(unsafeChars, "_").trim()

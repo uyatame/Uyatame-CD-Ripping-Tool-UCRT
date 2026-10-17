@@ -7,6 +7,7 @@
 ## 主な機能
 
 - **CDの取り込み**: FLAC(ロスレス)/ AAC / MP3 / WAV(曲情報・ジャケット付き)。音質はプリセットから選ぶだけ、細かい設定も可能。取り込む前の確認と、失敗しても元のファイルが消えない上書き
+- **CDの書き込み**: 音楽CDのコピー(曲の並び・曲間もそのまま)、ライブラリの曲から音楽CDを作る(CD-R / CD-RW、SAO / TAO、テスト書き込み)
 - **曲情報の自動取得**: CDを入れると MusicBrainz から曲名・アーティスト・ジャケットを取得。候補からの選択、名前での検索にも対応
 - **正確な読み取り**: リトライ、C2エラー検出、読み取りオフセット補正、読み取り速度の指定
 - **ライブラリ**: 取り込んだ曲と端末内の音楽フォルダの曲を、カテゴリー(アルバム・アーティスト・全曲・お気に入り・プレイリスト・最近追加・最近再生・よく聴く曲・音質別・ジャンル・発売年・フォルダ)から探せるトップ画面。横断検索、形式と音質の表示(ハイレゾは金色)、長押しメニュー(次に再生・再生リストに追加・プレイリストに追加など)、高速スクロール
@@ -79,6 +80,7 @@ keyPassword=********
 UCRT turns an Android phone plus a USB optical drive into a CD ripper and player.
 
 - Rip audio CDs to FLAC, AAC, MP3 or WAV (with tags and cover art), with retries, C2 error detection and read offset correction
+- Burn audio CDs: copy a CD (same track layout) or write library tracks to a CD-R / CD-RW (SAO / TAO, test write)
 - Automatic track info and cover art from MusicBrainz, with a match chooser and name search
 - Library of ripped albums and any music folders you add, with search, sorting, grid/list views and fast scroll
 - Bit-perfect output to USB DACs through the app's own USB audio driver, DSD playback, DAR (PCM upsampling / conversion to DSD), source direct and a parametric equalizer with a curve editor

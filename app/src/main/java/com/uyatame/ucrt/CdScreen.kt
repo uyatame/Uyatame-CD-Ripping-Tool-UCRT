@@ -294,6 +294,14 @@ private fun AlbumHeader(
                     label = { Text(s.qualityLabel()) },
                     leadingIcon = { Icon(AppIcons.MusicNote, null, Modifier.size(18.dp)) },
                 )
+                Spacer(Modifier.width(8.dp))
+                // 空の CD-R に、この CD と同じ内容を書く
+                AssistChip(
+                    onClick = { vm.startCopy() },
+                    enabled = !vm.busy && !vm.discBusy,
+                    label = { Text(T("CD をコピー", "Copy CD")) },
+                    leadingIcon = { Icon(AppIcons.Album, null, Modifier.size(18.dp)) },
+                )
                 Spacer(Modifier.weight(1f))
                 IconButton(onEdit, enabled = !vm.busy) { Icon(Icons.Filled.Edit, T("曲情報を編集", "Edit track info")) }
                 IconButton({ vm.openChooser() }, enabled = !vm.busy) { Icon(Icons.Filled.Search, T("曲情報の候補・検索", "Matches & search")) }
