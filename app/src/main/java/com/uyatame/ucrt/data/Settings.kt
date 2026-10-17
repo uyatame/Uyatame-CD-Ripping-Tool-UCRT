@@ -68,6 +68,8 @@ data class AppSettings(
     val cdPlaySpeed: Int = 4,
     val keepScreenOn: Boolean = true,
     val themeMode: Int = 0,
+    /** タブレットモード: 0 = 自動(画面の短い辺が 600dp 以上)、1 = オン、2 = オフ */
+    val tabletMode: Int = 0,
     val dynamicColor: Boolean = true,
     val ambientPlayer: Boolean = true,
     val bitPerfect: Boolean = false,
@@ -163,6 +165,7 @@ object Keys {
     val cdPlaySpeed = intPreferencesKey("cdPlaySpeed")
     val keepScreenOn = booleanPreferencesKey("keepScreenOn")
     val themeMode = intPreferencesKey("themeMode")
+    val tabletMode = intPreferencesKey("tabletMode")
     val dynamicColor = booleanPreferencesKey("dynamicColor")
     val ambientPlayer = booleanPreferencesKey("ambientPlayer")
     val bitPerfect = booleanPreferencesKey("bitPerfect")
@@ -219,6 +222,7 @@ class SettingsRepository(private val context: Context) {
             cdPlaySpeed = p[Keys.cdPlaySpeed] ?: d.cdPlaySpeed,
             keepScreenOn = p[Keys.keepScreenOn] ?: d.keepScreenOn,
             themeMode = p[Keys.themeMode] ?: d.themeMode,
+            tabletMode = p[Keys.tabletMode] ?: d.tabletMode,
             dynamicColor = p[Keys.dynamicColor] ?: d.dynamicColor,
             ambientPlayer = p[Keys.ambientPlayer] ?: d.ambientPlayer,
             bitPerfect = p[Keys.bitPerfect] ?: d.bitPerfect,

@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.heightIn
@@ -234,13 +236,17 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
 
     val pager = rememberPagerState(initialPage = 1) { 3 }
     val scope = rememberCoroutineScope()
-    BackHandler(onBack = onClose)
+    // タブレットモードの右の再生画面は閉じない(戻るは左の画面に任せる)
+    val inPane = LocalInPane.current
+    BackHandler(enabled = !inPane, onBack = onClose)
     // 左右のページを表示中は、戻るで再生中のページへ
     BackHandler(enabled = pager.currentPage != 1) { scope.launch { pager.animateScrollToPage(1) } }
 
     val dark = ambient || MaterialTheme.colorScheme.background.let { (it.red + it.green + it.blue) / 3 < 0.5f }
     val view = LocalView.current
-    DisposableEffect(dark) {
+    DisposableEffect(dark, inPane) {
+        // 右に出したままのときは、画面全体の状態バーの色は変えない
+        if (inPane) return@DisposableEffect onDispose {}
         val w = (view.context as? Activity)?.window
         val c = w?.let { WindowCompat.getInsetsController(it, view) }
         val before = c?.isAppearanceLightStatusBars
@@ -279,12 +285,19 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
         }
         CompositionLocalProvider(LocalContentColor provides col.content) {
             // 横向きでは、カメラの切り欠きが左右に来るので、そこも避ける
-            val bars = if (isLandscape()) Modifier.windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)) else Modifier.systemBarsPadding()
+            val bars = when {
+                inPane -> Modifier.windowInsetsPadding(
+                    WindowInsets.systemBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End),
+                )
+                isLandscape() -> Modifier.windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
+                else -> Modifier.systemBarsPadding()
+            }
             Column(Modifier.fillMaxSize().then(bars)) {
                 // ---- 上の帯: 閉じる・ページの切り替え・メニュー ----
                 var menu by remember { mutableStateOf(false) }
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClose) { Icon(Icons.Filled.KeyboardArrowDown, T("閉じる", "Close"), tint = col.content) }
+                    if (inPane) Spacer(Modifier.size(48.dp))
+                    else IconButton(onClose) { Icon(Icons.Filled.KeyboardArrowDown, T("閉じる", "Close"), tint = col.content) }
                     Row(Modifier.weight(1f), horizontalArrangement = Arrangement.Center) {
                         listOf(T("お気に入り", "Favorites"), T("再生中", "Playing"), T("再生リスト", "Queue")).forEachIndexed { i, l ->
                             val sel = pager.currentPage == i

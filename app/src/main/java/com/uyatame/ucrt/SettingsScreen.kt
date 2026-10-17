@@ -429,6 +429,14 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
         if (android.os.Build.VERSION.SDK_INT >= 31) {
             SwitchRow(T("ダイナミックカラー", "Dynamic color"), T("壁紙の色に合わせます", "Match your wallpaper colors"), s.dynamicColor) { vm.set(Keys.dynamicColor, it) }
         }
+        Segmented(T("タブレットモード", "Tablet mode"), listOf(T("自動", "Auto"), T("オン", "On"), T("オフ", "Off")), s.tabletMode) { vm.set(Keys.tabletMode, it) }
+        Text(
+            T(
+                "タブを画面の左に並べ、広い画面では再生画面をライブラリの右に出したままにします。自動では、タブレットなど画面の大きい端末で使います",
+                "Puts the tabs on the left, and on wide screens keeps the player open beside the library. Auto uses it on tablets and other large screens",
+            ),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
     Section(T("再生画面", "Player")) {
         SwitchRow(

@@ -78,6 +78,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -187,8 +188,17 @@ fun App(vm: MainViewModel) {
         }
         BackHandler(enabled = tab == 2 && settingsPage != 0) { settingsPage = 0 }
 
-        // 横向きでは、下のタブの代わりに左のレールで切り替える(ミニプレーヤーなどは中身の下に出す)
-        val land = isLandscape()
+        // 横向きとタブレットモードでは、下のタブの代わりに左のレールで切り替える(ミニプレーヤーなどは中身の下に出す)
+        val conf = LocalConfiguration.current
+        val tablet = when (s.tabletMode) {
+            1 -> true
+            2 -> false
+            else -> conf.smallestScreenWidthDp >= 600
+        }
+        val land = isLandscape() || tablet
+        // タブレットモードで幅が広ければ、再生画面を右に出したままにする
+        val pane = tablet && conf.screenWidthDp >= 840 && vm.player.current != null
+        val paneWidth = (conf.screenWidthDp * 0.36f).coerceIn(340f, 440f).dp
         // ライブラリを表示中にもう一度押すと、ライブラリのトップへ戻る
         val onTab: (Int) -> Unit = { t -> if (t == 0 && tab == 0) vm.libHome() else tab = t }
         val tabs = listOf(
@@ -196,6 +206,7 @@ fun App(vm: MainViewModel) {
             Triple(AppIcons.Album, T("ディスク", "Disc"), 1),
             Triple(Icons.Filled.Settings, T("設定", "Settings"), 2),
         )
+        CompositionLocalProvider(LocalTablet provides tablet) {
         Box(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxSize()) {
         if (land) {
@@ -230,7 +241,7 @@ fun App(vm: MainViewModel) {
                     } else Modifier,
                 ) {
                     if (vm.busy) RipBar(vm) { tab = 1 }
-                    if (vm.player.current != null) MiniPlayer(vm) { showPlayer = true }
+                    if (vm.player.current != null && !pane) MiniPlayer(vm) { showPlayer = true }
                     if (!land) {
                         NavigationBar {
                             tabs.forEach { (icon, label, i) ->
@@ -249,13 +260,22 @@ fun App(vm: MainViewModel) {
                 }
             }
         }
+        if (pane) {
+            // タブレットモード: 右に再生画面を出したままにする
+            Box(Modifier.width(paneWidth).fillMaxHeight()) {
+                CompositionLocalProvider(LocalInPane provides true) {
+                    NowPlayingScreen(vm, s) {}
+                }
+            }
+        }
         }
         AnimatedVisibility(
-            visible = showPlayer && vm.player.current != null,
+            visible = showPlayer && vm.player.current != null && !pane,
             enter = slideInVertically { it },
             exit = slideOutVertically { it },
         ) {
             NowPlayingScreen(vm, s) { showPlayer = false }
+        }
         }
         }
         GlobalSheets(vm)
@@ -264,12 +284,20 @@ fun App(vm: MainViewModel) {
 
 // ---------------- 共通部品 ----------------
 
+/** タブレットモードか(設定と画面の大きさで決まる) */
+val LocalTablet = androidx.compose.runtime.compositionLocalOf { false }
+
+/** タブレットモードで、右に出したままの再生画面の中か */
+val LocalInPane = androidx.compose.runtime.compositionLocalOf { false }
+
 /**
  * 横向きの画面か(幅が高さより広い)。横向きでは、下のタブの代わりに左のレールを使い、
  * 再生画面やアルバムのページを左右に分ける。縦向きのときの見た目は変えない
  */
 @Composable
 fun isLandscape(): Boolean {
+    // タブレットモードの右の再生画面の中は、幅が狭いので縦向きと同じ並びにする
+    if (LocalInPane.current) return false
     val c = LocalConfiguration.current
     return c.orientation == Configuration.ORIENTATION_LANDSCAPE || c.screenWidthDp > c.screenHeightDp
 }
@@ -277,7 +305,7 @@ fun isLandscape(): Boolean {
 /** 横向きのときだけ、中身を読みやすい幅にして左右の中央に寄せる(設定のページなど) */
 @Composable
 fun WideCenter(maxWidth: Dp = 720.dp, content: @Composable () -> Unit) {
-    if (isLandscape()) {
+    if (isLandscape() || LocalTablet.current) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             Box(Modifier.widthIn(max = maxWidth).fillMaxSize()) { content() }
         }
