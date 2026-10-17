@@ -6,6 +6,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -215,7 +217,7 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
             onDismissRequest = { showQuality = false },
             confirmButton = { TextButton({ showQuality = false }) { Text(T("閉じる", "Close")) } },
             title = { Text(T("取り込みの音質", "Rip quality")) },
-            text = { QualityOptions(vm, s) },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) { QualityOptions(vm, s) } },
         )
     }
 }
@@ -517,7 +519,7 @@ private fun RipConfirmDialog(vm: MainViewModel, s: AppSettings, plan: MainViewMo
         onDismissRequest = { vm.dismissRipPlan() },
         title = { Text(T("取り込みの確認", "Confirm ripping")) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(T("${plan.count}曲 ・ ${s.qualityLabel()}", "${plan.count} tracks · ${s.qualityLabel()}"))
                 Text(
                     T("保存先: ", "Save to: ") + plan.dest,

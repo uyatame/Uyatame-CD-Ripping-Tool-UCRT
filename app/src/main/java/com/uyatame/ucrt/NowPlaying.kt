@@ -26,6 +26,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -44,6 +52,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -68,6 +77,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -108,6 +118,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -267,7 +278,9 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
             )
         }
         CompositionLocalProvider(LocalContentColor provides col.content) {
-            Column(Modifier.fillMaxSize().systemBarsPadding()) {
+            // 横向きでは、カメラの切り欠きが左右に来るので、そこも避ける
+            val bars = if (isLandscape()) Modifier.windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)) else Modifier.systemBarsPadding()
+            Column(Modifier.fillMaxSize().then(bars)) {
                 // ---- 上の帯: 閉じる・ページの切り替え・メニュー ----
                 var menu by remember { mutableStateOf(false) }
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -411,22 +424,20 @@ private fun PlayerPage(
         // 画面の小さい端末(高さが足りない・幅が狭い)では、文字やボタンを小さくし、余白を詰める
         val compact = maxHeight < 640.dp || maxWidth < 340.dp
         val tiny = maxHeight < 540.dp
-        val playSize = if (compact) 64.dp else 80.dp
-        val skipSize = if (compact) 50.dp else 60.dp
+        // 横向きの電話(高さ 360dp 前後)では、再生ボタンをもう一回り小さくして縦に収める
+        val land = isLandscape()
+        val tight = land && maxHeight < 420.dp
+        val pageH = maxHeight
+        val playSize = if (tight) 56.dp else if (compact) 64.dp else 80.dp
+        val skipSize = if (tight) 44.dp else if (compact) 50.dp else 60.dp
         var seeking by remember(cur.id) { mutableStateOf<Float?>(null) }
         val dur = p.durationMs.coerceAtLeast(1)
         val frac = seeking ?: (p.positionMs.toFloat() / dur).coerceIn(0f, 1f)
         val lib = vm.libTrackOf(cur)
 
-        Column(
-            Modifier.fillMaxSize().padding(horizontal = if (compact) 16.dp else 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            // ---- ジャケット(または歌詞) ----
-            Box(
-                Modifier.weight(1f).fillMaxWidth().padding(vertical = if (compact) 6.dp else 14.dp),
-                contentAlignment = Alignment.Center,
-            ) {
+        // ---- ジャケット(または歌詞) ----
+        val artPane: @Composable (Modifier) -> Unit = { m ->
+            Box(m, contentAlignment = Alignment.Center) {
                 if (showLyrics) {
                     if (lyrics != null) {
                         LyricsView(lyrics, p.positionMs, col, Modifier.fillMaxSize()) { p.seek(it) }
@@ -454,6 +465,9 @@ private fun PlayerPage(
                     )
                 }
             }
+        }
+        // ---- 曲の情報と操作(縦向きではジャケットの下、横向きでは右) ----
+        val controls: @Composable ColumnScope.() -> Unit = {
             // ---- 音質 ----
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (detail?.hiRes == true) {
@@ -650,6 +664,31 @@ private fun PlayerPage(
                 IconButton(onQueue) { Icon(AppIcons.Queue, T("再生リスト", "Queue"), tint = col.sub) }
             }
             Spacer(Modifier.height(if (compact) 2.dp else 6.dp))
+        }
+        if (land) {
+            // 横向き: 左にジャケット、右に情報と操作。高さが足りなければ右側だけスクロールする
+            // (収まるときはスクロールを切り、下へのスワイプで閉じる操作を右側でも使えるようにする)
+            Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                artPane(Modifier.weight(0.42f).fillMaxHeight().padding(vertical = 8.dp))
+                Spacer(Modifier.width(20.dp))
+                val st = rememberScrollState()
+                Column(Modifier.weight(0.58f).fillMaxHeight().verticalScroll(st, enabled = st.maxValue > 0)) {
+                    Column(
+                        Modifier.fillMaxWidth().heightIn(min = pageH).padding(vertical = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        content = controls,
+                    )
+                }
+            }
+        } else {
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = if (compact) 16.dp else 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                artPane(Modifier.weight(1f).fillMaxWidth().padding(vertical = if (compact) 6.dp else 14.dp))
+                controls()
+            }
         }
     }
 }
@@ -940,26 +979,50 @@ private fun VolumeSheet(vm: MainViewModel, onDismiss: () -> Unit) {
         v = x
         if (usb) vm.setUsbVolume(x, save) else runCatching { am.setStreamVolume(AudioManager.STREAM_MUSIC, x, 0) }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(T("音量", "Volume"), style = MaterialTheme.typography.titleLarge)
-            Text(
-                (AudioEngine.output?.name ?: T("出力先", "Output")) + if (usb) T(" ・ DAC の音量", " · DAC volume") else "",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(16.dp))
-            VolumeDial(v, max, { touching = it }, { setVol(it, false) }, { setVol(v, true) })
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedIconButton({ setVol(v - 1, true) }, Modifier.size(52.dp)) { Text("−", fontSize = 24.sp) }
-                Spacer(Modifier.width(48.dp))
-                OutlinedIconButton({ setVol(v + 1, true) }, Modifier.size(52.dp)) { Text("+", fontSize = 24.sp) }
+    val land = isLandscape()
+    val title: @Composable () -> Unit = {
+        Text(T("音量", "Volume"), style = MaterialTheme.typography.titleLarge)
+        Text(
+            (AudioEngine.output?.name ?: T("出力先", "Output")) + if (usb) T(" ・ DAC の音量", " · DAC volume") else "",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    val buttons: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedIconButton({ setVol(v - 1, true) }, Modifier.size(52.dp)) { Text("−", fontSize = 24.sp) }
+            Spacer(Modifier.width(48.dp))
+            OutlinedIconButton({ setVol(v + 1, true) }, Modifier.size(52.dp)) { Text("+", fontSize = 24.sp) }
+        }
+        Text(
+            T("ダイヤルをなぞって回すと、大きく変えられます", "Trace the dial to change it quickly"),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+    }
+    // 横向きでは高さが足りないので、半分だけ開かずに全体を出す
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = land)) {
+        if (land) {
+            // 横向き: 左にダイヤル、右に名前とボタン
+            Row(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
+            ) {
+                VolumeDial(v, max, { touching = it }, { setVol(it, false) }, { setVol(v, true) }, 200.dp)
+                Spacer(Modifier.width(32.dp))
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    title()
+                    Spacer(Modifier.height(16.dp))
+                    buttons()
+                }
             }
-            Text(
-                T("ダイヤルをなぞって回すと、大きく変えられます", "Trace the dial to change it quickly"),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 12.dp),
-            )
+        } else {
+            Column(Modifier.fillMaxWidth().padding(bottom = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                title()
+                Spacer(Modifier.height(16.dp))
+                VolumeDial(v, max, { touching = it }, { setVol(it, false) }, { setVol(v, true) })
+                Spacer(Modifier.height(8.dp))
+                buttons()
+            }
         }
     }
 }
@@ -968,7 +1031,7 @@ private fun VolumeSheet(vm: MainViewModel, onDismiss: () -> Unit) {
  * 大きなダイヤル。指でなぞった角度の分だけ変わる(急に最大にならないよう、触った場所へは飛ばない)。
  */
 @Composable
-private fun VolumeDial(value: Int, max: Int, onTouch: (Boolean) -> Unit, onChange: (Int) -> Unit, onDone: () -> Unit) {
+private fun VolumeDial(value: Int, max: Int, onTouch: (Boolean) -> Unit, onChange: (Int) -> Unit, onDone: () -> Unit, dialSize: Dp = 240.dp) {
     val startAngle = 135f
     val sweep = 270f
     val cur by rememberUpdatedState(value)
@@ -978,7 +1041,7 @@ private fun VolumeDial(value: Int, max: Int, onTouch: (Boolean) -> Unit, onChang
     val track = MaterialTheme.colorScheme.surfaceVariant
     val active = MaterialTheme.colorScheme.primary
     Box(
-        Modifier.size(240.dp).pointerInput(max) {
+        Modifier.size(dialSize).pointerInput(max) {
             var acc = 0f
             var prev = 0f
             fun angleOf(o: Offset): Float =
@@ -1029,7 +1092,8 @@ private fun SleepTimerDialog(p: PlayerController, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text(T("スリープタイマー", "Sleep timer")) },
         text = {
-            Column {
+            // 横向きの電話では収まらないので、スクロールできるようにする
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
                     when {
                         p.stopAfterTrack -> T("今の曲が終わったら止まります", "Stops at the end of this song")

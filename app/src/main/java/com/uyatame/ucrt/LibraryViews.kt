@@ -47,6 +47,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -440,7 +441,7 @@ private fun DeleteConfirmDialog(vm: MainViewModel) {
         icon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
         title = { Text(T("${list.size}曲のファイルを削除しますか?", "Delete ${list.size} song files?")) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     T("端末からファイルを削除します。元に戻すことはできません。", "The files will be deleted from your device. This cannot be undone."),
                     color = MaterialTheme.colorScheme.error,
@@ -475,41 +476,45 @@ private fun TrackMenuSheet(vm: MainViewModel) {
     val t = vm.menuTrack ?: return
     val ctxPl = vm.menuTrackPlaylist
     val close = { vm.menuTrack = null; vm.menuTrackPlaylist = null }
-    ModalBottomSheet(onDismissRequest = close) {
-        Row(Modifier.padding(horizontal = 24.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            ArtImage(vm.albumKeyOf(t.uri) ?: t.uri, t.uri, t.coverUri, Modifier.size(56.dp), 8.dp)
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(t.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(
-                    t.artist + " ・ " + t.album, style = MaterialTheme.typography.bodySmall, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                TrackBadge(t, Modifier.padding(top = 4.dp))
+    val land = isLandscape()
+    // 横向きでは高さが足りないので、半分だけ開かずに全体を出し、スクロールできるようにする
+    ModalBottomSheet(onDismissRequest = close, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = land)) {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            Row(Modifier.padding(horizontal = 24.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                ArtImage(vm.albumKeyOf(t.uri) ?: t.uri, t.uri, t.coverUri, Modifier.size(56.dp), 8.dp)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(t.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        t.artist + " ・ " + t.album, style = MaterialTheme.typography.bodySmall, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TrackBadge(t, Modifier.padding(top = 4.dp))
+                }
             }
-        }
-        HorizontalDivider()
-        SheetAction(AppIcons.PlayNext, T("次に再生", "Play next")) { vm.playNext(listOf(t)); close() }
-        SheetAction(AppIcons.Queue, T("再生リストの最後に追加", "Add to queue")) { vm.addToQueue(listOf(t)); close() }
-        val fav = vm.store.isFav(t.uri)
-        SheetAction(
-            if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-            if (fav) T("お気に入りから外す", "Remove from favorites") else T("お気に入りに追加", "Add to favorites"),
-        ) { vm.toggleFav(t.uri); close() }
-        SheetAction(AppIcons.PlaylistAdd, T("プレイリストに追加…", "Add to playlist…")) { vm.playlistPick = listOf(t.uri); close() }
-        if (ctxPl != null) {
-            SheetAction(Icons.Filled.Delete, T("このプレイリストから外す", "Remove from this playlist")) {
-                vm.store.removeFromPlaylist(ctxPl.first, ctxPl.second); close()
+            HorizontalDivider()
+            SheetAction(AppIcons.PlayNext, T("次に再生", "Play next")) { vm.playNext(listOf(t)); close() }
+            SheetAction(AppIcons.Queue, T("再生リストの最後に追加", "Add to queue")) { vm.addToQueue(listOf(t)); close() }
+            val fav = vm.store.isFav(t.uri)
+            SheetAction(
+                if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                if (fav) T("お気に入りから外す", "Remove from favorites") else T("お気に入りに追加", "Add to favorites"),
+            ) { vm.toggleFav(t.uri); close() }
+            SheetAction(AppIcons.PlaylistAdd, T("プレイリストに追加…", "Add to playlist…")) { vm.playlistPick = listOf(t.uri); close() }
+            if (ctxPl != null) {
+                SheetAction(Icons.Filled.Delete, T("このプレイリストから外す", "Remove from this playlist")) {
+                    vm.store.removeFromPlaylist(ctxPl.first, ctxPl.second); close()
+                }
             }
+            vm.albumKeyOf(t.uri)?.let { k ->
+                SheetAction(AppIcons.Album, T("アルバムを表示", "Go to album")) { close(); vm.openRoute("album:$k") }
+            }
+            SheetAction(Icons.Filled.Person, T("アーティストを表示", "Go to artist")) { close(); vm.openRoute("artist:" + artistOf(t)) }
+            SheetAction(Icons.Filled.Info, T("曲の詳細情報", "Song details")) { vm.infoItem = vm.itemOf(t); close() }
+            HorizontalDivider()
+            SheetAction(Icons.Filled.Delete, T("ファイルを削除…", "Delete file…")) { vm.deleteRequest = listOf(t); close() }
+            Spacer(Modifier.size(16.dp))
         }
-        vm.albumKeyOf(t.uri)?.let { k ->
-            SheetAction(AppIcons.Album, T("アルバムを表示", "Go to album")) { close(); vm.openRoute("album:$k") }
-        }
-        SheetAction(Icons.Filled.Person, T("アーティストを表示", "Go to artist")) { close(); vm.openRoute("artist:" + artistOf(t)) }
-        SheetAction(Icons.Filled.Info, T("曲の詳細情報", "Song details")) { vm.infoItem = vm.itemOf(t); close() }
-        HorizontalDivider()
-        SheetAction(Icons.Filled.Delete, T("ファイルを削除…", "Delete file…")) { vm.deleteRequest = listOf(t); close() }
-        Spacer(Modifier.size(16.dp))
     }
 }
 
@@ -517,38 +522,42 @@ private fun TrackMenuSheet(vm: MainViewModel) {
 private fun AlbumMenuSheet(vm: MainViewModel) {
     val a = vm.menuAlbum ?: return
     val close = { vm.menuAlbum = null }
-    ModalBottomSheet(onDismissRequest = close) {
-        Row(Modifier.padding(horizontal = 24.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(56.dp), 8.dp)
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(a.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(
-                    a.artist + T(" ・ ${a.tracks.size}曲", " · ${a.tracks.size} tracks"), style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                QualityBadge(Quality.badge(a), Quality.classOf(a), Modifier.padding(top = 4.dp))
+    val land = isLandscape()
+    // 横向きでは高さが足りないので、半分だけ開かずに全体を出し、スクロールできるようにする
+    ModalBottomSheet(onDismissRequest = close, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = land)) {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            Row(Modifier.padding(horizontal = 24.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(56.dp), 8.dp)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(a.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        a.artist + T(" ・ ${a.tracks.size}曲", " · ${a.tracks.size} tracks"), style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    QualityBadge(Quality.badge(a), Quality.classOf(a), Modifier.padding(top = 4.dp))
+                }
             }
+            HorizontalDivider()
+            SheetAction(Icons.Filled.PlayArrow, T("再生", "Play")) { vm.playAlbum(a, 0); close() }
+            SheetAction(AppIcons.Shuffle, T("シャッフル再生", "Shuffle")) { vm.playAlbum(a, 0, shuffle = true); close() }
+            SheetAction(AppIcons.PlayNext, T("次に再生", "Play next")) { vm.playNext(a.tracks); close() }
+            SheetAction(AppIcons.Queue, T("再生リストの最後に追加", "Add to queue")) { vm.addToQueue(a.tracks); close() }
+            val fav = vm.store.isFavAlbum(a.key)
+            SheetAction(
+                if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                if (fav) T("お気に入りから外す", "Remove from favorites") else T("アルバムをお気に入りに追加", "Add album to favorites"),
+            ) { vm.toggleFavAlbum(a.key); close() }
+            SheetAction(AppIcons.PlaylistAdd, T("プレイリストに追加…", "Add to playlist…")) { vm.playlistPick = a.tracks.map { it.uri }; close() }
+            SheetAction(Icons.Filled.Person, T("アーティストを表示", "Go to artist")) { close(); vm.openRoute("artist:" + a.artist) }
+            if (vm.libStack.lastOrNull() != "album:" + a.key) {
+                SheetAction(AppIcons.Album, T("アルバムを開く", "Open album")) { close(); vm.openRoute("album:" + a.key) }
+            }
+            SheetAction(AppIcons.Album, T("CD に書き込む…", "Write to CD…")) { vm.burnRequest = a.title to a.tracks; close() }
+            HorizontalDivider()
+            SheetAction(Icons.Filled.Delete, T("アルバムのファイルを削除…", "Delete album files…")) { vm.deleteRequest = a.tracks; close() }
+            Spacer(Modifier.size(16.dp))
         }
-        HorizontalDivider()
-        SheetAction(Icons.Filled.PlayArrow, T("再生", "Play")) { vm.playAlbum(a, 0); close() }
-        SheetAction(AppIcons.Shuffle, T("シャッフル再生", "Shuffle")) { vm.playAlbum(a, 0, shuffle = true); close() }
-        SheetAction(AppIcons.PlayNext, T("次に再生", "Play next")) { vm.playNext(a.tracks); close() }
-        SheetAction(AppIcons.Queue, T("再生リストの最後に追加", "Add to queue")) { vm.addToQueue(a.tracks); close() }
-        val fav = vm.store.isFavAlbum(a.key)
-        SheetAction(
-            if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-            if (fav) T("お気に入りから外す", "Remove from favorites") else T("アルバムをお気に入りに追加", "Add album to favorites"),
-        ) { vm.toggleFavAlbum(a.key); close() }
-        SheetAction(AppIcons.PlaylistAdd, T("プレイリストに追加…", "Add to playlist…")) { vm.playlistPick = a.tracks.map { it.uri }; close() }
-        SheetAction(Icons.Filled.Person, T("アーティストを表示", "Go to artist")) { close(); vm.openRoute("artist:" + a.artist) }
-        if (vm.libStack.lastOrNull() != "album:" + a.key) {
-            SheetAction(AppIcons.Album, T("アルバムを開く", "Open album")) { close(); vm.openRoute("album:" + a.key) }
-        }
-        SheetAction(AppIcons.Album, T("CD に書き込む…", "Write to CD…")) { vm.burnRequest = a.title to a.tracks; close() }
-        HorizontalDivider()
-        SheetAction(Icons.Filled.Delete, T("アルバムのファイルを削除…", "Delete album files…")) { vm.deleteRequest = a.tracks; close() }
-        Spacer(Modifier.size(16.dp))
     }
 }
 
