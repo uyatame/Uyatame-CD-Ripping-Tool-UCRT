@@ -64,7 +64,7 @@ data class LibAlbum(val key: String, val title: String, val artist: String, val 
 val UNKNOWN_ALBUM: String get() = T("不明なアルバム", "Unknown album")
 val UNKNOWN_ARTIST: String get() = T("不明なアーティスト", "Unknown artist")
 
-private val AUDIO_EXT = setOf("flac", "wav", "m4a", "mp3", "ogg", "opus", "aac", "dsf", "dff", "aif", "aiff", "aifc", "mp4")
+private val AUDIO_EXT = setOf("flac", "wav", "m4a", "mp3", "ogg", "opus", "aac", "dsf", "dff", "aif", "aiff", "aifc", "mp4", "wv")
 private val COVER_NAMES = setOf("cover.jpg", "cover.png", "folder.jpg", "front.jpg")
 
 /** 保存先フォルダ内の音楽ファイルを読み取り、アルバム単位にまとめる */
