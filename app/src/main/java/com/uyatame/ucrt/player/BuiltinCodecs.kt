@@ -6,12 +6,15 @@ internal object BuiltinCodecs {
     fun kindOf(name: String): String? = when (name.substringAfterLast('.', "").lowercase()) {
         "flac" -> "flac"
         "aif", "aiff", "aifc" -> "aiff"
+        // m4a / mp4 は中身が ALAC のときだけ内蔵で読む(AAC・MPEG-H なら open() が例外を出し、OS のデコーダーに任せる)
+        "m4a", "mp4" -> "alac"
         else -> null
     }
 
     fun create(kind: String, src: RandomInput): PcmDecoder = when (kind) {
         "flac" -> FlacDecoder(src)
         "aiff" -> AiffDecoder(src)
+        "alac" -> AlacDecoder(src)
         else -> throw java.io.IOException("unknown kind $kind")
     }
 

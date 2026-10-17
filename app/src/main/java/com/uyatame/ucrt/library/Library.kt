@@ -463,19 +463,17 @@ class Library(private val ctx: Context) {
     private fun readTags(uri: Uri, name: String, folder: String, cover: String?, mod: Long): LibTrack {
         val kind = com.uyatame.ucrt.player.BuiltinCodecs.kindOf(name)
         if (kind == "aiff" || kind == "wavpack" || kind == "ape") readBuiltinTags(uri, name, folder, cover, mod, kind)?.let { return it }
-        // m4a: Android 10 より前は周波数・ビット数を教えてくれないので、ALAC なら中身から読む(AAC なら 0 のまま)
+        // MP4 / M4A: 中身の形式を見る
         if (kind == "alac") {
+            val entry = com.uyatame.ucrt.player.BuiltinCodecs.openInput(ctx, uri)?.use { com.uyatame.ucrt.player.Mp4Probe.audioEntry(it) }
+            // MPEG-H 3D Audio(360 Reality Audio など)なら、そう記録する
+            if (com.uyatame.ucrt.player.Mp4Probe.isMpegH(entry)) return readTagsRetriever(uri, name, folder, cover, mod).copy(codec = "MPEG-H")
             val t = readTagsRetriever(uri, name, folder, cover, mod)
-            if (t.bits > 0) return t
+            // ALAC: Android 10 より前は周波数・ビット数を教えてくれないので、中身から読む(AAC なら 0 のまま)
+            if (entry != "alac" || t.bits > 0) return t
             val info = com.uyatame.ucrt.player.BuiltinCodecs.openInput(ctx, uri)?.use { com.uyatame.ucrt.player.BuiltinCodecs.info("alac", it) }
                 ?: return t
             return t.copy(rate = info.rate, bits = info.bits, durationMs = if (t.durationMs > 0) t.durationMs else info.durationMs)
-        }
-        // MP4 / M4A の中身が MPEG-H 3D Audio(360 Reality Audio など)なら、そう記録する
-        val ext = name.substringAfterLast('.', "").lowercase()
-        if (ext == "mp4" || ext == "m4a") {
-            val entry = com.uyatame.ucrt.player.BuiltinCodecs.openInput(ctx, uri)?.use { com.uyatame.ucrt.player.Mp4Probe.audioEntry(it) }
-            if (com.uyatame.ucrt.player.Mp4Probe.isMpegH(entry)) return readTagsRetriever(uri, name, folder, cover, mod).copy(codec = "MPEG-H")
         }
         return readTagsRetriever(uri, name, folder, cover, mod)
     }
