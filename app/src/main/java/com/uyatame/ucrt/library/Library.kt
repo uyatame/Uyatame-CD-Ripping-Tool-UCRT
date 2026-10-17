@@ -43,6 +43,8 @@ data class LibTrack(
     val hidden: Boolean = false,
     /** CUE シートで分けた曲の、CUE シートの URI */
     val sheet: String? = null,
+    /** 拡張子だけでは分からない形式(MP4 の中身が MPEG-H なら "MPEG-H")。空なら拡張子から決める */
+    val codec: String = "",
 )
 
 data class LibAlbum(val key: String, val title: String, val artist: String, val tracks: List<LibTrack>) {
@@ -62,7 +64,7 @@ data class LibAlbum(val key: String, val title: String, val artist: String, val 
 val UNKNOWN_ALBUM: String get() = T("不明なアルバム", "Unknown album")
 val UNKNOWN_ARTIST: String get() = T("不明なアーティスト", "Unknown artist")
 
-private val AUDIO_EXT = setOf("flac", "wav", "m4a", "mp3", "ogg", "opus", "aac", "dsf", "dff", "aif", "aiff", "aifc")
+private val AUDIO_EXT = setOf("flac", "wav", "m4a", "mp3", "ogg", "opus", "aac", "dsf", "dff", "aif", "aiff", "aifc", "mp4")
 private val COVER_NAMES = setOf("cover.jpg", "cover.png", "folder.jpg", "front.jpg")
 
 /** 保存先フォルダ内の音楽ファイルを読み取り、アルバム単位にまとめる */
@@ -97,6 +99,7 @@ class Library(private val ctx: Context) {
                     if (o.has("c")) o.getString("c") else null, o.optLong("m"), o.optString("y"),
                     o.optString("g"), o.optInt("sr"), o.optInt("bt"),
                     o.optLong("ss"), o.optLong("se"), o.optBoolean("h"), if (o.has("cs")) o.getString("cs") else null,
+                    o.optString("cd"),
                 )
             }.distinctBy { docKey(it.uri) }
         }
@@ -119,6 +122,7 @@ class Library(private val ctx: Context) {
             if (t.endMs > 0) o.put("se", t.endMs)
             if (t.hidden) o.put("h", true)
             if (t.sheet != null) o.put("cs", t.sheet)
+            if (t.codec.isNotEmpty()) o.put("cd", t.codec)
             a.put(o)
         }
         val root = JSONObject().put("v", CACHE_VERSION).put("tracks", a)
@@ -467,6 +471,12 @@ class Library(private val ctx: Context) {
                 ?: return t
             return t.copy(rate = info.rate, bits = info.bits, durationMs = if (t.durationMs > 0) t.durationMs else info.durationMs)
         }
+        // MP4 / M4A の中身が MPEG-H 3D Audio(360 Reality Audio など)なら、そう記録する
+        val ext = name.substringAfterLast('.', "").lowercase()
+        if (ext == "mp4" || ext == "m4a") {
+            val entry = com.uyatame.ucrt.player.BuiltinCodecs.openInput(ctx, uri)?.use { com.uyatame.ucrt.player.Mp4Probe.audioEntry(it) }
+            if (com.uyatame.ucrt.player.Mp4Probe.isMpegH(entry)) return readTagsRetriever(uri, name, folder, cover, mod).copy(codec = "MPEG-H")
+        }
         return readTagsRetriever(uri, name, folder, cover, mod)
     }
 
@@ -533,7 +543,7 @@ class Library(private val ctx: Context) {
         }.getOrDefault(uri)
 
         /** 一覧の形式の版(音質・ジャンルを追加したので 2) */
-        const val CACHE_VERSION = 2
+        const val CACHE_VERSION = 3
 
         private val ID3V1_GENRES = listOf(
             "Blues", "Classic Rock", "Country", "Dance", "Disco", "Funk", "Grunge", "Hip-Hop", "Jazz", "Metal",

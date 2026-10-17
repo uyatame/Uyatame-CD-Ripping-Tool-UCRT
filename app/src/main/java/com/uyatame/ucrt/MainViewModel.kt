@@ -353,6 +353,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         // 以前の版で保存した連絡先メールアドレスは不要になったので消す
         viewModelScope.launch { repo.set(com.uyatame.ucrt.data.Keys.contactEmail, "") }
+        player.onNotice = { snack = it }
         player.onStateChanged = {
             updateService()
             loadPlayerArt()

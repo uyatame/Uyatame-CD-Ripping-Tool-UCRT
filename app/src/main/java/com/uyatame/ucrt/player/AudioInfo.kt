@@ -53,6 +53,15 @@ object AudioInfo {
                 return Detail(name, info.rate, info.bits, kbps, info.rate > 48000 || info.bits > 16, sb.toString(), bytes ?: 0L)
             }
         }
+        // MP4 の中身が MPEG-H 3D Audio なら(古い Android では Android が読めないので、中身を見て)
+        val ext0 = Uri.decode(uri.toString()).substringAfterLast('.', "").lowercase()
+        if (ext0 == "mp4" || ext0 == "m4a") {
+            val entry = BuiltinCodecs.openInput(ctx, uri)?.use { Mp4Probe.audioEntry(it) }
+            if (Mp4Probe.isMpegH(entry)) {
+                val bytes = size(ctx, uri) ?: 0L
+                return Detail("MPEG-H", 0, 0, 0, false, "MPEG-H 3D Audio (360 Reality Audio)", bytes)
+            }
+        }
         val r = MediaMetadataRetriever()
         try {
             r.setDataSource(ctx, uri)
@@ -101,6 +110,7 @@ object AudioInfo {
         mime.contains("wav") || ext == "wav" -> "WAV"
         mime.contains("mpeg") || ext == "mp3" -> "MP3"
         mime.contains("alac") -> "ALAC"
+        mime.contains("mha1") || mime.contains("mhm1") || mime.contains("mpegh") -> "MPEG-H"
         mime.contains("opus") || ext == "opus" -> "Opus"
         mime.contains("ogg") || mime.contains("vorbis") || ext == "ogg" -> "Ogg Vorbis"
         mime.contains("mp4") || mime.contains("aac") || ext == "m4a" || ext == "aac" -> "AAC"

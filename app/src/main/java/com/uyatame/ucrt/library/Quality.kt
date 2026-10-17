@@ -21,7 +21,7 @@ object Quality {
     fun isDsd(t: LibTrack): Boolean = ext(t.uri).let { it == "dsf" || it == "dff" }
 
     /** コーデック名(FLAC / DSD / AAC など) */
-    fun codec(t: LibTrack): String = when (val e = ext(t.uri)) {
+    fun codec(t: LibTrack): String = if (t.codec.isNotEmpty()) t.codec else when (val e = ext(t.uri)) {
         "flac" -> "FLAC"
         "wav" -> "WAV"
         "aif", "aiff", "aifc" -> "AIFF"

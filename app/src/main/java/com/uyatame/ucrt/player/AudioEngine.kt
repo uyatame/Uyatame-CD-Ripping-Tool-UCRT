@@ -768,6 +768,14 @@ class AudioOutput(
             val g = AudioEngine.preampGain()
             if (g != 1f) for (k in 0 until samples) fbuf[k] *= g
         }
+        // 3ch 以上(5.1ch など)は、通常の出力ではステレオにまとめて出す
+        if (channels > 2) {
+            if (mixBuf.size < frames * 2) mixBuf = FloatArray(frames * 2)
+            downmix(fbuf, frames, channels, mixBuf)
+            writeTrack(mixBuf, frames * 2, stop)
+            checkUnderrun(t)
+            return
+        }
         val p = pipe
         if (p != null) {
             // DAR: 流れ作業でアップサンプリング(出力への書き込みは流れ作業の出力のスレッド)
@@ -784,6 +792,44 @@ class AudioOutput(
             writeTrack(fbuf, samples, stop)
         }
         checkUnderrun(t)
+    }
+
+    private var mixBuf = FloatArray(0)
+
+    /**
+     * 多チャンネルをステレオにまとめる(Android の並び: 左前・右前・中央・LFE・左後・右後・左横・右横…)。
+     * 中央とサラウンドは -3 dB で左右に足し、LFE は使わない。まとめたあとに大きくなりすぎないよう、左右それぞれの係数の合計で割る
+     */
+    private fun downmix(src: FloatArray, frames: Int, ch: Int, dst: FloatArray) {
+        val k = 0.70710678f
+        val wl = FloatArray(ch)
+        val wr = FloatArray(ch)
+        for (c in 0 until ch) {
+            when (c) {
+                0 -> wl[c] = 1f
+                1 -> wr[c] = 1f
+                2 -> { wl[c] = k; wr[c] = k }
+                3 -> {}
+                else -> if (c % 2 == 0) wl[c] = k else wr[c] = k
+            }
+        }
+        val nl = 1f / wl.sum()
+        val nr = 1f / wr.sum()
+        var i = 0
+        var o = 0
+        for (f in 0 until frames) {
+            var l = 0f
+            var r = 0f
+            for (c in 0 until ch) {
+                val v = src[i + c]
+                l += v * wl[c]
+                r += v * wr[c]
+            }
+            dst[o] = l * nl
+            dst[o + 1] = r * nr
+            i += ch
+            o += 2
+        }
     }
 
     /** 通常の出力へ書き込む(音割れしないよう ±1 に収める) */

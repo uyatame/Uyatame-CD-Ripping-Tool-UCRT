@@ -125,6 +125,11 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     }
 
     var onStateChanged: (() -> Unit)? = null
+    /** 利用者に知らせたいこと(この端末では再生できない形式など)。メインスレッドから呼ぶ */
+    var onNotice: ((String) -> Unit)? = null
+
+    /** この端末では再生できない形式(理由を利用者に知らせる) */
+    private class Unsupported(msg: String) : java.io.IOException(msg)
 
     /** 開く音声ファイル(CUE シートで分けた曲は、印を外した元のファイル) */
     private fun fileOf(u: Uri): Uri =
@@ -1032,9 +1037,12 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         private var outFmt: MediaFormat? = null
         /** 準備のときに取り出した、まだ渡していない出力 */
         private var pending = -1
+        /** MPEG-H 3D Audio(360 Reality Audio など) */
+        private var mpegh = false
 
         init {
             try {
+                checkMpegH(uri)
                 ex.setDataSource(ctx, uri, null)
                 val ti = (0 until ex.trackCount).first {
                     ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
@@ -1079,6 +1087,41 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             }
         }
 
+        /**
+         * MP4 の中身が MPEG-H 3D Audio(MHA1 / MHM1。360 Reality Audio など)なら、この端末で再生できるかを確かめる。
+         * MPEG-H のデコーダーは Android に標準では入っておらず、メーカーが入れた端末(Sony の一部の機種など)だけで使える
+         */
+        private fun checkMpegH(uri: Uri) {
+            val ext = Uri.decode(uri.toString()).substringAfterLast('.', "").lowercase()
+            if (ext != "mp4" && ext != "m4a") return
+            val entry = BuiltinCodecs.openInput(ctx, uri)?.use { Mp4Probe.audioEntry(it) } ?: return
+            if (!Mp4Probe.isMpegH(entry)) return
+            mpegh = true
+            AudioEngine.log("mpeg-h: $entry")
+            if (android.os.Build.VERSION.SDK_INT < 29) {
+                throw Unsupported(
+                    T(
+                        "MPEG-H 3D Audio(360 Reality Audio)の曲の再生には Android 10 以降が必要です",
+                        "Playing MPEG-H 3D Audio (360 Reality Audio) needs Android 10 or later",
+                    ),
+                )
+            }
+            val mime = "audio/$entry"
+            val has = runCatching {
+                android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos.any { ci ->
+                    !ci.isEncoder && ci.supportedTypes.any { it.equals(mime, true) || it.equals("audio/mha1", true) || it.equals("audio/mhm1", true) }
+                }
+            }.getOrDefault(false)
+            if (!has) {
+                throw Unsupported(
+                    T(
+                        "この端末には MPEG-H 3D Audio(360 Reality Audio)のデコーダーがないため再生できません",
+                        "This device has no MPEG-H 3D Audio (360 Reality Audio) decoder",
+                    ),
+                )
+            }
+        }
+
         /** mime を扱えるデコーダーの名前(Android が最初に選ぶもの、それ以外のもの の順) */
         private fun decoderNames(mime: String): List<String> {
             val first = runCatching { MediaCodec.createDecoderByType(mime).let { c -> c.name.also { c.release() } } }.getOrNull()
@@ -1100,6 +1143,8 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             pending = -1
             val f = ex.getTrackFormat(ti)
             if (useFloat) f.setInteger(MediaFormat.KEY_PCM_ENCODING, AFormat.ENCODING_PCM_FLOAT)
+            // MPEG-H はデコーダーに 2ch で出してもらう(ヘッドホン向けに立体音響をまとめる)。対応していないデコーダーは無視する
+            if (mpegh) f.setInteger("max-output-channel-count", 2)
             val c = MediaCodec.createByCodecName(name)
             codec = c
             c.configure(f, null, null, 0)
@@ -1284,6 +1329,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 if (!stopFlag) main.post { if (file === this) { applySwitches(this, segs, Long.MAX_VALUE); next(true) } }
             } catch (e: Exception) {
                 AudioEngine.log("playback error: ${e.javaClass.simpleName}: ${e.message}")
+                if (e is Unsupported) main.post { onNotice?.invoke(e.message ?: "") }
                 // 書き込み済みの分(前の曲の終わり)は鳴らし切ってから次へ
                 out?.let { o -> while (!stopFlag && o.headFrames() < o.framesWritten) Thread.sleep(50) }
                 if (!stopFlag) main.post { if (file === this) { applySwitches(this, segs, Long.MAX_VALUE); next(true) } }
