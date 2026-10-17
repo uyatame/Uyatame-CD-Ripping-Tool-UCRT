@@ -914,6 +914,109 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         return runCatching { WavSource(inp, w, fromMs) }.getOrElse { runCatching { inp.close() }; null }
     }
 
+    /** FLAC ならアプリ内蔵のデコーダーで読む元を作る。FLAC として読めなければ null(OS のデコーダーに任せる) */
+    private fun openFlac(uri: Uri, fromMs: Long): PcmSource? {
+        val name = runCatching { androidx.documentfile.provider.DocumentFile.fromSingleUri(ctx, uri)?.name }.getOrNull()
+        val looksFlac = name?.lowercase()?.endsWith(".flac") == true ||
+            runCatching { ctx.contentResolver.getType(uri) }.getOrNull()?.contains("flac") == true
+        if (!looksFlac) return null
+        val pfd = runCatching { ctx.contentResolver.openFileDescriptor(uri, "r") }.getOrNull()
+        if (pfd == null) { AudioEngine.log("flac: cannot open, using decoder"); return null }
+        return try {
+            FlacSource(pfd, fromMs).also {
+                AudioEngine.log("flac: ${it.rate} Hz ${it.channels}ch ${it.srcBits}bit (built-in decoder)")
+            }
+        } catch (e: Exception) {
+            AudioEngine.log("flac: ${e.javaClass.simpleName}: ${e.message}, using decoder")
+            runCatching { pfd.close() }
+            null
+        }
+    }
+
+    /**
+     * アプリ内蔵の FLAC デコーダー(FlacDecoder)で PCM にする。
+     * OS のデコーダーに頼らないので、端末によるデコーダーの不具合を受けず、元の PCM とビット単位で同じものが出る
+     */
+    private class FlacSource(private val pfd: android.os.ParcelFileDescriptor, fromMs: Long) : PcmSource() {
+        private val fis = java.io.FileInputStream(pfd.fileDescriptor)
+        private val ch = fis.channel
+        private val dec = FlacDecoder(object : RandomInput {
+            override val size: Long = runCatching { ch.size() }.getOrDefault(pfd.statSize)
+            override fun read(pos: Long, b: ByteArray, off: Int, len: Int): Int =
+                ch.read(java.nio.ByteBuffer.wrap(b, off, len), pos)
+        })
+        /** 元の 1 サンプルのビット数 */
+        val srcBits: Int
+        private val enc: Int
+        /** 出力の 1 サンプルのバイト数 */
+        private val outBytes: Int
+        /** 元の値を出力の形式に合わせて左へずらす量 */
+        private val shift: Int
+        /** 途中から再生するとき、最初のフレームで捨てるサンプル数 */
+        private var skip = 0L
+        private var out = ByteArray(0)
+        private val bb get() = java.nio.ByteBuffer.wrap(out)
+
+        init {
+            dec.open()
+            rate = dec.sampleRate
+            channels = dec.channels
+            srcBits = dec.bitsPerSample
+            // 出力は 16 / 24 / 32bit のどれか(元のビット数がそれ以外なら、上に詰める)
+            val cont = when {
+                srcBits <= 16 -> 16
+                srcBits <= 24 -> 24
+                else -> 32
+            }
+            bits = cont
+            enc = when (cont) {
+                16 -> AFormat.ENCODING_PCM_16BIT
+                24 -> AFormat.ENCODING_PCM_24BIT_PACKED
+                else -> AFormat.ENCODING_PCM_32BIT
+            }
+            outBytes = cont / 8
+            shift = cont - srcBits
+            if (dec.totalSamples > 0) durationMs = dec.totalSamples * 1000L / rate
+            val target = if (fromMs > 0) fromMs * rate / 1000 else 0L
+            if (target > 0) dec.seekSample(target)
+            skip = target
+        }
+
+        override fun read(sink: (java.nio.ByteBuffer, Int) -> Unit): Boolean {
+            if (!dec.decodeNext()) return false
+            val n = dec.blockSize
+            // 途中から再生するときは、目的の位置より前を捨てる
+            val from = (skip - dec.frameSample).coerceIn(0L, n.toLong()).toInt()
+            if (from >= n) return true
+            if (firstPtsUs < 0) firstPtsUs = (dec.frameSample + from) * 1_000_000L / rate
+            skip = 0
+            val need = (n - from) * channels * outBytes
+            if (out.size < need) out = ByteArray(need)
+            val s = dec.samples
+            var o = 0
+            for (i in from until n) {
+                for (c in 0 until channels) {
+                    val v = s[c][i] shl shift
+                    out[o] = v.toByte()
+                    out[o + 1] = (v shr 8).toByte()
+                    if (outBytes >= 3) out[o + 2] = (v shr 16).toByte()
+                    if (outBytes == 4) out[o + 3] = (v shr 24).toByte()
+                    o += outBytes
+                }
+            }
+            val b = bb
+            b.limit(o)
+            sink(b, enc)
+            return true
+        }
+
+        override fun close() {
+            runCatching { ch.close() }
+            runCatching { fis.close() }
+            runCatching { pfd.close() }
+        }
+    }
+
     /** OS 内蔵のデコーダーで PCM にする */
     private inner class CodecSource(uri: Uri, fromMs: Long) : PcmSource() {
         /** 途中から再生するとき、ここより前の音は捨てる(キーフレームから読み始めるため、少し前から出てくる) */
@@ -1115,7 +1218,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         private fun open(item: PlayItem, from: Long): PcmSource {
             val uri = fileOf(item.uri ?: throw java.io.IOException("no file"))
             val start = item.startMs + from
-            val src = openWav(uri, start) ?: CodecSource(uri, start)
+            val src = openWav(uri, start) ?: openFlac(uri, start) ?: CodecSource(uri, start)
             // CUE シートで分けた曲は、元のファイルの中のその曲の範囲だけを出す
             return if (item.startMs > 0 || item.endMs > 0) RangeSource(src, item.startMs, item.endMs) else src
         }
