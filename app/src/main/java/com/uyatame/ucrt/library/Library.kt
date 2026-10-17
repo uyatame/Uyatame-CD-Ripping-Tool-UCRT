@@ -62,7 +62,7 @@ data class LibAlbum(val key: String, val title: String, val artist: String, val 
 val UNKNOWN_ALBUM: String get() = T("不明なアルバム", "Unknown album")
 val UNKNOWN_ARTIST: String get() = T("不明なアーティスト", "Unknown artist")
 
-private val AUDIO_EXT = setOf("flac", "wav", "m4a", "mp3", "ogg", "opus", "aac", "dsf", "dff")
+private val AUDIO_EXT = setOf("flac", "wav", "m4a", "mp3", "ogg", "opus", "aac", "dsf", "dff", "aif", "aiff", "aifc")
 private val COVER_NAMES = setOf("cover.jpg", "cover.png", "folder.jpg", "front.jpg")
 
 /** 保存先フォルダ内の音楽ファイルを読み取り、アルバム単位にまとめる */
@@ -436,7 +436,41 @@ class Library(private val ctx: Context) {
         )
     }
 
+    /** AIFF・WavPack・APE は Android 標準の機能では読めないので、アプリ内蔵のデコーダーとタグの読み込みで読む */
+    private fun readBuiltinTags(uri: Uri, name: String, folder: String, cover: String?, mod: Long, kind: String): LibTrack? {
+        val (info, t) = com.uyatame.ucrt.player.BuiltinCodecs.probe(ctx, uri, kind) ?: return null
+        val base = name.substringBeforeLast('.')
+        return LibTrack(
+            uri.toString(),
+            t?.title ?: base,
+            t?.artist ?: UNKNOWN_ARTIST,
+            t?.album ?: UNKNOWN_ALBUM,
+            t?.albumArtist ?: "",
+            t?.track ?: base.take(2).toIntOrNull() ?: 0,
+            t?.disc ?: 1,
+            info.durationMs,
+            folder, cover, mod,
+            t?.year ?: "",
+            cleanGenre(t?.genre),
+            info.rate, info.bits,
+        )
+    }
+
     private fun readTags(uri: Uri, name: String, folder: String, cover: String?, mod: Long): LibTrack {
+        val kind = com.uyatame.ucrt.player.BuiltinCodecs.kindOf(name)
+        if (kind == "aiff" || kind == "wavpack" || kind == "ape") readBuiltinTags(uri, name, folder, cover, mod, kind)?.let { return it }
+        // m4a: Android 10 より前は周波数・ビット数を教えてくれないので、ALAC なら中身から読む(AAC なら 0 のまま)
+        if (kind == "alac") {
+            val t = readTagsRetriever(uri, name, folder, cover, mod)
+            if (t.bits > 0) return t
+            val info = com.uyatame.ucrt.player.BuiltinCodecs.openInput(ctx, uri)?.use { com.uyatame.ucrt.player.BuiltinCodecs.info("alac", it) }
+                ?: return t
+            return t.copy(rate = info.rate, bits = info.bits, durationMs = if (t.durationMs > 0) t.durationMs else info.durationMs)
+        }
+        return readTagsRetriever(uri, name, folder, cover, mod)
+    }
+
+    private fun readTagsRetriever(uri: Uri, name: String, folder: String, cover: String?, mod: Long): LibTrack {
         if (com.uyatame.ucrt.player.dsd.DsdFile.isDsd(name)) return readDsdTags(uri, name, folder, cover, mod)
         if (name.lowercase().endsWith(".wav")) readWavTags(uri, name, folder, cover, mod)?.let { return it }
         if (name.lowercase().endsWith(".flac")) readFlacTags(uri, name, folder, cover, mod)?.let { return it }
@@ -594,6 +628,11 @@ object ArtLoader {
             bytes = runCatching { com.uyatame.ucrt.player.dsd.DsdTags.picture(ctx, Uri.parse(trackUri)) }.getOrNull()
         } else if (trackUri != null && Uri.decode(trackUri).lowercase().endsWith(".wav")) {
             bytes = runCatching { com.uyatame.ucrt.tags.WavTags.picture(ctx, Uri.parse(trackUri)) }.getOrNull()
+        } else if (trackUri != null && com.uyatame.ucrt.player.BuiltinCodecs.kindOf(Uri.decode(trackUri)).let { it == "aiff" || it == "wavpack" || it == "ape" }) {
+            val kind = com.uyatame.ucrt.player.BuiltinCodecs.kindOf(Uri.decode(trackUri))!!
+            bytes = runCatching {
+                com.uyatame.ucrt.player.BuiltinCodecs.openInput(ctx, Uri.parse(trackUri))?.use { com.uyatame.ucrt.tags.ExtraTags.read(kind, it)?.picture }
+            }.getOrNull()
         } else if (trackUri != null) {
             val r = MediaMetadataRetriever()
             try {

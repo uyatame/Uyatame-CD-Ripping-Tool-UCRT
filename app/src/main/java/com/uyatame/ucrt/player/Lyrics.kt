@@ -78,6 +78,10 @@ object LyricsLoader {
             "flac" -> flacLyrics(ctx, uri)
             "mp3" -> mp3Lyrics(ctx, uri)
             "dsf", "dff" -> com.uyatame.ucrt.player.dsd.DsdTags.read(ctx, uri)?.tags?.lyrics
+            "aif", "aiff", "aifc", "wv", "ape" -> {
+                val kind = BuiltinCodecs.kindOf(Uri.decode(uri.toString()))
+                if (kind == null) null else BuiltinCodecs.openInput(ctx, uri)?.use { com.uyatame.ucrt.tags.ExtraTags.read(kind, it)?.lyrics }
+            }
             else -> null
         } ?: return null
         return parse(text)

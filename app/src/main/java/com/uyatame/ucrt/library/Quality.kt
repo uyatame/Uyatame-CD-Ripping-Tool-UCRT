@@ -9,7 +9,7 @@ enum class QualityClass { HiRes, Cd, Lossy }
 
 /** 曲の形式と音質の表示 */
 object Quality {
-    private val LOSSLESS = setOf("FLAC", "WAV", "ALAC", "AIFF")
+    private val LOSSLESS = setOf("FLAC", "WAV", "ALAC", "AIFF", "WavPack", "APE")
 
     fun ext(uri: String): String {
         // ほとんどの URI は区切りの "/" が "%2F" になっているので、そのときだけ戻す(毎回戻すと遅い)
@@ -24,7 +24,9 @@ object Quality {
     fun codec(t: LibTrack): String = when (val e = ext(t.uri)) {
         "flac" -> "FLAC"
         "wav" -> "WAV"
-        "aif", "aiff" -> "AIFF"
+        "aif", "aiff", "aifc" -> "AIFF"
+        "wv" -> "WavPack"
+        "ape" -> "APE"
         "dsf", "dff" -> "DSD"
         "mp3" -> "MP3"
         "ogg" -> "Ogg"

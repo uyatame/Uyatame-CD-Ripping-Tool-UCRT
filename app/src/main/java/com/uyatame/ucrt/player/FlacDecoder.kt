@@ -18,15 +18,15 @@ internal interface RandomInput {
  *
  * 対応: ネイティブ FLAC(.flac)、1〜8ch、4〜32bit、固定・可変ブロックサイズ。Ogg FLAC は非対応(OS のデコーダーに任せる)。
  */
-internal class FlacDecoder(private val src: RandomInput) {
-    var sampleRate = 0
+internal class FlacDecoder(private val src: RandomInput) : PcmDecoder {
+    override var sampleRate = 0
         private set
-    var channels = 0
+    override var channels = 0
         private set
-    var bitsPerSample = 0
+    override var bitsPerSample = 0
         private set
     /** 全体のサンプル数(1 チャンネルあたり。分からなければ 0) */
-    var totalSamples = 0L
+    override var totalSamples = 0L
         private set
     private var minBlock = 0
     private var maxBlock = 0
@@ -34,11 +34,11 @@ internal class FlacDecoder(private val src: RandomInput) {
     private var firstFrame = 0L
 
     /** デコードしたフレーム: samples[ch][0 until blockSize]、最初のサンプルの番号 */
-    var samples: Array<IntArray> = emptyArray()
+    override var samples: Array<IntArray> = emptyArray()
         private set
-    var blockSize = 0
+    override var blockSize = 0
         private set
-    var frameSample = 0L
+    override var frameSample = 0L
         private set
 
     // ---- バイトの読み込み ----
@@ -132,7 +132,7 @@ internal class FlacDecoder(private val src: RandomInput) {
     // ---- ヘッダー ----
 
     /** ファイルの先頭を読む。FLAC でなければ例外 */
-    fun open() {
+    override fun open() {
         seekByte(0)
         var start = 0L
         // 先頭に ID3v2 が付いていれば飛ばす
@@ -266,7 +266,7 @@ internal class FlacDecoder(private val src: RandomInput) {
     }
 
     /** 次のフレームをデコードする。終わりなら false */
-    fun decodeNext(): Boolean {
+    override fun decodeNext(): Boolean {
         val h = nextHeader() ?: return false
         val bs = h.blockSize
         if (samples.size != channels || samples[0].size < bs) samples = Array(channels) { IntArray(maxOf(bs, maxBlock)) }
@@ -379,7 +379,7 @@ internal class FlacDecoder(private val src: RandomInput) {
      * target(サンプル番号)を含むフレームの手前に移る。
      * 次の decodeNext() からそのフレームが出る(frameSample で始まりが分かるので、手前の分は呼び出し側で捨てる)
      */
-    fun seekSample(target: Long) {
+    override fun seekSample(target: Long) {
         if (target <= 0) { seekByte(firstFrame); return }
         var lo = firstFrame
         var hi = src.size

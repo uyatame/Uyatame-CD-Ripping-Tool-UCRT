@@ -914,33 +914,36 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         return runCatching { WavSource(inp, w, fromMs) }.getOrElse { runCatching { inp.close() }; null }
     }
 
-    /** FLAC ならアプリ内蔵のデコーダーで読む元を作る。FLAC として読めなければ null(OS のデコーダーに任せる) */
-    private fun openFlac(uri: Uri, fromMs: Long): PcmSource? {
+    /**
+     * アプリ内蔵のデコーダーで読める形式(FLAC・ALAC・AIFF・WavPack・APE)なら、その読む元を作る。
+     * 対応していない(m4a の中身が AAC など)・読めなければ null(OS のデコーダーに任せる)
+     */
+    private fun openBuiltin(uri: Uri, fromMs: Long): PcmSource? {
         val name = runCatching { androidx.documentfile.provider.DocumentFile.fromSingleUri(ctx, uri)?.name }.getOrNull()
-        val looksFlac = name?.lowercase()?.endsWith(".flac") == true ||
-            runCatching { ctx.contentResolver.getType(uri) }.getOrNull()?.contains("flac") == true
-        if (!looksFlac) return null
+            ?: Uri.decode(uri.toString())
+        val kind = BuiltinCodecs.kindOf(name) ?: return null
         val pfd = runCatching { ctx.contentResolver.openFileDescriptor(uri, "r") }.getOrNull()
-        if (pfd == null) { AudioEngine.log("flac: cannot open, using decoder"); return null }
+        if (pfd == null) { AudioEngine.log("$kind: cannot open, using OS decoder"); return null }
         return try {
-            FlacSource(pfd, fromMs).also {
-                AudioEngine.log("flac: ${it.rate} Hz ${it.channels}ch ${it.srcBits}bit (built-in decoder)")
+            BuiltinSource(pfd, kind, fromMs).also {
+                AudioEngine.log("$kind: ${it.rate} Hz ${it.channels}ch ${it.srcBits}bit (built-in decoder)")
             }
         } catch (e: Exception) {
-            AudioEngine.log("flac: ${e.javaClass.simpleName}: ${e.message}, using decoder")
+            AudioEngine.log("$kind: ${e.javaClass.simpleName}: ${e.message}, using OS decoder")
             runCatching { pfd.close() }
             null
         }
     }
 
     /**
-     * アプリ内蔵の FLAC デコーダー(FlacDecoder)で PCM にする。
-     * OS のデコーダーに頼らないので、端末によるデコーダーの不具合を受けず、元の PCM とビット単位で同じものが出る
+     * アプリ内蔵のデコーダー(PcmDecoder)で PCM にする。
+     * OS のデコーダーに頼らないので、古い Android や、デコーダーに不具合のある端末でも再生でき、
+     * 可逆圧縮の形式なら元の PCM とビット単位で同じものが出る
      */
-    private class FlacSource(private val pfd: android.os.ParcelFileDescriptor, fromMs: Long) : PcmSource() {
+    private class BuiltinSource(private val pfd: android.os.ParcelFileDescriptor, kind: String, fromMs: Long) : PcmSource() {
         private val fis = java.io.FileInputStream(pfd.fileDescriptor)
         private val ch = fis.channel
-        private val dec = FlacDecoder(object : RandomInput {
+        private val dec = BuiltinCodecs.create(kind, object : RandomInput {
             override val size: Long = runCatching { ch.size() }.getOrDefault(pfd.statSize)
             override fun read(pos: Long, b: ByteArray, off: Int, len: Int): Int =
                 ch.read(java.nio.ByteBuffer.wrap(b, off, len), pos)
@@ -1218,7 +1221,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         private fun open(item: PlayItem, from: Long): PcmSource {
             val uri = fileOf(item.uri ?: throw java.io.IOException("no file"))
             val start = item.startMs + from
-            val src = openWav(uri, start) ?: openFlac(uri, start) ?: CodecSource(uri, start)
+            val src = openWav(uri, start) ?: openBuiltin(uri, start) ?: CodecSource(uri, start)
             // CUE シートで分けた曲は、元のファイルの中のその曲の範囲だけを出す
             return if (item.startMs > 0 || item.endMs > 0) RangeSource(src, item.startMs, item.endMs) else src
         }

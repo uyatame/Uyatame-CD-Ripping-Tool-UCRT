@@ -36,6 +36,23 @@ object AudioInfo {
                 d.label() + " · " + (if (d.dff) "DFF" else "DSF") + " · $kbps kbps", size(ctx, uri) ?: 0L,
             )
         }
+        // アプリ内蔵のデコーダーで読む形式は、中身から読む(古い Android でも周波数・ビット数が分かるように)
+        val kind = BuiltinCodecs.kindOf(Uri.decode(uri.toString()))
+        if (kind != null) {
+            val info = BuiltinCodecs.openInput(ctx, uri)?.use { BuiltinCodecs.info(kind, it) }
+            if (info != null) {
+                val name = when (kind) {
+                    "flac" -> "FLAC"; "aiff" -> "AIFF"; "alac" -> "ALAC"; "wavpack" -> "WavPack"; else -> "APE"
+                }
+                val bytes = size(ctx, uri)
+                val kbps = if (bytes != null && info.durationMs > 0) bytes * 8 / info.durationMs else 0L
+                val sb = StringBuilder(name)
+                if (info.rate > 0) sb.append(' ').append(khz(info.rate))
+                if (info.bits > 0) sb.append(" / ").append(info.bits).append(" bit")
+                if (kbps > 0) sb.append(" · ").append(kbps).append(" kbps")
+                return Detail(name, info.rate, info.bits, kbps, info.rate > 48000 || info.bits > 16, sb.toString(), bytes ?: 0L)
+            }
+        }
         val r = MediaMetadataRetriever()
         try {
             r.setDataSource(ctx, uri)
