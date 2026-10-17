@@ -3,6 +3,21 @@
 package com.uyatame.ucrt
 
 import androidx.activity.compose.BackHandler
+import android.content.res.Configuration
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.ScaffoldDefaults
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -172,18 +187,56 @@ fun App(vm: MainViewModel) {
         }
         BackHandler(enabled = tab == 2 && settingsPage != 0) { settingsPage = 0 }
 
+        // 横向きでは、下のタブの代わりに左のレールで切り替える(ミニプレーヤーなどは中身の下に出す)
+        val land = isLandscape()
+        // ライブラリを表示中にもう一度押すと、ライブラリのトップへ戻る
+        val onTab: (Int) -> Unit = { t -> if (t == 0 && tab == 0) vm.libHome() else tab = t }
+        val tabs = listOf(
+            Triple(AppIcons.Library, T("ライブラリ", "Library"), 0),
+            Triple(AppIcons.Album, T("ディスク", "Disc"), 1),
+            Triple(Icons.Filled.Settings, T("設定", "Settings"), 2),
+        )
         Box(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxSize()) {
+        if (land) {
+            NavigationRail(
+                Modifier.fillMaxHeight(),
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                windowInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+                    .only(WindowInsetsSides.Vertical + WindowInsetsSides.Start),
+            ) {
+                Spacer(Modifier.weight(1f))
+                tabs.forEach { (icon, label, i) ->
+                    NavigationRailItem(tab == i, { onTab(i) }, { Icon(icon, null) }, label = { Text(label) })
+                }
+                Spacer(Modifier.weight(1f))
+            }
+        }
         Scaffold(
+            modifier = Modifier.weight(1f),
             snackbarHost = { SnackbarHost(snackHost) },
+            // 横向き: 左の端はレールが受け持つので、中身は上・右・下だけ避ける
+            contentWindowInsets = if (land) {
+                WindowInsets.systemBars.union(WindowInsets.displayCutout)
+                    .only(WindowInsetsSides.Top + WindowInsetsSides.End + WindowInsetsSides.Bottom)
+            } else ScaffoldDefaults.contentWindowInsets,
             bottomBar = {
-                Column {
+                Column(
+                    if (land) {
+                        Modifier.windowInsetsPadding(
+                            WindowInsets.navigationBars.union(WindowInsets.displayCutout)
+                                .only(WindowInsetsSides.End + WindowInsetsSides.Bottom),
+                        )
+                    } else Modifier,
+                ) {
                     if (vm.busy) RipBar(vm) { tab = 1 }
                     if (vm.player.current != null) MiniPlayer(vm) { showPlayer = true }
-                    NavigationBar {
-                        // ライブラリを表示中にもう一度押すと、ライブラリのトップへ戻る
-                        NavigationBarItem(tab == 0, { if (tab == 0) vm.libHome() else tab = 0 }, { Icon(AppIcons.Library, null) }, label = { Text(T("ライブラリ", "Library")) })
-                        NavigationBarItem(tab == 1, { tab = 1 }, { Icon(AppIcons.Album, null) }, label = { Text(T("ディスク", "Disc")) })
-                        NavigationBarItem(tab == 2, { tab = 2 }, { Icon(Icons.Filled.Settings, null) }, label = { Text(T("設定", "Settings")) })
+                    if (!land) {
+                        NavigationBar {
+                            tabs.forEach { (icon, label, i) ->
+                                NavigationBarItem(tab == i, { onTab(i) }, { Icon(icon, null) }, label = { Text(label) })
+                            }
+                        }
                     }
                 }
             },
@@ -195,6 +248,7 @@ fun App(vm: MainViewModel) {
                     else -> SettingsScreen(vm, s, settingsPage) { settingsPage = it }
                 }
             }
+        }
         }
         AnimatedVisibility(
             visible = showPlayer && vm.player.current != null,
@@ -209,6 +263,28 @@ fun App(vm: MainViewModel) {
 }
 
 // ---------------- 共通部品 ----------------
+
+/**
+ * 横向きの画面か(幅が高さより広い)。横向きでは、下のタブの代わりに左のレールを使い、
+ * 再生画面やアルバムのページを左右に分ける。縦向きのときの見た目は変えない
+ */
+@Composable
+fun isLandscape(): Boolean {
+    val c = LocalConfiguration.current
+    return c.orientation == Configuration.ORIENTATION_LANDSCAPE || c.screenWidthDp > c.screenHeightDp
+}
+
+/** 横向きのときだけ、中身を読みやすい幅にして左右の中央に寄せる(設定のページなど) */
+@Composable
+fun WideCenter(maxWidth: Dp = 720.dp, content: @Composable () -> Unit) {
+    if (isLandscape()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            Box(Modifier.widthIn(max = maxWidth).fillMaxSize()) { content() }
+        }
+    } else {
+        content()
+    }
+}
 
 @Composable
 fun ScreenHeader(title: String, actions: @Composable RowScope.() -> Unit = {}) {

@@ -72,6 +72,8 @@ import kotlinx.coroutines.withContext
 @Composable
 fun SettingsScreen(vm: MainViewModel, s: AppSettings, page: Int, onPage: (Int) -> Unit) {
     val back = { onPage(0) }
+    // 横向きでは、横に長くなりすぎないよう読みやすい幅にして中央に寄せる
+    WideCenter {
     when (page) {
         1 -> SettingsPage(T("保存と取り込み", "Saving & ripping"), back) { RipPage(vm, s) }
         2 -> SettingsPage(T("音質", "Quality"), back) { QualityPage(vm, s) }
@@ -83,6 +85,7 @@ fun SettingsScreen(vm: MainViewModel, s: AppSettings, page: Int, onPage: (Int) -
         8 -> SettingsPage(SoundPage.title(SoundPage.MAIN), back) { SoundMain(vm, s) { onPage(80 + it) } }
         in 81..89 -> SettingsPage(SoundPage.title(page - 80), { onPage(8) }) { SoundSubPage(vm, s, page - 80) }
         else -> MainSettings(vm, s, onPage)
+    }
     }
 }
 

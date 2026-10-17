@@ -8,10 +8,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -1103,50 +1108,58 @@ private fun AlbumDetail(vm: MainViewModel, a: LibAlbum) {
     val discs = remember(a) { a.tracks.groupBy { it.disc }.toList().sortedBy { it.first } }
     val multiDisc = discs.size > 1
     val fav = vm.store.isFavAlbum(a.key)
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-        item(key = "bar") {
-            Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton({ vm.libPop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, T("戻る", "Back")) }
-                Spacer(Modifier.weight(1f))
-                if (vm.tagSaving) {
-                    Text(T("保存中…", "Saving…"), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(end = 12.dp))
-                } else {
-                    IconButton({ lookup = true; vm.libLookup(a) }) { Icon(Icons.Filled.Search, T("曲情報を取得", "Get track info")) }
-                    IconButton({ editing = true }) { Icon(Icons.Filled.Edit, T("曲情報を編集", "Edit track info")) }
-                    IconButton({ vm.menuAlbum = a }) { Icon(Icons.Filled.MoreVert, T("その他の操作", "More")) }
-                }
+    val land = isLandscape()
+    val favButton: @Composable () -> Unit = {
+        IconButton({ vm.toggleFavAlbum(a.key) }) {
+            Icon(
+                if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                if (fav) T("お気に入りから外す", "Remove from favorites") else T("お気に入りに追加", "Add to favorites"),
+                tint = if (fav) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    val bar: @Composable () -> Unit = {
+        Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton({ vm.libPop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, T("戻る", "Back")) }
+            Spacer(Modifier.weight(1f))
+            if (vm.tagSaving) {
+                Text(T("保存中…", "Saving…"), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(end = 12.dp))
+            } else {
+                // 横向きでは左の列が狭いので、お気に入りのボタンは上の帯に出す
+                if (land) favButton()
+                IconButton({ lookup = true; vm.libLookup(a) }) { Icon(Icons.Filled.Search, T("曲情報を取得", "Get track info")) }
+                IconButton({ editing = true }) { Icon(Icons.Filled.Edit, T("曲情報を編集", "Edit track info")) }
+                IconButton({ vm.menuAlbum = a }) { Icon(Icons.Filled.MoreVert, T("その他の操作", "More")) }
             }
         }
-        item(key = "head") {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.fillMaxWidth(0.66f).aspectRatio(1f), 16.dp)
-                Spacer(Modifier.height(20.dp))
-                Text(a.title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+    }
+    val head: @Composable (Modifier) -> Unit = { artMod ->
+        Column(Modifier.fillMaxWidth().padding(horizontal = if (land) 16.dp else 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            ArtImage(a.key, a.first.uri, a.first.coverUri, artMod, 16.dp)
+            Spacer(Modifier.height(20.dp))
+            Text(a.title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+            Text(
+                a.artist, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { vm.libPush("artist:" + a.artist) }.padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                QualityBadge(Quality.badge(a), Quality.classOf(a))
+                Spacer(Modifier.width(8.dp))
                 Text(
-                    a.artist, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { vm.libPush("artist:" + a.artist) }.padding(horizontal = 6.dp, vertical = 2.dp),
+                    (if (a.year.isNotEmpty()) a.year + " ・ " else "") + countText(a.tracks),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                    QualityBadge(Quality.badge(a), Quality.classOf(a))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        (if (a.year.isNotEmpty()) a.year + " ・ " else "") + countText(a.tracks),
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Row(Modifier.padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    PlayShuffleButtons({ vm.playAlbum(a, 0) }, { vm.playAlbum(a, 0, shuffle = true) })
+            }
+            Row(Modifier.padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                PlayShuffleButtons({ vm.playAlbum(a, 0) }, { vm.playAlbum(a, 0, shuffle = true) })
+                if (!land) {
                     Spacer(Modifier.width(4.dp))
-                    IconButton({ vm.toggleFavAlbum(a.key) }) {
-                        Icon(
-                            if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                            if (fav) T("お気に入りから外す", "Remove from favorites") else T("お気に入りに追加", "Add to favorites"),
-                            tint = if (fav) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    favButton()
                 }
             }
         }
+    }
+    val tracks: LazyListScope.() -> Unit = {
         discs.forEach { (disc, list) ->
             if (multiDisc) {
                 item(key = "disc:$disc") {
@@ -1164,6 +1177,28 @@ private fun AlbumDetail(vm: MainViewModel, a: LibAlbum) {
                     sub = if (t.artist != a.artist) t.artist else "",
                 )
             }
+        }
+    }
+    if (land) {
+        // 横向き: 左にジャケットと操作、右に曲の一覧(それぞれでスクロール)。
+        // 左の列は再生・シャッフルのボタンが並ぶ幅(300dp)より狭くしない
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val left = (maxWidth * 0.42f).coerceAtLeast(300.dp)
+            Column(Modifier.fillMaxSize()) {
+                bar()
+                Row(Modifier.fillMaxSize()) {
+                    Box(Modifier.width(left).fillMaxHeight().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+                        head(Modifier.fillMaxWidth(0.8f).widthIn(max = 360.dp).aspectRatio(1f))
+                    }
+                    LazyColumn(Modifier.weight(1f).fillMaxHeight(), contentPadding = PaddingValues(end = 8.dp, bottom = 24.dp), content = tracks)
+                }
+            }
+        }
+    } else {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item(key = "bar") { bar() }
+            item(key = "head") { head(Modifier.fillMaxWidth(0.66f).aspectRatio(1f)) }
+            tracks()
         }
     }
 }

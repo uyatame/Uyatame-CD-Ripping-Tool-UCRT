@@ -47,6 +47,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.uyatame.ucrt.data.AppSettings
@@ -156,79 +158,103 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
             }
             if (preset < 0) FilterChip(true, {}, label = { Text(T("カスタム", "Custom")) }, enabled = on)
         }
-        EqCurve(
-            bands, sel, on,
-            onSelect = { sel = it },
-            onMove = { i, f, g ->
-                val b = bands.getOrNull(i) ?: return@EqCurve
-                bands[i] = b.copy(
-                    freq = f.coerceIn(ParamEq.MIN_FREQ, ParamEq.MAX_FREQ),
-                    gain = if (b.type.hasGain) ((g * 2).roundToInt() / 2f).coerceIn(-ParamEq.MAX_DB, ParamEq.MAX_DB) else b.gain,
-                )
-                preview()
-            },
-            onMoveEnd = { save() },
-            onAdd = { f, g ->
-                if (bands.size < ParamEq.MAX_BANDS) {
-                    bands.add(EqBand(EqType.Peak, f, ((g * 2).roundToInt() / 2f).coerceIn(-ParamEq.MAX_DB, ParamEq.MAX_DB), 1.41f))
-                    sel = bands.lastIndex
-                    preview()
-                    save()
-                }
-            },
-        )
-        Text(
-            T(
-                "点をドラッグして周波数と強さを変えます。点をタップすると種類や幅を変えられます。何もないところをダブルタップすると帯域を追加します",
-                "Drag a point to change its frequency and level. Tap a point to change its type and width. Double-tap an empty spot to add a band",
-            ),
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                T("バンド ${bands.size} / ${ParamEq.MAX_BANDS}", "Bands ${bands.size} / ${ParamEq.MAX_BANDS}"),
-                style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f),
-            )
-            OutlinedButton(
-                {
-                    bands.add(EqBand(EqType.Peak, freeFreq(bands), 0f, 1.41f))
-                    sel = bands.lastIndex
-                    preview()
-                    save()
-                },
-                enabled = on && bands.size < ParamEq.MAX_BANDS,
-            ) {
-                Icon(Icons.Filled.Add, null)
-                Spacer(Modifier.width(4.dp))
-                Text(T("追加", "Add"))
-            }
-        }
-        // 帯域の一覧(番号をタップして選ぶ)
-        if (bands.isNotEmpty()) {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                bands.forEachIndexed { i, b ->
-                    FilterChip(
-                        selected = sel == i,
-                        onClick = { sel = if (sel == i) -1 else i },
-                        label = { Text("${i + 1}: ${freqLabel(b.freq)}") },
-                        enabled = on,
+        // 横向き: 左に曲線、右に帯域の一覧と選んだ帯域の設定を並べ、点を動かしながら値も見えるようにする
+        val land = isLandscape()
+        val screenH = LocalConfiguration.current.screenHeightDp
+        val curveHeight = if (land) (screenH * 0.55f).dp.coerceIn(160.dp, 230.dp) else 230.dp
+        val curve: @Composable () -> Unit = {
+            EqCurve(
+                bands, sel, on, curveHeight,
+                onSelect = { sel = it },
+                onMove = { i, f, g ->
+                    val b = bands.getOrNull(i) ?: return@EqCurve
+                    bands[i] = b.copy(
+                        freq = f.coerceIn(ParamEq.MIN_FREQ, ParamEq.MAX_FREQ),
+                        gain = if (b.type.hasGain) ((g * 2).roundToInt() / 2f).coerceIn(-ParamEq.MAX_DB, ParamEq.MAX_DB) else b.gain,
                     )
-                }
-            }
-        }
-        val cur = bands.getOrNull(sel)
-        if (cur != null) {
-            BandEditor(
-                sel, cur, on,
-                onChange = { bands[sel] = it; preview() },
-                onDone = { save() },
-                onDelete = {
-                    bands.removeAt(sel)
-                    sel = -1
                     preview()
-                    save()
+                },
+                onMoveEnd = { save() },
+                onAdd = { f, g ->
+                    if (bands.size < ParamEq.MAX_BANDS) {
+                        bands.add(EqBand(EqType.Peak, f, ((g * 2).roundToInt() / 2f).coerceIn(-ParamEq.MAX_DB, ParamEq.MAX_DB), 1.41f))
+                        sel = bands.lastIndex
+                        preview()
+                        save()
+                    }
                 },
             )
+        }
+        val hint: @Composable () -> Unit = {
+            Text(
+                T(
+                    "点をドラッグして周波数と強さを変えます。点をタップすると種類や幅を変えられます。何もないところをダブルタップすると帯域を追加します",
+                    "Drag a point to change its frequency and level. Tap a point to change its type and width. Double-tap an empty spot to add a band",
+                ),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        val bandList: @Composable () -> Unit = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    T("バンド ${bands.size} / ${ParamEq.MAX_BANDS}", "Bands ${bands.size} / ${ParamEq.MAX_BANDS}"),
+                    style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(
+                    {
+                        bands.add(EqBand(EqType.Peak, freeFreq(bands), 0f, 1.41f))
+                        sel = bands.lastIndex
+                        preview()
+                        save()
+                    },
+                    enabled = on && bands.size < ParamEq.MAX_BANDS,
+                ) {
+                    Icon(Icons.Filled.Add, null)
+                    Spacer(Modifier.width(4.dp))
+                    Text(T("追加", "Add"))
+                }
+            }
+            // 帯域の一覧(番号をタップして選ぶ)
+            if (bands.isNotEmpty()) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    bands.forEachIndexed { i, b ->
+                        FilterChip(
+                            selected = sel == i,
+                            onClick = { sel = if (sel == i) -1 else i },
+                            label = { Text("${i + 1}: ${freqLabel(b.freq)}") },
+                            enabled = on,
+                        )
+                    }
+                }
+            }
+            val cur = bands.getOrNull(sel)
+            if (cur != null) {
+                BandEditor(
+                    sel, cur, on,
+                    onChange = { bands[sel] = it; preview() },
+                    onDone = { save() },
+                    onDelete = {
+                        bands.removeAt(sel)
+                        sel = -1
+                        preview()
+                        save()
+                    },
+                )
+            }
+        }
+        if (land) {
+            Row {
+                Column(Modifier.weight(0.55f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    curve()
+                    hint()
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(0.45f), verticalArrangement = Arrangement.spacedBy(8.dp)) { bandList() }
+            }
+        } else {
+            curve()
+            hint()
+            bandList()
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(T("プリアンプ", "Preamp"), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
@@ -325,6 +351,7 @@ private fun EqCurve(
     bands: SnapshotStateList<EqBand>,
     selected: Int,
     enabled: Boolean,
+    curveH: Dp,
     onSelect: (Int) -> Unit,
     onMove: (Int, Float, Float) -> Unit,
     onMoveEnd: () -> Unit,
@@ -337,7 +364,7 @@ private fun EqCurve(
     val handleTextOff = TextStyle(fontSize = 11.sp, color = cs.primary)
     val maxDb = ParamEq.MAX_DB
     Canvas(
-        Modifier.fillMaxWidth().height(230.dp).clip(RoundedCornerShape(12.dp)).background(cs.surfaceVariant)
+        Modifier.fillMaxWidth().height(curveH).clip(RoundedCornerShape(12.dp)).background(cs.surfaceVariant)
             .pointerInput(enabled) {
                 var lastTap = 0L
                 var lastPos = Offset.Zero
