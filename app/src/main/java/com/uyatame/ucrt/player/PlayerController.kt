@@ -939,33 +939,72 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 if (fmt.containsKey(MediaFormat.KEY_DURATION)) durationMs = fmt.getLong(MediaFormat.KEY_DURATION) / 1000
                 val srcBits = AudioInfo.bitsOf(ctx, uri)
                 bits = srcBits
-                if (fromMs > 0) ex.seekTo(fromMs * 1000, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
-                val c = MediaCodec.createDecoderByType(mime)
-                codec = c
                 // 24bit などの音源は、精度を落とさないよう float で受け取る
                 // audio/raw(WAV など)では KEY_PCM_ENCODING は「入力データの形式」を表すので書き換えない
                 val raw = mime == MediaFormat.MIMETYPE_AUDIO_RAW
                 val wantFloat = !raw && srcBits != 16 && !fmt.containsKey(MediaFormat.KEY_PCM_ENCODING)
-                if (wantFloat) fmt.setInteger(MediaFormat.KEY_PCM_ENCODING, AFormat.ENCODING_PCM_FLOAT)
                 AudioEngine.log(
                     "decode: $mime ${runCatching { fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE) }.getOrDefault(0)} Hz" +
                         " srcBits=$srcBits" + (if (wantFloat) " (float requested)" else ""),
                 )
-                try {
-                    c.configure(fmt, null, null, 0)
-                } catch (e: Exception) {
-                    if (!wantFloat) throw e
-                    // float で受け取れないデコーダー(古い Android など)は、元の形式のまま
-                    runCatching { c.reset() }
-                    c.configure(ex.getTrackFormat(ti), null, null, 0)
+                // 端末によっては、Android が選ぶデコーダーがうまく動かない(Walkman の OMX.google.flac.decoder など)。
+                // 動くものが見つかるまで、その形式のデコーダーを順に試す(float で受け取れなければ元の形式でも試す)
+                var last: Exception? = null
+                for (name in decoderNames(mime)) {
+                    for (useFloat in if (wantFloat) listOf(true, false) else listOf(false)) {
+                        try {
+                            startDecoder(name, ti, useFloat, fromMs)
+                            AudioEngine.log("decoder: $name" + if (wantFloat && !useFloat) " (no float)" else "")
+                            last = null
+                            break
+                        } catch (e: Exception) {
+                            last = e
+                            AudioEngine.log("decoder $name${if (useFloat) " (float)" else ""} failed: ${describe(e)}")
+                            runCatching { codec?.release() }
+                            codec = null
+                        }
+                    }
+                    if (last == null) break
                 }
-                c.start()
-                AudioEngine.log("decoder: ${c.name}")
-                prime()
+                last?.let { throw it }
             } catch (e: Exception) {
                 close()
                 throw e
             }
+        }
+
+        /** mime を扱えるデコーダーの名前(Android が最初に選ぶもの、それ以外のもの の順) */
+        private fun decoderNames(mime: String): List<String> {
+            val first = runCatching { MediaCodec.createDecoderByType(mime).let { c -> c.name.also { c.release() } } }.getOrNull()
+            val all = runCatching {
+                android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos
+                    .filter { !it.isEncoder && it.supportedTypes.any { t -> t.equals(mime, ignoreCase = true) } }
+                    .map { it.name }
+            }.getOrDefault(emptyList())
+            return (listOfNotNull(first) + all).distinct()
+        }
+
+        /** デコーダーを開いて、最初の出力の形式が分かるところまで進める(だめなら例外) */
+        private fun startDecoder(name: String, ti: Int, useFloat: Boolean, fromMs: Long) {
+            // 前に試したデコーダーが読み進めた分を戻す
+            ex.seekTo(if (fromMs > 0) fromMs * 1000 else 0L, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            inEos = false
+            outEos = false
+            outFmt = null
+            pending = -1
+            val f = ex.getTrackFormat(ti)
+            if (useFloat) f.setInteger(MediaFormat.KEY_PCM_ENCODING, AFormat.ENCODING_PCM_FLOAT)
+            val c = MediaCodec.createByCodecName(name)
+            codec = c
+            c.configure(f, null, null, 0)
+            c.start()
+            prime()
+        }
+
+        private fun describe(e: Exception): String {
+            val diag = (e as? MediaCodec.CodecException)?.diagnosticInfo
+            val at = e.stackTrace.firstOrNull()?.let { " at ${it.className.substringAfterLast('.')}.${it.methodName}" } ?: ""
+            return "${e.javaClass.simpleName}: ${e.message ?: diag ?: ""}$at"
         }
 
         /** 入力を 1 回入れて、出力を 1 回取り出す */
