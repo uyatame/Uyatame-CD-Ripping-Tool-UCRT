@@ -9,6 +9,7 @@ internal object BuiltinCodecs {
         // m4a / mp4 は中身が ALAC のときだけ内蔵で読む(AAC・MPEG-H なら open() が例外を出し、OS のデコーダーに任せる)
         "m4a", "mp4" -> "alac"
         "wv" -> "wavpack"
+        "ape" -> "ape"
         else -> null
     }
 
@@ -17,6 +18,7 @@ internal object BuiltinCodecs {
         "aiff" -> AiffDecoder(src)
         "alac" -> AlacDecoder(src)
         "wavpack" -> WavPackDecoder(src)
+        "ape" -> ApeDecoder(src)
         else -> throw java.io.IOException("unknown kind $kind")
     }
 
