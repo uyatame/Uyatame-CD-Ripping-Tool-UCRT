@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
@@ -152,7 +153,8 @@ private fun LibraryRoute(vm: MainViewModel, s: AppSettings, route: String?) {
             val f = route.removePrefix("folder:")
             AlbumCollectionPage(
                 vm, s, f.substringAfterLast('/').ifEmpty { "/" },
-                vm.albums.filter { folderGroup(it) == f }.sortedBy { folderName(it).lowercase() },
+                // そのフォルダの下(子フォルダも含む)のアルバム
+                vm.albums.filter { folderPath(it).let { p -> p == f || p.startsWith("$f/") } }.sortedBy { folderPath(it).lowercase() },
                 sortable = false, key = route, subtitle = f,
             )
         }
@@ -275,7 +277,7 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
             "hires" to T("ハイレゾ ${albums.count { Quality.classOf(it) == QualityClass.HiRes }}", "Hi-Res ${albums.count { Quality.classOf(it) == QualityClass.HiRes }}"),
             "genres" to "${albums.flatMap { a -> a.tracks.map { it.genre } }.filter { it.isNotEmpty() }.distinct().size}",
             "years" to "${albums.map { it.year }.filter { it.isNotEmpty() }.distinct().size}",
-            "folders" to "${albums.map { folderGroup(it) }.distinct().size}",
+            "folders" to "${albums.map { folderPath(it) }.distinct().size}",
         )
     }
     val tiles = remember(s.libTiles) { tileOrder(s.libTiles).filter { it.second }.map { it.first } }
@@ -795,21 +797,122 @@ private fun YearsPage(vm: MainViewModel) {
     }
 }
 
+/** フォルダの木の 1 つ(path はルートからの道筋。例: "Music/Artist") */
+private class FolderNode(val path: String, val name: String) {
+    val children = java.util.TreeMap<String, FolderNode>(String.CASE_INSENSITIVE_ORDER)
+    /** このフォルダにじかに入っているアルバム */
+    val albums = ArrayList<LibAlbum>()
+    /** この下(子フォルダも含む)のアルバムの数・曲の数 */
+    var albumCount = 0
+    var trackCount = 0
+}
+
+/** アルバムの入っているフォルダから、フォルダの木を作る */
+private fun buildFolderTree(albums: List<LibAlbum>): FolderNode {
+    val root = FolderNode("", "")
+    for (a in albums) {
+        val parts = folderPath(a).split('/').filter { it.isNotEmpty() }
+        var n = root
+        n.albumCount++; n.trackCount += a.tracks.size
+        for (p in parts) {
+            n = n.children.getOrPut(p) { FolderNode(if (n.path.isEmpty()) p else n.path + "/" + p, p) }
+            n.albumCount++; n.trackCount += a.tracks.size
+        }
+        n.albums.add(a)
+    }
+    // 子が 1 つだけで、アルバムを持たないフォルダは、その子とまとめて 1 行にする(Music/CD など、深い階層を短くする)
+    fun squash(n: FolderNode): FolderNode {
+        var cur = n
+        val names = arrayListOf(n.name)
+        while (cur.albums.isEmpty() && cur.children.size == 1) {
+            cur = cur.children.values.first()
+            names.add(cur.name)
+        }
+        val out = FolderNode(cur.path, names.joinToString("/"))
+        out.albums.addAll(cur.albums.sortedBy { folderName(it).lowercase() })
+        out.albumCount = n.albumCount
+        out.trackCount = n.trackCount
+        for (c in cur.children.values) out.children[c.name] = squash(c)
+        return out
+    }
+    val r = FolderNode("", "")
+    r.albums.addAll(root.albums)
+    r.albumCount = root.albumCount
+    r.trackCount = root.trackCount
+    for (c in root.children.values) r.children[c.name] = squash(c)
+    return r
+}
+
+/** 表示する 1 行(フォルダかアルバム) */
+private class FolderRow(val depth: Int, val folder: FolderNode?, val album: LibAlbum?)
+
+/**
+ * フォルダ別: フォルダの階層をたどって開いていく。行をタップすると中のフォルダとアルバムを開き、もう一度タップで閉じる。
+ * 右のボタンで、そのフォルダの下のアルバムをまとめて一覧にする
+ */
 @Composable
 private fun FoldersPage(vm: MainViewModel) {
-    val folders = remember(vm.albums) {
-        vm.albums.groupBy { folderGroup(it) }.map { (f, l) -> Pair(f, l) }.sortedBy { it.first.lowercase() }
+    val tree = remember(vm.albums) { buildFolderTree(vm.albums) }
+    // 開いているフォルダ(戻ってきたときも同じように開いておく)
+    val open = rememberSaveable(saver = androidx.compose.runtime.saveable.listSaver<androidx.compose.runtime.snapshots.SnapshotStateList<String>, String>(
+        save = { it.toList() }, restore = { mutableStateListOf<String>().apply { addAll(it) } },
+    )) {
+        // 一番上のフォルダが 1 つだけなら、最初から開いておく
+        mutableStateListOf<String>().apply { if (tree.children.size == 1) add(tree.children.values.first().path) }
+    }
+    val rows = remember(tree, open.toList()) {
+        val out = ArrayList<FolderRow>()
+        fun walk(n: FolderNode, depth: Int) {
+            for (c in n.children.values) {
+                out.add(FolderRow(depth, c, null))
+                if (c.path in open) walk(c, depth + 1)
+            }
+            for (a in n.albums) out.add(FolderRow(depth, null, a))
+        }
+        walk(tree, 0)
+        out
     }
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, tileLabel("folders"))
-        LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp)) {
-            items(folders, key = { it.first }) { (f, l) ->
-                GroupRow(
-                    f.substringAfterLast('/').ifEmpty { "/" },
-                    f + T(" ・ ${l.size}枚", " · ${l.size} albums"),
-                    { vm.libPush("folder:$f") },
-                ) { RoundIcon(AppIcons.Folder) }
+        Box(Modifier.fillMaxSize()) {
+            val st = rememberLazyListState()
+            LazyColumn(state = st, contentPadding = PaddingValues(start = 8.dp, end = 12.dp, bottom = 24.dp)) {
+                items(rows, key = { r -> r.folder?.let { "f:" + it.path } ?: ("a:" + r.album!!.key) }) { r ->
+                    val f = r.folder
+                    if (f != null) {
+                        val isOpen = f.path in open
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                                .clickable { if (isOpen) open.remove(f.path) else open.add(f.path) }
+                                .padding(start = (r.depth * 20).dp, top = 4.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                if (isOpen) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                if (isOpen) T("閉じる", "Collapse") else T("開く", "Expand"),
+                                Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            RoundIcon(AppIcons.Folder, 40)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(f.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    T("${f.albumCount}枚 ・ ${f.trackCount}曲", "${f.albumCount} albums · ${f.trackCount} songs"),
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                                )
+                            }
+                            // このフォルダの下のアルバムをまとめて見る
+                            IconButton({ vm.libPush("folder:" + f.path) }) {
+                                Icon(AppIcons.Grid, T("この下のアルバムをまとめて表示", "Show all albums in this folder"))
+                            }
+                        }
+                    } else {
+                        Box(Modifier.padding(start = (r.depth * 20 + 20).dp)) { AlbumListRow(vm, r.album!!) }
+                    }
+                }
             }
+            ScrollTopButton(st.firstVisibleItemIndex > 8) { st.scrollToItem(0) }
         }
     }
 }
@@ -1368,8 +1471,3 @@ private fun folderPath(a: LibAlbum): String = Uri.decode(a.first.folderId).subst
 
 private fun folderName(a: LibAlbum): String = folderPath(a).substringAfterLast('/')
 
-/** フォルダ別表示の見出し(アルバムのフォルダの1つ上。例: Music/Artist) */
-private fun folderGroup(a: LibAlbum): String {
-    val p = folderPath(a)
-    return if (p.contains('/')) p.substringBeforeLast('/') else p.ifEmpty { "/" }
-}
