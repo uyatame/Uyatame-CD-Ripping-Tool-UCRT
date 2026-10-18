@@ -159,6 +159,7 @@ private fun LibraryRoute(vm: MainViewModel, s: AppSettings, route: String?) {
             )
         }
         route.startsWith("playlist:") -> PlaylistPage(vm, route.removePrefix("playlist:"))
+        route.startsWith("dir:") -> FolderBrowsePage(vm, route.removePrefix("dir:"))
         else -> LibraryHome(vm, s)
     }
 }
@@ -843,6 +844,72 @@ private fun buildFolderTree(albums: List<LibAlbum>): FolderNode {
     return r
 }
 
+/**
+ * フォルダの中(エクスプローラーのように潜っていく)。上に今いる場所(タップでその階層へ)、
+ * その下に中のフォルダとアルバムを並べる。フォルダをタップすると 1 つ下へ、戻るで 1 つ上へ
+ */
+@Composable
+private fun FolderBrowsePage(vm: MainViewModel, path: String) {
+    val node = remember(vm.albums, path) {
+        // 実際の階層どおりにたどる(まとめない)
+        val root = FolderNode("", "")
+        for (a in vm.albums) {
+            val parts = folderPath(a).split('/').filter { it.isNotEmpty() }
+            var n = root
+            n.albumCount++; n.trackCount += a.tracks.size
+            for (p in parts) {
+                n = n.children.getOrPut(p) { FolderNode(if (n.path.isEmpty()) p else n.path + "/" + p, p) }
+                n.albumCount++; n.trackCount += a.tracks.size
+            }
+            n.albums.add(a)
+        }
+        var n: FolderNode? = root
+        for (p in path.split('/').filter { it.isNotEmpty() }) n = n?.children?.get(p)
+        n
+    }
+    val parts = path.split('/').filter { it.isNotEmpty() }
+    Column(Modifier.fillMaxSize()) {
+        PageTop(vm, parts.lastOrNull() ?: "/", node?.let { T("${it.albumCount}枚 ・ ${it.trackCount}曲", "${it.albumCount} albums · ${it.trackCount} songs") }) {
+            // この下のアルバムをまとめて一覧にする
+            IconButton({ vm.libPush("folder:$path") }) { Icon(AppIcons.ListView, T("この下のアルバムをまとめて表示", "All albums in this folder")) }
+        }
+        // 今いる場所(パンくず)。タップでその階層へ移る
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            parts.forEachIndexed { i, p ->
+                if (i > 0) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                val target = parts.take(i + 1).joinToString("/")
+                Text(
+                    p, style = MaterialTheme.typography.labelLarge,
+                    color = if (i == parts.lastIndex) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp))
+                        .clickable(enabled = i < parts.lastIndex) { vm.libReplaceTop("dir:$target") }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                )
+            }
+        }
+        if (node == null) {
+            EmptyState(AppIcons.Folder, T("フォルダが見つかりません", "Folder not found"), "")
+            return@Column
+        }
+        Box(Modifier.fillMaxSize()) {
+            val st = rememberLazyListState()
+            LazyColumn(state = st, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp)) {
+                items(node.children.values.toList(), key = { "f:" + it.path }) { c ->
+                    GroupRow(
+                        c.name, T("${c.albumCount}枚 ・ ${c.trackCount}曲", "${c.albumCount} albums · ${c.trackCount} songs"),
+                        { vm.libPush("dir:" + c.path) },
+                    ) { RoundIcon(AppIcons.Folder) }
+                }
+                items(node.albums.sortedBy { folderName(it).lowercase() }, key = { "a:" + it.key }) { a -> AlbumListRow(vm, a) }
+            }
+            ScrollTopButton(st.firstVisibleItemIndex > 8) { st.scrollToItem(0) }
+        }
+    }
+}
+
 /** 表示する 1 行(フォルダかアルバム) */
 private class FolderRow(val depth: Int, val folder: FolderNode?, val album: LibAlbum?)
 
@@ -902,9 +969,9 @@ private fun FoldersPage(vm: MainViewModel) {
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
                                 )
                             }
-                            // このフォルダの下のアルバムをまとめて見る
-                            IconButton({ vm.libPush("folder:" + f.path) }) {
-                                Icon(AppIcons.Grid, T("この下のアルバムをまとめて表示", "Show all albums in this folder"))
+                            // このフォルダの中へ入る(エクスプローラーのように、階層を潜っていく)
+                            IconButton({ vm.libPush("dir:" + f.path) }) {
+                                Icon(AppIcons.Grid, T("フォルダの中を開く", "Open folder"))
                             }
                         }
                     } else {
