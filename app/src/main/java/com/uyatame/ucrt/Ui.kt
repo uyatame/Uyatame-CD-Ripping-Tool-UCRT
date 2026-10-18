@@ -206,7 +206,7 @@ fun App(vm: MainViewModel) {
             Triple(AppIcons.Album, T("ディスク", "Disc"), 1),
             Triple(Icons.Filled.Settings, T("設定", "Settings"), 2),
         )
-        CompositionLocalProvider(LocalTablet provides tablet) {
+        CompositionLocalProvider(LocalTablet provides tablet, LocalShowArt provides s.listArt) {
         Box(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxSize()) {
         if (land) {
@@ -483,19 +483,37 @@ fun CoverBox(img: ImageBitmap?, modifier: Modifier, corner: Dp = 8.dp) {
     }
 }
 
+/**
+ * ジャケット画像(一覧など)。表示する大きさに合わせた小さな画像を読む。
+ * 設定で「一覧にジャケットを表示」がオフなら、画像を読まずに目印だけ出す(性能の低い端末向け)
+ */
 @Composable
 fun ArtImage(key: String?, trackUri: String?, coverUri: String?, modifier: Modifier, corner: Dp = 8.dp) {
-    val ctx = LocalContext.current
-    val gen = ArtLoader.generation
-    val img by produceState<ImageBitmap?>(ArtLoader.peek(key), key, trackUri, coverUri, gen) {
-        // 曲やアルバムが変わったら、まず前の画像を消してから読み込む
-        value = ArtLoader.peek(key)
-        if (value == null && key != null) {
-            value = withContext(Dispatchers.IO) { ArtLoader.load(ctx, key, trackUri, coverUri) }
-        }
+    if (!LocalShowArt.current) {
+        CoverBox(null, modifier, corner)
+        return
     }
-    CoverBox(img, modifier, corner)
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val w = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
+        val h = if (constraints.hasBoundedHeight) constraints.maxHeight else 0
+        val px = maxOf(w, h).takeIf { it > 0 } ?: with(density) { 96.dp.roundToPx() }
+        val bucket = ArtLoader.bucketOf(px)
+        val ctx = LocalContext.current
+        val gen = ArtLoader.generation
+        val img by produceState(ArtLoader.peek(key, bucket), key, trackUri, coverUri, gen, bucket) {
+            // 曲やアルバムが変わったら、まず前の画像を消してから読み込む
+            value = ArtLoader.peek(key, bucket)
+            if (key != null) {
+                value = withContext(Dispatchers.IO) { ArtLoader.load(ctx, key, trackUri, coverUri, bucket) } ?: value
+            }
+        }
+        CoverBox(img, Modifier.fillMaxSize(), corner)
+    }
 }
+
+/** 一覧にジャケットを表示するか(設定) */
+val LocalShowArt = androidx.compose.runtime.compositionLocalOf { true }
 
 @Composable
 fun PlayArt(vm: MainViewModel, item: PlayItem, modifier: Modifier, corner: Dp = 8.dp) {

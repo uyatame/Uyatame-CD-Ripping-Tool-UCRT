@@ -522,7 +522,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val bmp = withContext(Dispatchers.IO) {
                 runCatching {
                     if (cur.cdTrack != null) coverBytes?.let { ArtLoader.decode(it, 512) }
-                    else cur.artKey?.let { ArtLoader.load(ctx, it, cur.artTrackUri, cur.artCoverUri)?.asAndroidBitmap() }
+                    else cur.artKey?.let { ArtLoader.load(ctx, it, cur.artTrackUri, cur.artCoverUri, 512)?.asAndroidBitmap() }
                 }.getOrNull()
             }
             if (player.current == cur) {

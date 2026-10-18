@@ -65,7 +65,10 @@ val UNKNOWN_ALBUM: String get() = T("不明なアルバム", "Unknown album")
 val UNKNOWN_ARTIST: String get() = T("不明なアーティスト", "Unknown artist")
 
 private val AUDIO_EXT = setOf("flac", "wav", "m4a", "mp3", "ogg", "opus", "aac", "dsf", "dff", "aif", "aiff", "aifc", "mp4", "wv", "ape")
-private val COVER_NAMES = setOf("cover.jpg", "cover.png", "folder.jpg", "front.jpg")
+private val COVER_NAMES = setOf(
+    "cover.jpg", "cover.jpeg", "cover.png", "cover.webp", "folder.jpg", "folder.jpeg", "folder.png",
+    "front.jpg", "front.jpeg", "front.png", "albumart.jpg", "albumartlarge.jpg", "album.jpg", "album.png", "jacket.jpg", "jacket.png",
+)
 
 /** 保存先フォルダ内の音楽ファイルを読み取り、アルバム単位にまとめる */
 class Library(private val ctx: Context) {
@@ -603,73 +606,150 @@ class Library(private val ctx: Context) {
     }
 }
 
-/** ジャケット画像の読み込み(埋め込み画像 → フォルダのcover.jpg の順) */
+/**
+ * ジャケット画像の読み込み(埋め込み画像 → フォルダの cover.jpg などの順)。
+ *
+ * 表示する大きさに合わせて読む(一覧の小さな画像は小さく、再生画面は元の大きさで)。
+ * 一覧用の小さな画像は端末に保存しておき、次からは曲のファイルを開かずに読む(性能の低い端末でも軽いように)
+ */
 object ArtLoader {
-    private val cache = LruCache<String, ImageBitmap>(80)
+    /** 読み込む大きさの段階(px)。表示する大きさ以上で、いちばん近いものを使う。最後は再生画面用(元の大きさまで) */
+    private val BUCKETS = intArrayOf(128, 256, 512, 2048)
+    /** 端末に保存する大きさの上限(これより大きい画像は保存しない) */
+    private const val DISK_MAX = 512
+
+    /** 画像の置き場所(メモリーの量で上限を決める) */
+    private val cache = object : LruCache<String, ImageBitmap>(
+        (Runtime.getRuntime().maxMemory() / 8).coerceIn(8L shl 20, 96L shl 20).toInt(),
+    ) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
+    }
     /** 同時に読み込む数を絞る(一覧を速くスクロールしたときに、再生の読み込みを邪魔しないように) */
     private val gate = java.util.concurrent.Semaphore(3)
+    /** 画像が無いと分かった曲・アルバム(読み込みに失敗しただけのものは入れない) */
     private val misses = HashSet<String>()
+    private var diskDir: File? = null
 
     /** 画像が差し替わったことを画面に知らせるための番号(増えると表示中の画像を読み直す) */
     var generation by androidx.compose.runtime.mutableIntStateOf(0)
         private set
 
-    fun peek(key: String?): ImageBitmap? = key?.let { cache.get(it) }
+    fun bucketOf(px: Int): Int = BUCKETS.firstOrNull { it >= px } ?: BUCKETS.last()
 
-    fun load(ctx: Context, key: String, trackUri: String?, coverUri: String?, size: Int = 512): ImageBitmap? {
-        cache.get(key)?.let { return it }
+    /** 読み込み済みの画像(求める大きさ以上のものがあればそれ、なければ小さいものでもよい) */
+    fun peek(key: String?, px: Int = BUCKETS.last()): ImageBitmap? {
+        if (key == null) return null
+        val b = bucketOf(px)
+        for (x in BUCKETS) if (x >= b) cache.get("$key@$x")?.let { return it }
+        for (x in BUCKETS.reversed()) if (x < b) cache.get("$key@$x")?.let { return it }
+        return null
+    }
+
+    fun load(ctx: Context, key: String, trackUri: String?, coverUri: String?, size: Int = BUCKETS.last()): ImageBitmap? {
+        val b = bucketOf(size)
+        for (x in BUCKETS) if (x >= b) cache.get("$key@$x")?.let { return it }
         synchronized(misses) { if (key in misses) return null }
         gate.acquire()
         try {
-            cache.get(key)?.let { return it }
-            return loadNow(ctx, key, trackUri, coverUri, size)
+            cache.get("$key@$b")?.let { return it }
+            return loadNow(ctx, key, trackUri, coverUri, b)
         } finally {
             gate.release()
         }
     }
 
-    private fun loadNow(ctx: Context, key: String, trackUri0: String?, coverUri: String?, size: Int): ImageBitmap? {
-        var bytes: ByteArray? = null
-        // CUE シートで分けた曲は、元のファイルの画像を使う
-        val trackUri = trackUri0?.let { Cue.fileUri(it) }
-        if (trackUri != null && com.uyatame.ucrt.player.dsd.DsdFile.isDsd(Uri.decode(trackUri))) {
-            bytes = runCatching { com.uyatame.ucrt.player.dsd.DsdTags.picture(ctx, Uri.parse(trackUri)) }.getOrNull()
-        } else if (trackUri != null && Uri.decode(trackUri).lowercase().endsWith(".wav")) {
-            bytes = runCatching { com.uyatame.ucrt.tags.WavTags.picture(ctx, Uri.parse(trackUri)) }.getOrNull()
-        } else if (trackUri != null && com.uyatame.ucrt.player.BuiltinCodecs.kindOf(Uri.decode(trackUri)).let { it == "aiff" || it == "wavpack" || it == "ape" }) {
-            val kind = com.uyatame.ucrt.player.BuiltinCodecs.kindOf(Uri.decode(trackUri))!!
-            bytes = runCatching {
-                com.uyatame.ucrt.player.BuiltinCodecs.openInput(ctx, Uri.parse(trackUri))?.use { com.uyatame.ucrt.tags.ExtraTags.read(kind, it)?.picture }
-            }.getOrNull()
-        } else if (trackUri != null) {
-            val r = MediaMetadataRetriever()
-            try {
-                // 「すべてのファイルへのアクセス」があれば、ファイルから直接読む方が速い
-                val uri = Uri.parse(trackUri)
-                val file = StorageAccess.fileOf(uri)
-                if (file != null) r.setDataSource(file.absolutePath) else r.setDataSource(ctx, uri)
-                bytes = r.embeddedPicture
-            } catch (e: Exception) {
-            } finally {
-                runCatching { r.release() }
+    private fun diskFile(ctx: Context, key: String, b: Int): File {
+        val dir = diskDir ?: File(ctx.cacheDir, "art").also { it.mkdirs(); diskDir = it }
+        val h = java.security.MessageDigest.getInstance("SHA-1").digest(key.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        return File(dir, "${h}_$b.jpg")
+    }
+
+    private fun loadNow(ctx: Context, key: String, trackUri0: String?, coverUri: String?, b: Int): ImageBitmap? {
+        // 一覧用の小さな画像は、保存したものがあればそれを使う
+        if (b <= DISK_MAX) {
+            val f = diskFile(ctx, key, b)
+            if (f.exists()) {
+                val bmp = runCatching { BitmapFactory.decodeFile(f.path, thumbOptions()) }.getOrNull()
+                if (bmp != null) return bmp.asImageBitmap().also { cache.put("$key@$b", it) }
+                f.delete()
             }
         }
-        if (bytes == null && coverUri != null) {
-            bytes = runCatching {
-                ctx.contentResolver.openInputStream(Uri.parse(coverUri))?.use { it.readBytes() }
-            }.getOrNull()
+        var failed = false
+        val bytes = try {
+            sourceBytes(ctx, trackUri0, coverUri)
+        } catch (e: Exception) {
+            failed = true
+            null
         }
-        val img = bytes?.let { decode(it, size) }?.asImageBitmap()
-        if (img == null) {
-            synchronized(misses) { misses.add(key) }
+        val bmp = bytes?.let { runCatching { decode(it, b) }.getOrNull() }
+        if (bmp == null) {
+            // 画像が無いと分かったときだけ覚える(読み込みに失敗しただけなら、次にまた試す)
+            if (!failed && bytes == null) synchronized(misses) { misses.add(key) }
             return null
         }
-        cache.put(key, img)
+        // 小さな画像は保存しておく
+        if (b <= DISK_MAX) {
+            runCatching {
+                val f = diskFile(ctx, key, b)
+                val tmp = File(f.path + ".tmp")
+                tmp.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+                tmp.renameTo(f)
+            }
+        }
+        val img = bmp.asImageBitmap()
+        cache.put("$key@$b", img)
         return img
     }
 
+    private fun thumbOptions() = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.RGB_565 }
+
+    /** 画像のバイト列(曲に埋め込まれたもの → フォルダの画像)。無ければ null。読めなければ例外 */
+    private fun sourceBytes(ctx: Context, trackUri0: String?, coverUri: String?): ByteArray? {
+        var bytes: ByteArray? = null
+        // CUE シートで分けた曲は、元のファイルの画像を使う
+        val trackUri = trackUri0?.let { Cue.fileUri(it) }
+        val name = trackUri?.let { Uri.decode(it) }.orEmpty()
+        val ext = name.substringAfterLast('.', "").lowercase()
+        if (trackUri != null && com.uyatame.ucrt.player.dsd.DsdFile.isDsd(name)) {
+            bytes = com.uyatame.ucrt.player.dsd.DsdTags.picture(ctx, Uri.parse(trackUri))
+        } else if (trackUri != null && ext == "wav") {
+            bytes = com.uyatame.ucrt.tags.WavTags.picture(ctx, Uri.parse(trackUri))
+        } else if (trackUri != null && com.uyatame.ucrt.player.BuiltinCodecs.kindOf(name).let { it == "aiff" || it == "wavpack" || it == "ape" }) {
+            val kind = com.uyatame.ucrt.player.BuiltinCodecs.kindOf(name)!!
+            bytes = com.uyatame.ucrt.player.BuiltinCodecs.openInput(ctx, Uri.parse(trackUri))?.use { com.uyatame.ucrt.tags.ExtraTags.read(kind, it)?.picture }
+        } else if (trackUri != null) {
+            // FLAC・MP3・M4A はアプリで直接読む(速く、古い Android でも読める)
+            if (ext == "flac" || ext == "mp3" || ext == "m4a" || ext == "mp4") {
+                bytes = runCatching {
+                    com.uyatame.ucrt.player.BuiltinCodecs.openInput(ctx, Uri.parse(trackUri))?.use { ArtExtract.picture(it, ext) }
+                }.getOrNull()
+            }
+            if (bytes == null) {
+                val r = MediaMetadataRetriever()
+                try {
+                    // 「すべてのファイルへのアクセス」があれば、ファイルから直接読む方が速い
+                    val uri = Uri.parse(trackUri)
+                    val file = StorageAccess.fileOf(uri)
+                    if (file != null) r.setDataSource(file.absolutePath) else r.setDataSource(ctx, uri)
+                    bytes = r.embeddedPicture
+                } catch (e: Exception) {
+                    // 形式に対応していないだけのこともあるので、フォルダの画像を探しに行く
+                } finally {
+                    runCatching { r.release() }
+                }
+            }
+        }
+        if (bytes == null && coverUri != null) {
+            bytes = ctx.contentResolver.openInputStream(Uri.parse(coverUri))?.use { it.readBytes() }
+        }
+        return bytes
+    }
+
     fun forget(key: String) {
-        cache.remove(key)
+        for (x in BUCKETS) cache.remove("$key@$x")
+        // 保存した小さな画像も消す(曲情報の編集でジャケットを変えたとき)
+        diskDir?.let { for (x in BUCKETS) if (x <= DISK_MAX) runCatching { File(it, diskFile0(key, x)).delete() } }
         synchronized(misses) { misses.remove(key) }
         generation++
     }
@@ -679,12 +759,34 @@ object ArtLoader {
         generation++
     }
 
+    private fun diskFile0(key: String, b: Int): String {
+        val h = java.security.MessageDigest.getInstance("SHA-1").digest(key.toByteArray()).joinToString("") { "%02x".format(it) }
+        return "${h}_$b.jpg"
+    }
+
+    /**
+     * 画像を size(px)前後の大きさで読む。大きな画像は、まず 2 のべき乗で間引いて読み、それでも大きければ縮める。
+     * 小さな画像(一覧用)は、色数を減らしてメモリーを半分にする
+     */
     fun decode(b: ByteArray, size: Int): Bitmap? {
         val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(b, 0, b.size, o)
         if (o.outWidth <= 0) return null
         var s = 1
         while (o.outWidth / (s * 2) >= size && o.outHeight / (s * 2) >= size) s *= 2
-        return BitmapFactory.decodeByteArray(b, 0, b.size, BitmapFactory.Options().apply { inSampleSize = s })
+        val opt = BitmapFactory.Options().apply {
+            inSampleSize = s
+            if (size <= DISK_MAX) inPreferredConfig = Bitmap.Config.RGB_565
+        }
+        val bmp = BitmapFactory.decodeByteArray(b, 0, b.size, opt) ?: return null
+        // 一覧用は、表示する大きさの 1.5 倍を超えていればさらに縮める
+        val m = maxOf(bmp.width, bmp.height)
+        if (size <= DISK_MAX && m > size * 3 / 2) {
+            val k = size.toFloat() / m
+            val out = Bitmap.createScaledBitmap(bmp, (bmp.width * k).toInt().coerceAtLeast(1), (bmp.height * k).toInt().coerceAtLeast(1), true)
+            if (out !== bmp) bmp.recycle()
+            return out
+        }
+        return bmp
     }
 }

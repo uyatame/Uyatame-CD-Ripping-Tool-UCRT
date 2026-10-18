@@ -429,6 +429,11 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
         if (android.os.Build.VERSION.SDK_INT >= 31) {
             SwitchRow(T("ダイナミックカラー", "Dynamic color"), T("壁紙の色に合わせます", "Match your wallpaper colors"), s.dynamicColor) { vm.set(Keys.dynamicColor, it) }
         }
+        SwitchRow(
+            T("一覧にジャケットを表示", "Show artwork in lists"),
+            T("オフにすると、ライブラリや再生リストでジャケットを読み込まず、軽くなります(再生画面には表示します)", "Turn off to skip loading artwork in the library and queue for smoother scrolling (the player still shows it)"),
+            s.listArt,
+        ) { vm.set(Keys.listArt, it) }
         Segmented(T("タブレットモード", "Tablet mode"), listOf(T("自動", "Auto"), T("オン", "On"), T("オフ", "Off")), s.tabletMode) { vm.set(Keys.tabletMode, it) }
         Text(
             T(

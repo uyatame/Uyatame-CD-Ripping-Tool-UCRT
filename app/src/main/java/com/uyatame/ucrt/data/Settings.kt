@@ -70,6 +70,8 @@ data class AppSettings(
     val themeMode: Int = 0,
     /** タブレットモード: 0 = 自動(画面の短い辺が 600dp 以上)、1 = オン、2 = オフ */
     val tabletMode: Int = 0,
+    /** 一覧(ライブラリ・再生リストなど)にジャケットを表示する */
+    val listArt: Boolean = true,
     val dynamicColor: Boolean = true,
     val ambientPlayer: Boolean = true,
     val bitPerfect: Boolean = false,
@@ -166,6 +168,7 @@ object Keys {
     val keepScreenOn = booleanPreferencesKey("keepScreenOn")
     val themeMode = intPreferencesKey("themeMode")
     val tabletMode = intPreferencesKey("tabletMode")
+    val listArt = booleanPreferencesKey("listArt")
     val dynamicColor = booleanPreferencesKey("dynamicColor")
     val ambientPlayer = booleanPreferencesKey("ambientPlayer")
     val bitPerfect = booleanPreferencesKey("bitPerfect")
@@ -223,6 +226,7 @@ class SettingsRepository(private val context: Context) {
             keepScreenOn = p[Keys.keepScreenOn] ?: d.keepScreenOn,
             themeMode = p[Keys.themeMode] ?: d.themeMode,
             tabletMode = p[Keys.tabletMode] ?: d.tabletMode,
+            listArt = p[Keys.listArt] ?: d.listArt,
             dynamicColor = p[Keys.dynamicColor] ?: d.dynamicColor,
             ambientPlayer = p[Keys.ambientPlayer] ?: d.ambientPlayer,
             bitPerfect = p[Keys.bitPerfect] ?: d.bitPerfect,

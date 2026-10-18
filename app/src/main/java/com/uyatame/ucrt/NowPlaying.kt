@@ -155,9 +155,10 @@ private fun rememberArt(vm: MainViewModel, item: PlayItem): ImageBitmap? {
     val gen = ArtLoader.generation
     val img by produceState<ImageBitmap?>(ArtLoader.peek(item.artKey), item.artKey, item.artTrackUri, gen) {
         val k = item.artKey
+        // 一覧で読んだ小さな画像があれば先に出し、再生画面用の元の大きさの画像に差し替える
         value = ArtLoader.peek(k)
-        if (value == null && k != null) {
-            value = withContext(Dispatchers.IO) { ArtLoader.load(ctx, k, item.artTrackUri, item.artCoverUri) }
+        if (k != null) {
+            value = withContext(Dispatchers.IO) { ArtLoader.load(ctx, k, item.artTrackUri, item.artCoverUri) } ?: value
         }
     }
     return img
