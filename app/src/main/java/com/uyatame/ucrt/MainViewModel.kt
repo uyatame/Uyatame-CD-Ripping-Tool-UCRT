@@ -357,6 +357,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         player.onStateChanged = {
             updateService()
             loadPlayerArt()
+            updateWidget()
             recordHistory()
             saveResume()
         }
@@ -511,13 +512,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private var artFor: PlayItem? = null
+    /** ウィジェットに出すジャケット */
+    private var widgetArt: android.graphics.Bitmap? = null
+
+    /** ホーム画面のウィジェットに、再生中の曲を出す */
+    private fun updateWidget() {
+        val cur = player.current
+        PlayerWidget.update(
+            ctx,
+            cur?.let {
+                PlayerWidget.State(
+                    it.title, it.artist + if (it.album.isNotEmpty()) " ・ " + it.album else "",
+                    player.isPlaying, if (artFor == cur) widgetArt else null,
+                )
+            },
+        )
+    }
 
     /** 再生中の曲のジャケットを、通知・ロック画面に渡す */
     private fun loadPlayerArt() {
         val cur = player.current
         if (cur == artFor) return
         artFor = cur
-        if (cur == null) { player.setArt(null); return }
+        if (cur == null) { player.setArt(null); widgetArt = null; return }
         viewModelScope.launch {
             val bmp = withContext(Dispatchers.IO) {
                 runCatching {
@@ -527,7 +544,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (player.current == cur) {
                 player.setArt(bmp)
+                widgetArt = bmp
                 updateService()
+                updateWidget()
             }
         }
     }

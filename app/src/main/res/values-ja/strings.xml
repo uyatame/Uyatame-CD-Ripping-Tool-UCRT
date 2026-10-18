@@ -2,4 +2,13 @@
 <resources>
     <string name="app_name">Uyatame CD Ripping Tool</string>
     <string name="launcher_name">UCRT</string>
+    <string name="widget_tall_label">UCRT 再生中(縦)</string>
+    <string name="widget_wide_label">UCRT 再生中(横)</string>
+    <string name="widget_tall_desc">上にジャケット、下に曲名と操作ボタン</string>
+    <string name="widget_wide_desc">左にジャケット、右に曲名と操作ボタン</string>
+    <string name="widget_prev">前の曲</string>
+    <string name="widget_play">再生 / 一時停止</string>
+    <string name="widget_next">次の曲</string>
+    <string name="widget_idle">再生していません</string>
+    <string name="widget_idle_sub">タップして UCRT を開く</string>
 </resources>

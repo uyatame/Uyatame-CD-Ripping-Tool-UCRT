@@ -42,6 +42,30 @@
                 android:resource="@xml/device_filter" />
         </activity>
 
+        <!-- ホーム画面のウィジェット(縦長・横長) -->
+        <receiver
+            android:name=".PlayerWidgetTall"
+            android:exported="false"
+            android:label="@string/widget_tall_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_tall_info" />
+        </receiver>
+        <receiver
+            android:name=".PlayerWidgetWide"
+            android:exported="false"
+            android:label="@string/widget_wide_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_wide_info" />
+        </receiver>
+
         <service
             android:name=".KeepAliveService"
             android:exported="false"
