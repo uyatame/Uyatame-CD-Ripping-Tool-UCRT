@@ -428,7 +428,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * 新しい版が出ていないか確かめる。manual でなければ、起動して最初の 1 回だけ、
      * 設定でオンのときに、「この版は通知しない」にした版でなければ知らせる
      */
-    fun checkUpdate(manual: Boolean, force: Boolean = false) {
+    fun checkUpdate(manual: Boolean) {
         val s = settings.value
         if (!manual && (updateChecked || !s.updateCheck)) return
         if (updateChecking) return
@@ -440,8 +440,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 .onFailure { log("update check failed: ${it.javaClass.simpleName}: ${it.message}") }
                 .getOrNull()
             updateChecking = false
-            // force: テスト用。版を比べずに、最新のリリースをお知らせとして出す
-            val newer = r != null && (force || com.uyatame.ucrt.meta.UpdateCheck.isNewer(r.version, cur))
+            val newer = r != null && com.uyatame.ucrt.meta.UpdateCheck.isNewer(r.version, cur)
             if (r != null) log("update check: latest v${r.version}, this $cur" + if (newer) " (update available)" else "")
             when {
                 newer && (manual || r!!.version != settings.value.updateSkip) -> updateOffer = r

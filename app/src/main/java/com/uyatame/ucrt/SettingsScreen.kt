@@ -640,12 +640,6 @@ private fun LicensePage(vm: MainViewModel, s: AppSettings, onBack: () -> Unit) {
                     }
                     TextButton({ browse(com.uyatame.ucrt.meta.UpdateCheck.RELEASES_PAGE) }) { Text(T("リリースのページ", "Releases page")) }
                 }
-                // テスト用のビルドだけ: 版を比べずに、最新のリリースでお知らせを出してみる
-                if (BuildConfigVersion.name(ctx).contains(".test")) {
-                    OutlinedButton({ vm.checkUpdate(manual = true, force = true) }, enabled = !vm.updateChecking) {
-                        Text(T("お知らせの表示を試す(テスト版のみ)", "Try the update notice (test builds only)"))
-                    }
-                }
             }
             Text(
                 T("ライセンス情報", "Licenses"), style = MaterialTheme.typography.titleMedium,
