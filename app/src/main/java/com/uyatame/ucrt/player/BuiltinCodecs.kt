@@ -13,6 +13,33 @@ internal object BuiltinCodecs {
         else -> null
     }
 
+    /**
+     * ファイルの中身(先頭のバイト)から、内蔵のデコーダーの種類を調べる。
+     * 表示名に拡張子が無い・違うファイル(ほかのアプリが保存したものなど)でも内蔵で読めるように。分からなければ null
+     */
+    fun sniff(src: RandomInput): String? {
+        val b = ByteArray(12)
+        var n = 0
+        while (n < b.size) {
+            val r = src.read(n.toLong(), b, n, b.size - n)
+            if (r <= 0) break
+            n += r
+        }
+        if (n < 12) return null
+        fun at(o: Int, s: String) = s.indices.all { b[o + it] == s[it].code.toByte() }
+        return when {
+            at(0, "fLaC") -> "flac"
+            // ID3 が先頭に付いた FLAC は、FlacDecoder が ID3 を飛ばして確かめる(MP3 なら open() が例外を出す)
+            at(0, "ID3") -> "flac"
+            at(0, "FORM") && (at(8, "AIFF") || at(8, "AIFC")) -> "aiff"
+            at(0, "wvpk") -> "wavpack"
+            at(0, "MAC ") -> "ape"
+            // MP4 / M4A: 中身が ALAC のときだけ内蔵で読む(AAC などなら open() が例外を出す)
+            at(4, "ftyp") -> "alac"
+            else -> null
+        }
+    }
+
     fun create(kind: String, src: RandomInput): PcmDecoder = when (kind) {
         "flac" -> FlacDecoder(src)
         "aiff" -> AiffDecoder(src)

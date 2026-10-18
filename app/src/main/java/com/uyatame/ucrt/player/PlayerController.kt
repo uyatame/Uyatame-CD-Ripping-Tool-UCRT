@@ -926,7 +926,11 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     private fun openBuiltin(uri: Uri, fromMs: Long): PcmSource? {
         val name = runCatching { androidx.documentfile.provider.DocumentFile.fromSingleUri(ctx, uri)?.name }.getOrNull()
             ?: Uri.decode(uri.toString())
-        val kind = BuiltinCodecs.kindOf(name) ?: return null
+        // 拡張子で分からなければ、ファイルの中身で調べる(表示名に拡張子が無いファイルなど)
+        val kind = BuiltinCodecs.kindOf(name)
+            ?: BuiltinCodecs.openInput(ctx, uri)?.use { runCatching { BuiltinCodecs.sniff(it) }.getOrNull() }
+                ?.also { AudioEngine.log("built-in: '$name' looks like $it") }
+            ?: return null
         val pfd = runCatching { ctx.contentResolver.openFileDescriptor(uri, "r") }.getOrNull()
         if (pfd == null) { AudioEngine.log("$kind: cannot open, using OS decoder"); return null }
         return try {
