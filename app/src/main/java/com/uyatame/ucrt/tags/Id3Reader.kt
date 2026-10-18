@@ -136,19 +136,84 @@ object Id3Reader {
         return if (p < body.size) body.copyOfRange(p, body.size) else null
     }
 
-    fun parse(tag: ByteArray): Id3Data? {
+    /** 2.4 のフレームを、大きさを syncsafe(または普通の 32bit)としてたどり、途中で壊れずに終わりまで行けるか */
+    private fun walks(b: ByteArray, start: Int, syncsafe: Boolean): Boolean {
+        var p = start
+        while (p + 10 <= b.size) {
+            if (b[p].toInt() == 0) return true // 詰め物
+            for (k in 0 until 4) {
+                val c = b[p + k].toInt().toChar()
+                if (c !in 'A'..'Z' && c !in '0'..'9') return false
+            }
+            val fs = if (syncsafe) syncsafe(b, p + 4).toLong() else be32(b, p + 4).toLong() and 0xFFFFFFFFL
+            if (syncsafe && (b[p + 4].toInt() or b[p + 5].toInt() or b[p + 6].toInt() or b[p + 7].toInt()) and 0x80 != 0) return false
+            if (fs <= 0 || p + 10 + fs > b.size) return false
+            p += 10 + fs.toInt()
+        }
+        return true
+    }
+
+    /** フレーム 1 つ。body は同期化・グループ識別・データ長の指示を戻したもの。status は 2.3 の形の状態フラグ */
+    internal class Frame(val id: String, val body: ByteArray, val status: Int)
+
+    internal class Frames(val version: Int, val list: List<Frame>)
+
+    /** タグのフレームを並べる(圧縮・暗号化されたフレームは除く)。ID3v2 でなければ null */
+    internal fun frames(tag: ByteArray): Frames? {
         if (tag.size < 10 || tag[0] != 'I'.code.toByte() || tag[1] != 'D'.code.toByte() || tag[2] != '3'.code.toByte()) return null
         val ver = tag[3].toInt()
         val flags = tag[5].toInt() and 0xFF
         val size = syncsafe(tag, 6)
         var b = tag.copyOfRange(10, minOf(tag.size, 10 + size))
         if ((flags and 0x80) != 0 && ver < 4) b = unsync(b)
+        // 2.4 はタグ全体の同期化の印があれば、フレームごとに戻す
+        val unsync24 = (flags and 0x80) != 0 && ver >= 4
         var p = 0
         if ((flags and 0x40) != 0 && ver >= 3 && b.size >= 4) {
-            p += if (ver >= 4) syncsafe(b, 0) else be32(b, 0) + 4
+            val ext = if (ver >= 4) syncsafe(b, 0).toLong() else (be32(b, 0).toLong() and 0xFFFFFFFFL) + 4
+            if (ext > b.size) return null // 壊れている
+            p = ext.toInt()
         }
         val v22 = ver == 2
         val hdr = if (v22) 6 else 10
+        // 2.4 なのにフレームの大きさを syncsafe にしていないもの(古い iTunes など)がある。
+        // syncsafe としてたどれず、普通の 32bit としてならたどれるなら、そちらで読む
+        val plain24 = ver >= 4 && !walks(b, p, true) && walks(b, p, false)
+        val out = ArrayList<Frame>()
+        while (p + hdr <= b.size) {
+            if (b[p].toInt() == 0) break
+            val id = String(b, p, if (v22) 3 else 4, Charsets.ISO_8859_1)
+            val fs = when {
+                v22 -> be24(b, p + 3)
+                ver >= 4 && !plain24 -> syncsafe(b, p + 4)
+                else -> be32(b, p + 4)
+            }
+            if (fs <= 0 || p.toLong() + hdr + fs > b.size) break
+            var body = b.copyOfRange(p + hdr, p + hdr + fs)
+            var status = 0
+            if (ver >= 4) {
+                status = ((b[p + 8].toInt() and 0x70) shl 1)
+                val ff = b[p + 9].toInt() and 0xFF
+                // 圧縮・暗号化されたフレームは読まない
+                if ((ff and 0x0C) != 0) { p += hdr + fs; continue }
+                if ((ff and 0x40) != 0 && body.isNotEmpty()) body = body.copyOfRange(1, body.size) // グループ識別
+                if ((ff and 0x02) != 0 || unsync24) body = unsync(body)
+                if ((ff and 0x01) != 0 && body.size > 4) body = body.copyOfRange(4, body.size)
+            } else if (ver == 3) {
+                status = b[p + 8].toInt() and 0xE0
+                val ff = b[p + 9].toInt() and 0xFF
+                if ((ff and 0xC0) != 0) { p += hdr + fs; continue }
+                if ((ff and 0x20) != 0 && body.isNotEmpty()) body = body.copyOfRange(1, body.size)
+            }
+            out.add(Frame(id, body, status))
+            p += hdr + fs
+        }
+        return Frames(ver, out)
+    }
+
+    fun parse(tag: ByteArray): Id3Data? {
+        val fr = frames(tag) ?: return null
+        val v22 = fr.version == 2
         var title: String? = null; var artist: String? = null; var album: String? = null
         var albumArtist: String? = null; var year: String? = null
         var trk: String? = null; var pos: String? = null
@@ -156,29 +221,9 @@ object Id3Reader {
         var genre: String? = null
         var lyrics: String? = null
         val apics = ArrayList<ByteArray>()
-        while (p + hdr <= b.size) {
-            if (b[p].toInt() == 0) break
-            val id = String(b, p, if (v22) 3 else 4, Charsets.ISO_8859_1)
-            val fs = when {
-                v22 -> be24(b, p + 3)
-                ver >= 4 -> syncsafe(b, p + 4)
-                else -> be32(b, p + 4)
-            }
-            if (fs <= 0 || p + hdr + fs > b.size) break
-            var body = b.copyOfRange(p + hdr, p + hdr + fs)
-            if (ver >= 4) {
-                val ff = b[p + 9].toInt() and 0xFF
-                // 圧縮・暗号化されたフレームは読まない
-                if ((ff and 0x0C) != 0) { p += hdr + fs; continue }
-                if ((ff and 0x40) != 0 && body.isNotEmpty()) body = body.copyOfRange(1, body.size) // グループ識別
-                if ((ff and 0x02) != 0) body = unsync(body)
-                if ((ff and 0x01) != 0 && body.size > 4) body = body.copyOfRange(4, body.size)
-            } else if (ver == 3) {
-                val ff = b[p + 9].toInt() and 0xFF
-                if ((ff and 0xC0) != 0) { p += hdr + fs; continue }
-                if ((ff and 0x20) != 0 && body.isNotEmpty()) body = body.copyOfRange(1, body.size)
-            }
-            when (id) {
+        for (f in fr.list) {
+            val body = f.body
+            when (f.id) {
                 "TIT2", "TT2" -> title = text(body)
                 "TPE1", "TP1" -> artist = text(body)
                 "TALB", "TAL" -> album = text(body)
@@ -193,7 +238,6 @@ object Id3Reader {
                     if (!v22) apics.add(body)
                 }
             }
-            p += hdr + fs
         }
         val (t, tt) = num(trk)
         val (d, dt) = num(pos)

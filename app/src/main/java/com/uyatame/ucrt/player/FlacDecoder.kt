@@ -267,21 +267,29 @@ internal class FlacDecoder(private val src: RandomInput) : PcmDecoder {
 
     /** 次のフレームをデコードする。終わりなら false */
     override fun decodeNext(): Boolean {
-        val h = nextHeader() ?: return false
-        val bs = h.blockSize
-        if (samples.size != channels || samples[0].size < bs) samples = Array(channels) { IntArray(maxOf(bs, maxBlock)) }
-        try {
-            for (ch in 0 until channels) {
-                // サイドチャンネルは 1 ビット多い
-                val side = (h.chAssign == 8 && ch == 1) || (h.chAssign == 9 && ch == 0) || (h.chAssign == 10 && ch == 1)
-                subframe(samples[ch], bs, h.bps + if (side) 1 else 0)
+        var h: Header
+        while (true) {
+            h = nextHeader() ?: return false
+            val bs = h.blockSize
+            if (samples.size != channels || samples[0].size < bs) samples = Array(channels) { IntArray(maxOf(bs, maxBlock)) }
+            try {
+                for (ch in 0 until channels) {
+                    // サイドチャンネルは 1 ビット多い
+                    val side = (h.chAssign == 8 && ch == 1) || (h.chAssign == 9 && ch == 0) || (h.chAssign == 10 && ch == 1)
+                    subframe(samples[ch], bs, h.bps + if (side) 1 else 0)
+                }
+                alignByte()
+                bits(16) // CRC-16
+                break
+            } catch (e: BadFrame) {
+                // 壊れたフレーム(またはヘッダーに見えただけの所): 1 バイト先から次のフレームを探す
+                seekByte(lastPos + 1)
+            } catch (e: IOException) {
+                if (e === EOF) return false
+                throw e
             }
-            alignByte()
-            bits(16) // CRC-16
-        } catch (e: IOException) {
-            if (e === EOF) return false
-            throw e
         }
+        val bs = h.blockSize
         val l = samples.getOrNull(0)
         val r = samples.getOrNull(1)
         when (h.chAssign) {
@@ -305,6 +313,7 @@ internal class FlacDecoder(private val src: RandomInput) : PcmDecoder {
         var wasted = 0
         if (bits(1) == 1) wasted = unary() + 1
         val bps = bps0 - wasted
+        if (bps < 0) throw BadFrame("FLAC: bad wasted bits")
         when {
             type == 0 -> {
                 val v = signed(bps).toInt()
@@ -313,32 +322,37 @@ internal class FlacDecoder(private val src: RandomInput) : PcmDecoder {
             type == 1 -> for (i in 0 until n) out[i] = signed(bps).toInt()
             type in 8..12 -> {
                 val order = type - 8
+                if (order > n) throw BadFrame("FLAC: bad predictor order")
                 for (i in 0 until order) out[i] = signed(bps).toInt()
                 residual(out, n, order)
                 fixed(out, n, order)
             }
             type >= 32 -> {
                 val order = type - 31
+                if (order > n) throw BadFrame("FLAC: bad predictor order")
                 for (i in 0 until order) out[i] = signed(bps).toInt()
                 val precision = bits(4) + 1
-                if (precision == 16) throw IOException("FLAC: bad LPC precision")
+                if (precision == 16) throw BadFrame("FLAC: bad LPC precision")
                 val shift = signed(5).toInt()
+                if (shift < 0) throw BadFrame("FLAC: negative LPC shift")
                 val coef = IntArray(order) { signed(precision).toInt() }
                 residual(out, n, order)
                 lpc(out, n, order, coef, shift)
             }
-            else -> throw IOException("FLAC: reserved subframe $type")
+            else -> throw BadFrame("FLAC: reserved subframe $type")
         }
         if (wasted > 0) for (i in 0 until n) out[i] = out[i] shl wasted
     }
 
     private fun residual(out: IntArray, n: Int, order: Int) {
         val method = bits(2)
-        if (method > 1) throw IOException("FLAC: reserved residual coding")
+        if (method > 1) throw BadFrame("FLAC: reserved residual coding")
         val paramBits = if (method == 0) 4 else 5
         val escape = if (method == 0) 15 else 31
         val porder = bits(4)
         val parts = 1 shl porder
+        // 壊れたデータで out の外に書かないように(libFLAC と同じ確かめ方)
+        if (porder > 0 && ((n and (parts - 1)) != 0 || (n ushr porder) < order)) throw BadFrame("FLAC: bad partition order")
         var i = order
         for (p in 0 until parts) {
             val cnt = if (porder == 0) n - order else (n ushr porder) - (if (p == 0) order else 0)
@@ -397,12 +411,17 @@ internal class FlacDecoder(private val src: RandomInput) : PcmDecoder {
         }
         // lo から順にデコードし、target を含むフレームの頭に戻る
         seekByte(lo)
+        lastPos = lo
+        var retry = -1L
         while (true) {
             val ok = try {
                 decodeNext()
             } catch (e: IOException) {
                 // ヘッダーに見えただけの所だった: その 1 バイト先から探し直す
-                seekByte(lastPos + 1)
+                // (読み込みのエラーが続くときなど、先へ進めなければあきらめる)
+                if (lastPos + 1 <= retry) throw e
+                retry = lastPos + 1
+                seekByte(retry)
                 continue
             }
             if (!ok) return
@@ -415,6 +434,9 @@ internal class FlacDecoder(private val src: RandomInput) : PcmDecoder {
 
     /** 最後に読んだフレームのヘッダーの位置 */
     private var lastPos = 0L
+
+    /** フレームの中身が壊れている(読み込みのエラーとは分ける) */
+    private class BadFrame(msg: String) : IOException(msg)
 
     companion object {
         private val EOF = IOException("end of FLAC data")

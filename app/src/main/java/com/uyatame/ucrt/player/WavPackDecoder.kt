@@ -80,13 +80,15 @@ internal class WavPackDecoder(private val src: RandomInput) : PcmDecoder {
         // 大きさは偶数で 24 以上 16MB 未満、版は 0x402〜0x410、1 ブロックのサンプル数は 0x30000 未満
         if ((ck and 1) != 0 || ck < 24 || ck >= 0x1000000 || ver < 0x402 || ver > 0x410) return false
         if ((b[22].toInt() and 0xFF) >= 3 || b[23].toInt() != 0) return false
+        val ns = le32(b, 20)
+        if (ns < 0 || ns >= MAX_BLOCK_SAMPLES) return false
         hCk = ck
         val tot = le32(b, 12).toLong() and 0xFFFFFFFFL
         val tu8 = (b[11].toInt() and 0xFF).toLong()
         // 40bit に広げた値(5.x)。下位 32bit がすべて 1 なら分からない
         hTotal = if (tot == 0xFFFFFFFFL) -1 else tot + (tu8 shl 32) - tu8
         hIdx = (le32(b, 16).toLong() and 0xFFFFFFFFL) + ((b[10].toLong() and 0xFF) shl 32)
-        hSamples = le32(b, 20)
+        hSamples = ns
         hFlags = le32(b, 24)
         hCrc = le32(b, 28)
         return true
@@ -151,6 +153,7 @@ internal class WavPackDecoder(private val src: RandomInput) : PcmDecoder {
             q += 8 + hCk
             if (!header(q)) break
         }
+        if (ch > MAX_CHANNELS) throw IOException("WavPack: too many channels")
         channels = ch
         if (total < 0) {
             // 全体のサンプル数が書かれていない: 最後のブロックまでたどる
@@ -206,7 +209,10 @@ internal class WavPackDecoder(private val src: RandomInput) : PcmDecoder {
             if ((hFlags and DSD) != 0) throw IOException("WavPack: DSD not supported")
             val n = hSamples
             val idx = hIdx
-            if (samples.size != channels || samples[0].size < n) samples = Array(channels) { IntArray(n) }
+            if (samples.size != channels || samples[0].size < n) {
+                if (channels.toLong() * n > (1 shl 24)) throw IOException("WavPack: block too large")
+                samples = Array(channels) { IntArray(n) }
+            }
             var ch = 0
             var q = p
             while (true) {
@@ -343,6 +349,9 @@ internal class WavPackDecoder(private val src: RandomInput) : PcmDecoder {
                     var i = terms - 1
                     while (i >= 0 && k < end) {
                         val t = tValue[i]
+                        // 壊れたブロックで、サブブロックの外(配列の外)を読まないように
+                        val need = if (t > 8) (if (stereoIn) 8 else 4) else if (t < 0) 4 else t * (if (stereoIn) 4 else 2)
+                        if (k + need > end) break
                         if (t > 8) {
                             sA[i][0] = exp2s(le16(b, k)); sA[i][1] = exp2s(le16(b, k + 2)); k += 4
                             if (stereoIn) { sB[i][0] = exp2s(le16(b, k)); sB[i][1] = exp2s(le16(b, k + 2)); k += 4 }
@@ -366,9 +375,10 @@ internal class WavPackDecoder(private val src: RandomInput) : PcmDecoder {
                     var k = o
                     var left = sz
                     val nc = if (stereoIn) 2 else 1
+                    if (sz < nc * (if (hybridBitrate) 4 else 2)) throw IOException("WavPack: bad hybrid profile")
                     if (hybridBitrate) for (i in 0 until nc) { slow[i] = exp2s(le16(b, k)); k += 2; left -= 2 }
                     for (i in 0 until nc) { brAcc[i] = le16(b, k) shl 16; k += 2; left -= 2 }
-                    if (left > 0) for (i in 0 until nc) { brDelta[i] = exp2s(le16(b, k)); k += 2 }
+                    if (left > 0) for (i in 0 until nc) { if (k + 2 > o + sz) break; brDelta[i] = exp2s(le16(b, k)); k += 2 }
                 }
                 ID_INT32_INFO -> {
                     if (sz == 4) {
@@ -711,7 +721,10 @@ internal class WavPackDecoder(private val src: RandomInput) : PcmDecoder {
             var bse = base
             var ad = add
             var mid = (bse * 2 + ad + 1) ushr 1
+            var steps = 0
             while (ad > lim) {
+                // 正しいデータなら 32 回以内に終わる(壊れたデータで止まらなくならないように)
+                if (++steps > 64) throw IOException("WavPack: bad hybrid data")
                 if (bs.bit() != 0) {
                     ad -= mid - bse
                     bse = mid
@@ -917,6 +930,9 @@ internal class WavPackDecoder(private val src: RandomInput) : PcmDecoder {
         private const val FLT_ZERO_SIGN = 0x10
 
         private const val MAX_TERMS = 16
+        /** 1 ブロックのサンプル数の上限(libwavpack が作るのは 131072 まで。壊れたヘッダーで大きな配列を作らない) */
+        private const val MAX_BLOCK_SAMPLES = 0x30000
+        private const val MAX_CHANNELS = 4096
 
         private val RATES = intArrayOf(6000, 8000, 9600, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200, 96000, 192000)
 

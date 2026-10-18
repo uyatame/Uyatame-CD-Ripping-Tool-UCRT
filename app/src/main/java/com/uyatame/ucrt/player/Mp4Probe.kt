@@ -29,6 +29,8 @@ internal object Mp4Probe {
             ((b[o + 2].toLong() and 0xFF) shl 8) or (b[o + 3].toLong() and 0xFF)
 
     private fun walk(src: RandomInput, start: Long, end: Long, depth: Int): String? {
+        // 入れ子は moov/trak/mdia/minf/stbl の 5 段まで(壊れたファイルで深く潜り続けないように)
+        if (depth > 8) return null
         var pos = start
         var isSound = false
         while (pos + 8 <= end) {
@@ -43,6 +45,8 @@ internal object Mp4Probe {
                 size = end - pos
             }
             if (size < head) return null
+            // 外の箱をはみ出す大きさは、外の箱の終わりまでとみなす(大きすぎる値で位置が一周しないように)
+            if (size > end - pos) size = end - pos
             when {
                 // 音声のトラック(hdlr が 'soun')の minf だけを見る
                 type == "minf" && !isSound -> {}

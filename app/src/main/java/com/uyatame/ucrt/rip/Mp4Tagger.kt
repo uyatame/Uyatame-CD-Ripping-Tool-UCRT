@@ -91,7 +91,8 @@ object Mp4Tagger {
     fun tag(file: File, t: Mp4Tags, cover: Cover?) {
         val b = file.readBytes()
         val top = boxes(b, 0, b.size)
-        val moov = top.firstOrNull { it.type == "moov" } ?: return
+        // moov が無ければ書き込めない(黙って何もしないと、保存できたように見えてしまう)
+        val moov = top.firstOrNull { it.type == "moov" } ?: throw java.io.IOException("MP4: no moov box")
         val mdat = top.firstOrNull { it.type == "mdat" }
 
         val items = ArrayList<ByteArray>()
@@ -110,8 +111,26 @@ object Mp4Tagger {
             "hdlr", be32(0), be32(0), "mdir".toByteArray(Charsets.ISO_8859_1),
             "appl".toByteArray(Charsets.ISO_8859_1), ByteArray(8), byteArrayOf(0),
         )
+        // 前からある曲情報のうち、ここで書かないもの(ジャンル・歌詞・ReplayGain など)は残す。
+        // udta の meta 以外(チャプターなど)もそのまま残す
+        val written = mutableSetOf("\u00A9nam", "\u00A9ART", "\u00A9alb", "aART", "\u00A9day", "trkn", "disk", "\u00A9too")
+        if (cover != null) written.add("covr")
+        val keepUdta = ArrayList<ByteArray>()
+        boxes(b, moov.off + 8, moov.off + moov.size).firstOrNull { it.type == "udta" }?.let { u ->
+            for (c in boxes(b, u.off + 8, u.off + u.size)) {
+                if (c.type != "meta") { keepUdta.add(b.copyOfRange(c.off, c.off + c.size)); continue }
+                // ISO 形式の meta は中身の前にバージョンとフラグ(4 バイト)がある。QuickTime 形式には無い
+                val iso = c.size >= 12 && b[c.off + 8].toInt() == 0 && b[c.off + 9].toInt() == 0 && b[c.off + 10].toInt() == 0 && b[c.off + 11].toInt() == 0
+                val inner = c.off + 8 + if (iso) 4 else 0
+                boxes(b, inner, c.off + c.size).firstOrNull { it.type == "ilst" }?.let { il ->
+                    for (item in boxes(b, il.off + 8, il.off + il.size)) {
+                        if (item.type !in written) items.add(b.copyOfRange(item.off, item.off + item.size))
+                    }
+                }
+            }
+        }
         val ilst = box("ilst", *items.toTypedArray())
-        val udta = box("udta", box("meta", be32(0), hdlr, ilst))
+        val udta = box("udta", *(keepUdta + listOf(box("meta", be32(0), hdlr, ilst))).toTypedArray())
 
         val body = ByteArrayOutputStream()
         for (c in boxes(b, moov.off + 8, moov.off + moov.size)) {

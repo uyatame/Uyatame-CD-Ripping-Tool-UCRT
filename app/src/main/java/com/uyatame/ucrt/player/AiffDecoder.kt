@@ -80,6 +80,7 @@ internal class AiffDecoder(private val src: RandomInput) : PcmDecoder {
             val body = pos + 8
             when (id) {
                 "COMM" -> {
+                    if (size < 18) throw IOException("AIFF: bad COMM")
                     val c = readAt(body, minOf(size, 64L).toInt())
                     channels = be16(c, 0)
                     frames = be32(c, 2)
@@ -109,7 +110,7 @@ internal class AiffDecoder(private val src: RandomInput) : PcmDecoder {
         bytesPerSample = (bitsPerSample + 7) / 8
         // 実際に入っている分を超えないように
         val avail = (src.size - dataStart) / (bytesPerSample.toLong() * channels)
-        totalSamples = minOf(frames, avail)
+        totalSamples = minOf(frames, avail).coerceAtLeast(0)
         // float は 24bit の整数にして出す
         if (float) bitsPerSample = 24
         next = 0

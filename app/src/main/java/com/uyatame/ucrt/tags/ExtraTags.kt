@@ -103,7 +103,7 @@ internal object ExtraTags {
             if (p >= b.size) break
             val key = String(b, k0, p - k0, Charsets.ISO_8859_1).lowercase()
             p++
-            if (vlen < 0 || p + vlen > b.size) break
+            if (vlen < 0 || p.toLong() + vlen > b.size) break
             val binary = ((flags shr 1) and 3) == 1
             if (binary) {
                 if (key.startsWith("cover art") && (pic == null || key == "cover art (front)")) {

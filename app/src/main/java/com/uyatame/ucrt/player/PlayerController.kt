@@ -797,7 +797,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 }
                 while (!stopFlag && s.headFrames() < s.framesWritten) Thread.sleep(50)
                 if (!stopFlag) main.post { if (file === this) next(true) }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 AudioEngine.log("dsd: playback error: ${e.javaClass.simpleName}: ${e.message}")
                 if (!stopFlag) main.post { if (file === this) next(true) }
             } finally {
@@ -933,7 +933,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             BuiltinSource(pfd, kind, fromMs).also {
                 AudioEngine.log("$kind: ${it.rate} Hz ${it.channels}ch ${it.srcBits}bit (built-in decoder)")
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             AudioEngine.log("$kind: ${e.javaClass.simpleName}: ${e.message}, using OS decoder")
             runCatching { pfd.close() }
             null
@@ -1306,7 +1306,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                     val ready = takePrefetched(nx)
                     val opened: PcmSource? = ready ?: try {
                         open(nx, 0)
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
                         AudioEngine.log("gapless: cannot open next (${e.javaClass.simpleName})")
                         null
                     }
@@ -1330,7 +1330,8 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 }
                 while (!stopFlag && o.headFrames() < o.framesWritten) Thread.sleep(50)
                 if (!stopFlag) main.post { if (file === this) { applySwitches(this, segs, Long.MAX_VALUE); next(true) } }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Exception だけでなく、壊れたファイルで起きうる OutOfMemoryError なども受け止めて次の曲へ(アプリごと落ちないように)
                 AudioEngine.log("playback error: ${e.javaClass.simpleName}: ${e.message}")
                 if (e is Unsupported) main.post { onNotice?.invoke(e.message ?: "") }
                 // 書き込み済みの分(前の曲の終わり)は鳴らし切ってから次へ

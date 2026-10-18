@@ -42,7 +42,7 @@ object WavTags {
         if (h.size < 12 || String(h, 0, 4, Charsets.ISO_8859_1) != "RIFF" || String(h, 8, 4, Charsets.ISO_8859_1) != "WAVE") return null
         val out = ArrayList<Chunk>()
         var p = 12L
-        while (p + 8 <= total && out.size < 256) {
+        while (p + 8 <= total && out.size < MAX_CHUNKS) {
             val c = f.read(p, 8)
             if (c.size < 8) break
             val id = String(c, 0, 4, Charsets.ISO_8859_1)
@@ -54,6 +54,8 @@ object WavTags {
         }
         return out
     }
+
+    private const val MAX_CHUNKS = 4096
 
     /** WAV の形式と曲情報を読む。読めなければ null */
     fun read(ctx: Context, uri: Uri): Info? {
@@ -122,7 +124,7 @@ object WavTags {
         while (p + 8 <= b.size) {
             val id = String(b, p, 4, Charsets.ISO_8859_1)
             val len = le32(b, p + 4).toInt()
-            if (len < 0 || p + 8 + len > b.size) break
+            if (len < 0 || p + 8L + len > b.size) break
             val s = decode(b, p + 8, len)
             if (s.isNotEmpty() && id !in m) m[id] = s
             p += 8 + len + (len and 1)
@@ -143,8 +145,25 @@ object WavTags {
         return o.toByteArray()
     }
 
-    /** LIST/INFO チャンク */
-    private fun infoChunk(t: Id3Tags): ByteArray {
+    /** LIST/INFO の中で、書き換えるもの(古いものは残さない) */
+    private val INFO_EDITED = setOf("INAM", "IART", "IPRD", "ICRD", "ITRK", "IPRT", "ISFT")
+
+    /** 元の LIST/INFO の項目のうち、書き換えないもの(IGNR・ICMT など)を、そのままのバイト列で */
+    private fun otherInfo(b: ByteArray): List<Pair<String, ByteArray>> {
+        val out = ArrayList<Pair<String, ByteArray>>()
+        var p = 4
+        while (p + 8 <= b.size) {
+            val id = String(b, p, 4, Charsets.ISO_8859_1)
+            val len = le32(b, p + 4).toInt()
+            if (len < 0 || p + 8L + len > b.size) break
+            if (id !in INFO_EDITED) out.add(id to b.copyOfRange(p + 8, p + 8 + len))
+            p += 8 + len + (len and 1)
+        }
+        return out
+    }
+
+    /** LIST/INFO チャンク。extra は元のファイルから残す項目 */
+    private fun infoChunk(t: Id3Tags, extra: List<Pair<String, ByteArray>> = emptyList()): ByteArray {
         val o = ByteArrayOutputStream()
         o.write("INFO".toByteArray(Charsets.ISO_8859_1))
         fun item(id: String, v: String) {
@@ -157,6 +176,7 @@ object WavTags {
         item("ICRD", t.year.take(4))
         if (t.track > 0) item("ITRK", t.track.toString())
         item("ISFT", "Uyatame CD Ripping Tool")
+        for ((id, v) in extra) o.write(chunk(id, v))
         return chunk("LIST", o.toByteArray())
     }
 
@@ -175,8 +195,19 @@ object WavTags {
         val f = RandomFile.open(ctx, uri) ?: throw IOException("cannot open")
         f.use { rf ->
             val cs = chunks(rf) ?: throw IOException("not a WAV file")
-            val old = if (cover == null) readFrom(rf)?.tags?.rawApic.orEmpty() else emptyList()
-            val meta = metaChunks(t, cover, old)
+            // チャンクが多すぎて最後までたどれなかったら、書き換えない(残りを消してしまわないように)
+            val last = cs.lastOrNull()
+            if (last == null || last.offset + last.size + (last.size and 1L) + 8 <= rf.size) throw IOException("not a WAV file")
+            // 元の id3 と INFO のうち、書き換えない項目(ジャンル・歌詞・コメントなど)は残す
+            val oldId3 = cs.firstOrNull { (it.id == "id3 " || it.id == "ID3 ") && it.size in 10..(32L shl 20) }
+                ?.let { rf.read(it.offset, it.size.toInt()) }
+            val kept = Id3Keep.from(oldId3, cover == null)
+            val oldInfo = cs.firstOrNull { it.id == "LIST" && it.size in 4..(1L shl 20) }
+                ?.let { c -> rf.read(c.offset, c.size.toInt()) }
+                ?.takeIf { it.size >= 4 && String(it, 0, 4, Charsets.ISO_8859_1) == "INFO" }
+                ?.let { otherInfo(it) }
+                .orEmpty()
+            val meta = infoChunk(t, oldInfo) + chunk("id3 ", Id3Keep.merge(Id3v2.build(t, cover, kept.rawApic), kept.frames))
             // 曲情報のチャンクは入れ替え、ほかはそのまま残す
             val keep = cs.filter { c ->
                 c.id != "id3 " && c.id != "ID3 " &&

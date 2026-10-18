@@ -188,6 +188,8 @@ internal class ApeDecoder(private val src: RandomInput) : PcmDecoder {
         if (level !in intArrayOf(1000, 2000, 3000, 4000, 5000)) throw IOException("APE: unsupported compression level $level")
         if (totalFrames <= 0 || blocksPerFrame <= 0 || finalFrameBlocks !in 1..blocksPerFrame || sampleRate <= 0) throw IOException("APE: bad header")
         if (seekCount < totalFrames) throw IOException("APE: seek table too short")
+        // 壊れたヘッダーで大きな配列を作らないように(Insane でも 73728 × 16。位置の表はファイルの中にある)
+        if (blocksPerFrame > MAX_BLOCKS_PER_FRAME || totalFrames.toLong() * 4 > src.size) throw IOException("APE: bad header")
         totalSamples = (totalFrames - 1).toLong() * blocksPerFrame + finalFrameBlocks
 
         // 位置の表(32bit。"MAC " より前の部分(ID3v2 など)の長さを足す。
@@ -225,7 +227,10 @@ internal class ApeDecoder(private val src: RandomInput) : PcmDecoder {
         val aligned = pos - skip
         // 終わり: 次のフレームの始まり(最後のフレームはデータの終わり)。レンジデコーダーが少し先まで読むので余分に読む
         val end = (if (n + 1 < totalFrames) seekTable[n + 1] else dataEnd) + 16
-        var len = (minOf(end, src.size) - aligned).coerceAtLeast(0).toInt()
+        val len0 = (minOf(end, src.size) - aligned).coerceAtLeast(0)
+        // 位置の表が壊れていると、とても大きくなることがある
+        if (len0 > MAX_FRAME_BYTES) throw IOException("APE: frame too large")
+        var len = len0.toInt()
         len = (len + 3) and 3.inv()
         if (fb.size < len + 16) fb = ByteArray(len + 16 + (len shr 3))
         val raw = fb
@@ -309,7 +314,7 @@ internal class ApeDecoder(private val src: RandomInput) : PcmDecoder {
             rcRange = rcRange ushr 16
             val rt = (rcLow / rcRange).toInt()
             var ov = 0
-            while (rt >= RANGE_TOTAL_2[ov + 1]) ov++
+            while (ov < MODEL_ELEMENTS - 1 && rt >= RANGE_TOTAL_2[ov + 1]) ov++
             rcLow -= rcRange * RANGE_TOTAL_2[ov]
             rcRange *= RANGE_WIDTH_2[ov]
             if (ov == MODEL_ELEMENTS - 1) {
@@ -333,7 +338,7 @@ internal class ApeDecoder(private val src: RandomInput) : PcmDecoder {
             rcRange = rcRange ushr 16
             val rt = (rcLow / rcRange).toInt()
             var ov = 0
-            while (rt >= RANGE_TOTAL_1[ov + 1]) ov++
+            while (ov < MODEL_ELEMENTS - 1 && rt >= RANGE_TOTAL_1[ov + 1]) ov++
             rcLow -= rcRange * RANGE_TOTAL_1[ov]
             rcRange *= RANGE_WIDTH_1[ov]
             val k: Int
@@ -694,6 +699,9 @@ internal class ApeDecoder(private val src: RandomInput) : PcmDecoder {
     companion object {
         /** 1 回の decodeNext() で出すサンプル数(フレームを分けて出す) */
         private const val CHUNK = 4608
+        /** 1 フレームのサンプル数・バイト数の上限(壊れたファイルで大きな配列を作らない) */
+        private const val MAX_BLOCKS_PER_FRAME = 73728 * 32
+        private const val MAX_FRAME_BYTES = 64L shl 20
 
         private const val WINDOW = 512
         private const val HIST = 8

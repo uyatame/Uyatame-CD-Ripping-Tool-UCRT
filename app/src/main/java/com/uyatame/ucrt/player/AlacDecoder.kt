@@ -77,8 +77,11 @@ internal class AlacDecoder(private val src: RandomInput) : PcmDecoder {
                 size = end - p
             }
             if (size < hdr) break // 壊れている
-            val e = if (p + size > end) end else p + size // 途中で切れたファイルは終わりまで
-            list += Box(type, p + hdr, e)
+            if (size > end - p) { // 途中で切れたファイルは終わりまで(大きすぎる値で位置が一周しないように)
+                list += Box(type, p + hdr, end)
+                break
+            }
+            list += Box(type, p + hdr, p + size)
             p += size
         }
         return list
@@ -158,17 +161,21 @@ internal class AlacDecoder(private val src: RandomInput) : PcmDecoder {
         val sizes: IntArray
         val stsz = st.find("stsz")?.let { load(it) }
         if (stsz != null) {
+            if (stsz.size < 12) throw IOException("MP4: short stsz")
             val constant = u32(stsz, 4).toInt()
             val n = u32(stsz, 8).toInt()
+            // パケットはファイルの中に収まるので、数 × 大きさはファイルの大きさを超えない(壊れた値で大きな配列を作らない)
+            if (n < 0 || (constant != 0 && n * u32(stsz, 4) > src.size)) throw IOException("MP4: bad stsz")
             sizes = if (constant != 0) IntArray(n) { constant } else {
                 if (stsz.size < 12 + 4L * n) throw IOException("MP4: short stsz")
                 IntArray(n) { u32(stsz, 12 + 4 * it).toInt() }
             }
         } else {
             val stz2 = st.find("stz2")?.let { load(it) } ?: throw IOException("MP4: no stsz")
+            if (stz2.size < 12) throw IOException("MP4: bad stz2")
             val field = stz2[7].toInt() and 0xFF
             val n = u32(stz2, 8).toInt()
-            if (field !in intArrayOf(4, 8, 16) || stz2.size < 12 + (n.toLong() * field + 7) / 8) throw IOException("MP4: bad stz2")
+            if (n < 0 || field !in intArrayOf(4, 8, 16) || stz2.size < 12 + (n.toLong() * field + 7) / 8) throw IOException("MP4: bad stz2")
             sizes = IntArray(n) {
                 when (field) {
                     4 -> (stz2[12 + it / 2].toInt() ushr (if (it % 2 == 0) 4 else 0)) and 15
@@ -181,23 +188,24 @@ internal class AlacDecoder(private val src: RandomInput) : PcmDecoder {
         if (n == 0) throw IOException("MP4: no samples")
 
         // ---- stco / co64: チャンクの位置 ----
-        val chunks: LongArray = st.find("stco")?.let { load(it) }?.let { b ->
-            IntArray(u32(b, 4).toInt().coerceAtMost((b.size - 8) / 4)).let { a -> LongArray(a.size) { u32(b, 8 + 4 * it) } }
-        } ?: st.find("co64")?.let { load(it) }?.let { b ->
-            LongArray(u32(b, 4).toInt().coerceAtMost((b.size - 8) / 8)) { i64(b, 8 + 8 * it) }
+        val chunks: LongArray = st.find("stco")?.let { load(it) }?.takeIf { it.size >= 8 }?.let { b ->
+            LongArray(u32(b, 4).coerceAtMost((b.size - 8) / 4L).toInt()) { u32(b, 8 + 4 * it) }
+        } ?: st.find("co64")?.let { load(it) }?.takeIf { it.size >= 8 }?.let { b ->
+            LongArray(u32(b, 4).coerceAtMost((b.size - 8) / 8L).toInt()) { i64(b, 8 + 8 * it) }
         } ?: throw IOException("MP4: no stco")
 
         // ---- stsc: チャンクごとのパケットの数 → パケットの位置 ----
-        val stsc = st.find("stsc")?.let { load(it) } ?: throw IOException("MP4: no stsc")
-        val scN = u32(stsc, 4).toInt().coerceAtMost((stsc.size - 8) / 12)
+        val stsc = st.find("stsc")?.let { load(it) }?.takeIf { it.size >= 8 } ?: throw IOException("MP4: no stsc")
+        val scN = u32(stsc, 4).coerceAtMost((stsc.size - 8) / 12L).toInt()
         if (scN == 0) throw IOException("MP4: empty stsc")
         pkOffset = LongArray(n)
         pkSize = sizes
         var k = 0
         for (e in 0 until scN) {
-            val first = u32(stsc, 8 + 12 * e).toInt() - 1
-            val per = u32(stsc, 12 + 12 * e).toInt()
-            val last = if (e + 1 < scN) u32(stsc, 8 + 12 * (e + 1)).toInt() - 1 else chunks.size
+            // 番号は 1 から。壊れた値(0 や 2^31 以上)で配列の外を見ないように
+            val first = (u32(stsc, 8 + 12 * e) - 1).coerceIn(0L, chunks.size.toLong()).toInt()
+            val per = u32(stsc, 12 + 12 * e).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            val last = if (e + 1 < scN) (u32(stsc, 8 + 12 * (e + 1)) - 1).coerceIn(0L, chunks.size.toLong()).toInt() else chunks.size
             var c = first
             while (c < last && c < chunks.size && k < n) {
                 var off = chunks[c]
@@ -213,14 +221,14 @@ internal class AlacDecoder(private val src: RandomInput) : PcmDecoder {
         val count = k // stsc が足りなければ、そこまで
 
         // ---- stts: パケットごとのサンプルの数(最後は短いことがある) ----
-        val stts = st.find("stts")?.let { load(it) }
+        val stts = st.find("stts")?.let { load(it) }?.takeIf { it.size >= 8 }
         val starts = LongArray(count + 1)
         var t = 0L // mdhd の時間の単位での位置
         var i = 0
         val scale = timescale > 0 && timescale != sampleRate.toLong()
         fun toSample(x: Long): Long = if (scale) x * sampleRate / timescale else x
         if (stts != null) {
-            val tsN = u32(stts, 4).toInt().coerceAtMost((stts.size - 8) / 8)
+            val tsN = u32(stts, 4).coerceAtMost((stts.size - 8) / 8L).toInt()
             for (e in 0 until tsN) {
                 val cnt = u32(stts, 8 + 8 * e)
                 val delta = u32(stts, 12 + 8 * e)
@@ -314,7 +322,7 @@ internal class AlacDecoder(private val src: RandomInput) : PcmDecoder {
             when (val tag = bits(3)) {
                 ID_SCE, ID_LFE, ID_CPE -> {
                     val nch = if (tag == ID_CPE) 2 else 1
-                    if (ch + nch > channels) throw IOException("ALAC: too many channels in frame")
+                    if (ch + nch > channels || offsets[ch] + nch > channels) throw IOException("ALAC: too many channels in frame")
                     val ns = element(nch, offsets[ch])
                     if (n >= 0 && ns != n) throw IOException("ALAC: sample count mismatch")
                     n = ns
