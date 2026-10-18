@@ -64,6 +64,18 @@ class RandomFile(private val pfd: ParcelFileDescriptor) : AutoCloseable {
         return bb.array().copyOf(bb.position())
     }
 
+    /** dst[off] から n バイトに読む(配列を作らない版)。読めたバイト数を返す */
+    fun readInto(pos: Long, dst: ByteArray, off: Int, n: Int): Int {
+        val bb = ByteBuffer.wrap(dst, off, n)
+        var p = pos
+        while (bb.hasRemaining()) {
+            val r = ch.read(bb, p)
+            if (r <= 0) break
+            p += r
+        }
+        return bb.position() - off
+    }
+
     override fun close() {
         runCatching { ch.close() }
         runCatching { pfd.close() }
@@ -112,21 +124,25 @@ object DsdFile {
         val rate = le(b, 56, 4).toInt()
         val bps = le(b, 60, 4).toInt()
         val samples = le(b, 64, 8)
-        val block = le(b, 72, 4).toInt().takeIf { it > 0 } ?: 4096
+        // ブロックサイズは本来 4096。おかしな値で巨大な配列を作らないよう、範囲外なら 4096 とみなす
+        val block = le(b, 72, 4).toInt().takeIf { it in 1..(1 shl 20) } ?: 4096
         if (formatId != 0L) throw IOException("unsupported DSF format")
+        if (channels !in 1..64 || rate <= 0) throw IOException("bad DSF fmt")
         val dataPos = 28 + fmtSize
         val d = f.read(dataPos, 12)
         if (d.size < 12 || String(d, 0, 4, Charsets.ISO_8859_1) != "data") throw IOException("bad DSF data")
         val dataLen = le(d, 4, 8) - 12
         var id3Len = 0L
+        val total = f.size
         if (meta > 0) {
-            val total = f.size
             id3Len = if (total > meta) total - meta else 0
         }
+        // ファイルの大きさが分からないときは、data チャンクの長さを信じる
+        val avail = if (total >= 0) total - (dataPos + 12) else dataLen
         return DsdInfo(
             dff = false, channels = channels, rate = rate, dataOffset = dataPos + 12, dataLength = dataLen,
             // 途中で切れたファイルでも、実際にあるデータの範囲だけを使う
-            bytesPerChannel = minOf((samples + 7) / 8, maxOf(0L, minOf(dataLen, f.size - (dataPos + 12))) / channels.coerceAtLeast(1)),
+            bytesPerChannel = minOf((samples + 7) / 8, maxOf(0L, minOf(dataLen, avail)) / channels.coerceAtLeast(1)),
             blockSize = block, lsbFirst = bps == 1,
             id3Offset = if (meta > 0 && id3Len > 10) meta else -1, id3Length = id3Len,
             diinTitle = null, diinArtist = null, compressed = false,
@@ -146,6 +162,7 @@ object DsdFile {
             val cid = String(h, 0, 4, Charsets.ISO_8859_1)
             val size = be(h, 4, 8)
             val body = pos + 12
+            if (size < 0) break
             when (cid) {
                 "PROP" -> {
                     // "SND " の後に小チャンクが並ぶ
@@ -157,6 +174,8 @@ object DsdFile {
                         val sid = String(sh, 0, 4, Charsets.ISO_8859_1)
                         val ss = be(sh, 4, 8)
                         val sb = p + 12
+                        // 壊れた大きさ(負)だと位置が戻って抜けられなくなるので打ち切る
+                        if (ss < 0) break
                         when (sid) {
                             "FS  " -> rate = be(f.read(sb, 4), 0, 4).toInt()
                             "CHNL" -> channels = be(f.read(sb, 2), 0, 2).toInt()
@@ -177,6 +196,7 @@ object DsdFile {
                         val sid = String(sh, 0, 4, Charsets.ISO_8859_1)
                         val ss = be(sh, 4, 8)
                         val sb = p + 12
+                        if (ss < 0) break
                         if (sid == "DITI" || sid == "DIAR") {
                             val t = f.read(sb, ss.toInt().coerceIn(0, 4096))
                             if (t.size >= 4) {
@@ -190,9 +210,8 @@ object DsdFile {
                 }
             }
             pos = body + size + (size and 1L)
-            if (size < 0) break
         }
-        if (dataOff < 0 || rate <= 0 || channels <= 0) throw IOException("bad DFF")
+        if (dataOff < 0 || rate <= 0 || channels !in 1..64) throw IOException("bad DFF")
         return DsdInfo(
             dff = true, channels = channels, rate = rate, dataOffset = dataOff, dataLength = dataLen,
             bytesPerChannel = dataLen / channels, blockSize = 1, lsbFirst = false,
@@ -231,6 +250,8 @@ class DsdReader(private val f: RandomFile, val info: DsdInfo) {
         private set
     private var block = ByteArray(0)
     private var blockIndex = -1L
+    /** DFF の読み込み用(毎回配列を作らないように使い回す) */
+    private var raw = ByteArray(0)
 
     fun seek(bytePerCh: Long) {
         position = bytePerCh.coerceIn(0, info.bytesPerChannel)
@@ -244,9 +265,10 @@ class DsdReader(private val f: RandomFile, val info: DsdInfo) {
         if (left <= 0) return 0
         val want = minOf(max.toLong(), left).toInt()
         if (info.dff) {
-            val raw = f.read(info.dataOffset + position * ch, want * ch)
-            val n = raw.size / ch
-            for (i in 0 until n) for (c in 0 until ch) out[c][i] = raw[i * ch + c]
+            if (raw.size < want * ch) raw = ByteArray(want * ch)
+            val rb = raw
+            val n = f.readInto(info.dataOffset + position * ch, rb, 0, want * ch) / ch
+            for (i in 0 until n) for (c in 0 until ch) out[c][i] = rb[i * ch + c]
             position += n
             return n
         }
@@ -256,12 +278,11 @@ class DsdReader(private val f: RandomFile, val info: DsdInfo) {
         while (got < want) {
             val bi = position / bs
             if (bi != blockIndex) {
-                val got0 = f.read(info.dataOffset + bi * bs * ch, bs * ch)
+                if (block.size != bs * ch) block = ByteArray(bs * ch)
+                val got0 = f.readInto(info.dataOffset + bi * bs * ch, block, 0, bs * ch)
                 blockIndex = bi
-                block = if (got0.size < bs * ch) {
-                    // 足りない分は DSD の無音(0x69)で埋める(0x00 だと大きな雑音になる)
-                    ByteArray(bs * ch) { 0x69 }.also { System.arraycopy(got0, 0, it, 0, got0.size) }
-                } else got0
+                // 足りない分は DSD の無音(0x69)で埋める(0x00 だと大きな雑音になる)
+                if (got0 < bs * ch) java.util.Arrays.fill(block, got0, bs * ch, 0x69.toByte())
             }
             val inBlock = (position % bs).toInt()
             val k = minOf(want - got, bs - inBlock)

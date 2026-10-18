@@ -99,19 +99,23 @@ internal class DopSink(private val out: AudioOutput, private val channels: Int) 
         if (frames <= 0) return
         val need = frames * channels * 3
         if (bb.capacity() < need) bb = ByteBuffer.allocate(need).order(ByteOrder.LITTLE_ENDIAN)
-        bb.clear()
+        // 1 バイトずつ put すると遅いので、配列に直接書く
+        val a = bb.array()
+        var o = 0
         for (f in 0 until frames) {
             val m: Byte = if (marker) 0xFA.toByte() else 0x05
             marker = !marker
             for (c in 0 until channels) {
                 val src = input[c]
                 // 24bit リトルエンディアン: 下位 = 後のバイト、中位 = 先のバイト、上位 = 目印
-                bb.put(src[f * 2 + 1])
-                bb.put(src[f * 2])
-                bb.put(m)
+                a[o] = src[f * 2 + 1]
+                a[o + 1] = src[f * 2]
+                a[o + 2] = m
+                o += 3
             }
         }
-        bb.flip()
+        bb.clear()
+        bb.limit(o)
         out.write(bb, AudioFormat.ENCODING_PCM_24BIT_PACKED, stop)
     }
 }
@@ -140,8 +144,9 @@ internal class PcmSink(private val out: AudioOutput, private val conv: DsdToPcm,
         val bytes = frames * channels * 4
         if (bb.capacity() < bytes) bb = ByteBuffer.allocate(bytes).order(ByteOrder.LITTLE_ENDIAN)
         bb.clear()
-        for (i in 0 until frames * channels) bb.putFloat(fbuf[i])
-        bb.flip()
+        // まとめて書く(1 つずつ putFloat するより速い)
+        bb.asFloatBuffer().put(fbuf, 0, frames * channels)
+        bb.limit(bytes)
         out.write(bb, AudioFormat.ENCODING_PCM_FLOAT, stop)
     }
 

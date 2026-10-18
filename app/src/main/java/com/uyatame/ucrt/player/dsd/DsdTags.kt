@@ -56,6 +56,8 @@ object DsdTags {
                 val dataHead = ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN)
                 rd.read(dataHead, 28 + fmtSize)
                 dataHead.flip()
+                // data チャンクが見つからなければ書かない(おかしな位置にタグを書いてファイルを壊さないように)
+                if (dataHead.limit() < 12 || String(dataHead.array(), 0, 4, Charsets.ISO_8859_1) != "data") throw IOException("bad DSF data")
                 val dataEnd = 28 + fmtSize + dataHead.getLong(4)
                 val size = ch.size()
                 // タグの位置が音声データより前・ファイルの外を指していたら信用しない(音声データを壊さないため)

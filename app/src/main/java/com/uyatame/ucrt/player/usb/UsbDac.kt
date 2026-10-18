@@ -66,11 +66,18 @@ object UsbDac {
     private var claimed = ArrayList<UsbInterface>()
     private var rates: List<Int> = emptyList()
     private var speed = 0
-    private var asked = HashSet<String>()
+    /** 許可を求めた機器(受信のスレッドと再生のスレッドの両方から触るので、同時に使える集合にする) */
+    private val asked: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     private var format: DacFormat? = null
     private var curAlt: UacAlt? = null
-    private var stream: StreamThread? = null
+    /** 再生のスレッドからも読むので @Volatile */
+    @Volatile private var stream: StreamThread? = null
+    /**
+     * 回収できなかった(機器が外れたなど)転送要求。カーネルが後で書き込むかもしれないので、
+     * 接続を閉じるまでは解放されないように持っておく(解放済みのメモリに書かれて壊れないように)
+     */
+    private val orphanUrbs = ArrayList<IsoUrb>()
 
     // 音量
     @Volatile var hwVolume = false
@@ -362,7 +369,10 @@ object UsbDac {
             if (n != inf.acIface && ui.alternateSetting == 0) runCatching { c.setInterface(ui) }
         }
         // 対応周波数
-        rates = if (inf.uac2) queryUac2Rates(sb) else inf.alts.flatMap { it.rates }.distinct().sorted()
+        // UAC1 で連続値の代替設定は、範囲に入るよく使う周波数を並べる(表示用。対応の判定は代替設定ごとに行う)
+        rates = if (inf.uac2) queryUac2Rates(sb) else inf.alts.flatMap { a ->
+            if (a.rates.isNotEmpty()) a.rates else COMMON_RATES.filter { it in a.rateMin..a.rateMax }
+        }.distinct().sorted()
         sb.append("  rates: ").append(rates.joinToString(" ") { khz(it) }).append('\n')
         setupVolume(sb)
         AudioEngine.log(sb.toString().trimEnd())
@@ -398,10 +408,15 @@ object UsbDac {
             sb.append("  clock $clk range request failed\n")
             return listOf(44100, 48000, 88200, 96000, 176400, 192000)
         }
-        val n = (head[0].toInt() and 0xFF) or ((head[1].toInt() and 0xFF) shl 8)
-        val full = ctrlIn(0x02, 0x0100, (clk shl 8) or inf.acIface, 2 + n * 12) ?: return emptyList()
+        val fallback = listOf(44100, 48000, 88200, 96000, 176400, 192000)
+        // 範囲の数(おかしな値で大きすぎる要求を出さないよう抑える)
+        val n = ((head[0].toInt() and 0xFF) or ((head[1].toInt() and 0xFF) shl 8)).coerceAtMost(256)
+        val full = ctrlIn(0x02, 0x0100, (clk shl 8) or inf.acIface, 2 + n * 12) ?: run {
+            sb.append("  clock $clk range request failed\n")
+            return fallback
+        }
         val out = ArrayList<Int>()
-        val common = listOf(8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000, 705600, 768000)
+        val common = COMMON_RATES
         for (k in 0 until n) {
             val o = 2 + k * 12
             if (o + 12 > full.size) break
@@ -410,6 +425,10 @@ object UsbDac {
             val mn = le(o); val mx = le(o + 4); val res = le(o + 8)
             if (mn == mx) out += mn
             else common.filter { it in mn..mx && (res <= 0 || (it - mn) % res == 0) }.forEach { out += it }
+        }
+        if (out.isEmpty()) {
+            sb.append("  clock $clk reported no rates\n")
+            return fallback
         }
         return out.distinct().sorted()
     }
@@ -432,7 +451,8 @@ object UsbDac {
             val clk = clockFor(alt)
             val d = byteArrayOf(rate.toByte(), (rate shr 8).toByte(), (rate shr 16).toByte(), (rate shr 24).toByte())
             val ok = ctrlOut(0x21, 0x01, 0x0100, (clk shl 8) or inf.acIface, d)
-            val now = ctrlIn(0x01, 0x0100, (clk shl 8) or inf.acIface, 4)
+            // 4 バイトより短い返事をする DAC でも落ちないように
+            val now = ctrlIn(0x01, 0x0100, (clk shl 8) or inf.acIface, 4)?.takeIf { it.size >= 3 }
             val got = now?.let { (it[0].toInt() and 0xFF) or ((it[1].toInt() and 0xFF) shl 8) or ((it[2].toInt() and 0xFF) shl 16) }
             AudioEngine.log("usb dac: set rate $rate on clock $clk -> $ok (now $got)")
             ok
@@ -578,6 +598,8 @@ object UsbDac {
             runCatching { c.close() }
             AudioEngine.log("usb dac: closed")
         }
+        // 接続を閉じたので、カーネルが回収できなかった転送要求に書き込むことはもう無い
+        synchronized(orphanUrbs) { orphanUrbs.clear() }
         claimed = ArrayList()
         conn = null
         device = null
@@ -617,6 +639,12 @@ object UsbDac {
     internal val streaming: Boolean get() = stream?.isAlive == true
 
     private val volExec = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    /** よく使うサンプリング周波数(範囲で報告する DAC 用) */
+    private val COMMON_RATES = listOf(
+        8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000,
+        352800, 384000, 705600, 768000, 1411200, 1536000,
+    )
 
     fun khz(hz: Int) = if (hz % 1000 == 0) "${hz / 1000} kHz" else "%.1f kHz".format(java.util.Locale.US, hz / 1000.0)
 
@@ -658,6 +686,11 @@ object UsbDac {
                 }
             }
             return true
+        }
+
+        /** 送り終えたフレーム数を足す(reset と同時に起きても、前の曲の分を新しい曲に数えないように) */
+        fun addPlayed(ep: Int, frames: Int) = synchronized(lk) {
+            if (ep == epoch) played += frames
         }
 
         /** 最大 n バイトを取り出す(フレーム単位)。取り出したバイト数を返す */
@@ -706,7 +739,8 @@ object UsbDac {
         fun halt() {
             halted = true
             stopping = true
-            for (u in urbs) if (u.inFlight) runCatching { Usbfs.ioctl(fd, Usbfs.DISCARDURB, u.urb) }
+            // 転送のスレッドが一覧を作っている途中でも落ちないように
+            runCatching { for (u in urbs.toTypedArray()) if (u.inFlight) runCatching { Usbfs.ioctl(fd, Usbfs.DISCARDURB, u.urb) } }
         }
 
         private fun nextPacketFrames(): Int {
@@ -803,8 +837,9 @@ object UsbDac {
                 loop()
             } catch (t: Throwable) {
                 AudioEngine.log("usb dac: stream error ${t.javaClass.simpleName}: ${t.message}")
-                for (u in urbs) if (u.inFlight) runCatching { Usbfs.ioctl(fd, Usbfs.DISCARDURB, u.urb) }
             }
+            // 送信中のものを取り消して回収する(回収しないと、次の転送のときにカーネルが古いメモリへ書き込む)
+            runCatching { drain() }
             // 止める指示なしに転送が終わった(エラー・切断)ときは、再生側に出力のやり直しを促す
             if (!halted) {
                 AudioEngine.report(false, T("USB DAC への転送が止まりました", "USB DAC streaming stopped"))
@@ -877,8 +912,8 @@ object UsbDac {
                 u.inFlight = false
                 if (stopping) continue
                 val st = u.status()
-                if (st == -2 && kicked) {
-                    // 出し直しのために取り消したもの
+                if ((st == -2 || st == -104) && kicked) {
+                    // 出し直しのために取り消したもの(取り消すと ENOENT か ECONNRESET が返る)
                 } else if (st != 0 && st != -18) { // -18: EXDEV(一部のパケットだけ失敗)は続行
                     errors++
                     stErr[st] = (stErr[st] ?: 0) + 1
@@ -898,7 +933,7 @@ object UsbDac {
                         val ps = u.packetStatus(k)
                         if (ps != 0) stErr[1000 + ps] = (stErr[1000 + ps] ?: 0) + 1
                     }
-                    if (u.epoch == ring.epoch) ring.played += u.dataFrames
+                    ring.addPlayed(u.epoch, u.dataFrames)
                     stData += u.dataFrames
                     fill(u)
                     // 毎秒数百回通るので、リストを作らずに足し合わせる
@@ -923,13 +958,22 @@ object UsbDac {
                 }
             }
             if (!stopping) AudioEngine.log("usb dac: stream ended")
-            // 送信中のものが残っていれば取り消して回収する
+        }
+
+        /** 送信中のものが残っていれば取り消して回収する */
+        private fun drain() {
             for (u in urbs) if (u.inFlight) runCatching { Usbfs.ioctl(fd, Usbfs.DISCARDURB, u.urb) }
+            val ptr = Memory(Usbfs.PS.toLong())
             var guard = 0
             while (urbs.any { it.inFlight } && guard++ < 64) {
-                if (Usbfs.ioctl(fd, Usbfs.REAPURB, ptr) < 0) break
+                if (Usbfs.ioctl(fd, Usbfs.REAPURB, ptr) < 0) {
+                    if (Usbfs.errno() == 4) continue // EINTR: やり直す
+                    break
+                }
                 ptr.getPointer(0)?.let { byAddr[Pointer.nativeValue(it)]?.inFlight = false }
             }
+            val left = urbs.filter { it.inFlight }
+            if (left.isNotEmpty()) synchronized(orphanUrbs) { orphanUrbs.addAll(left) }
         }
     }
 
