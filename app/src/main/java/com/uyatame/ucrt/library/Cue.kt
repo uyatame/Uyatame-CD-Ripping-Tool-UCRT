@@ -40,7 +40,8 @@ object Cue {
     /** 曲の URI から、元の音声ファイルの URI(CUE シートの曲でなければそのまま) */
     fun fileUri(uri: String): String = uri.substringBefore(MARK)
 
-    private val sjis: Charset? = runCatching { Charset.forName("windows-31j") }.getOrNull()
+    private val sjis: Charset? = runCatching { Charset.forName("windows-31j") }
+        .recoverCatching { Charset.forName("Shift_JIS") }.getOrNull()
 
     fun decode(b: ByteArray): String {
         var off = 0
@@ -110,7 +111,12 @@ object Cue {
             val rest = if (sp < 0) "" else line.substring(sp + 1)
             when (cmd) {
                 "FILE" -> {
+                    // INDEX 01 がまだの曲(曲間を前のファイルの終わりに付けた CUE シート)は、次のファイルの曲にする
+                    val carry = tNum > 0 && tStart == null
+                    val cNum = tNum; val cTitle = tTitle; val cPerf = tPerf
+                    if (carry) tNum = -1
                     endFile()
+                    if (carry) { tNum = cNum; tTitle = cTitle; tPerf = cPerf }
                     // FILE "名前" WAVE: 最後の語(種類)を除いた部分が名前
                     val r = rest.trim()
                     fileName = if (r.startsWith("\"")) value(r) else r.substringBeforeLast(' ').trim().ifEmpty { r }

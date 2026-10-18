@@ -129,7 +129,12 @@ class Library(private val ctx: Context) {
             a.put(o)
         }
         val root = JSONObject().put("v", CACHE_VERSION).put("tracks", a)
-        runCatching { cacheFile.writeText(root.toString()) }
+        // 書き込みの途中でアプリが終わっても一覧が壊れないよう、別のファイルに書いてから置き換える
+        runCatching {
+            val tmp = File(cacheFile.path + ".tmp")
+            tmp.writeText(root.toString())
+            if (!tmp.renameTo(cacheFile)) { cacheFile.writeText(root.toString()); tmp.delete() }
+        }
         needsFullRescan = false
     }
 
@@ -177,7 +182,14 @@ class Library(private val ctx: Context) {
             pool.invokeAll(need.map { (uri, folder, mod) ->
                 java.util.concurrent.Callable {
                     val key = uri.toString()
-                    read[key] = readTags(uri, names[key] ?: "", folder, covers[folder], mod)
+                    val name = names[key] ?: ""
+                    // 読み込みで例外が出ても、曲が一覧から消えないよう名前だけの曲にする
+                    read[key] = try {
+                        readTags(uri, name, folder, covers[folder], mod)
+                    } catch (e: Exception) {
+                        val base = name.substringBeforeLast('.')
+                        LibTrack(key, base, UNKNOWN_ARTIST, UNKNOWN_ALBUM, "", base.take(2).toIntOrNull() ?: 0, 1, 0L, folder, covers[folder], mod)
+                    }
                     val n = done.incrementAndGet()
                     // 表示の更新は間引く
                     if (n == need.size || n % 5 == 0) progress(n, need.size)
@@ -649,6 +661,8 @@ object ArtLoader {
         val b = bucketOf(size)
         for (x in BUCKETS) if (x >= b) cache.get("$key@$x")?.let { return it }
         synchronized(misses) { if (key in misses) return null }
+        // 再生画面の大きな画像だけを読んだあとでも、forget で保存した小さな画像を消せるように
+        if (diskDir == null) diskDir = File(ctx.cacheDir, "art").also { it.mkdirs() }
         gate.acquire()
         try {
             cache.get("$key@$b")?.let { return it }
@@ -681,6 +695,10 @@ object ArtLoader {
         } catch (e: Exception) {
             failed = true
             null
+        } catch (e: OutOfMemoryError) {
+            // とても大きな画像ファイル(フォルダの画像など)
+            failed = true
+            null
         }
         val bmp = bytes?.let { runCatching { decode(it, b) }.getOrNull() }
         if (bmp == null) {
@@ -692,9 +710,10 @@ object ArtLoader {
         if (b <= DISK_MAX) {
             runCatching {
                 val f = diskFile(ctx, key, b)
-                val tmp = File(f.path + ".tmp")
+                // 同じ画像を同時に読んだときに書き込みが混ざらないよう、スレッドごとに別の一時ファイルにする
+                val tmp = File(f.path + "." + Thread.currentThread().id + ".tmp")
                 tmp.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
-                tmp.renameTo(f)
+                if (!tmp.renameTo(f)) tmp.delete()
             }
         }
         val img = bmp.asImageBitmap()

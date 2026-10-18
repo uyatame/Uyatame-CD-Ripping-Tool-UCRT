@@ -14,6 +14,13 @@ class DiscCache(ctx: Context) {
 
     private fun safe(id: String) = id.replace(Regex("[^A-Za-z0-9._-]"), "_")
 
+    /** 書き込みの途中で終わっても壊れたファイルが残らないよう、別のファイルに書いてから置き換える */
+    private fun writeAtomic(f: File, b: ByteArray) {
+        val tmp = File(f.path + ".tmp")
+        tmp.writeBytes(b)
+        if (!tmp.renameTo(f)) { tmp.delete(); f.writeBytes(b) }
+    }
+
     fun load(discId: String): AlbumMeta? {
         val f = File(dir, safe(discId) + ".json")
         if (!f.exists()) return null
@@ -48,7 +55,7 @@ class DiscCache(ctx: Context) {
             val tr = JSONArray()
             m.tracks.forEach { t -> tr.put(JSONObject().put("title", t.title).put("artist", t.artist)) }
             o.put("tracks", tr)
-            File(dir, safe(discId) + ".json").writeText(o.toString())
+            writeAtomic(File(dir, safe(discId) + ".json"), o.toString().toByteArray())
         }
     }
 
@@ -59,7 +66,7 @@ class DiscCache(ctx: Context) {
     fun saveCover(discId: String, b: ByteArray?) {
         runCatching {
             val f = File(dir, safe(discId) + ".img")
-            if (b == null) f.delete() else f.writeBytes(b)
+            if (b == null) f.delete() else writeAtomic(f, b)
         }
     }
 

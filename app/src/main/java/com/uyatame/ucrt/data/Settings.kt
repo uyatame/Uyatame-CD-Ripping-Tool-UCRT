@@ -11,9 +11,16 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 
-val Context.dataStore by preferencesDataStore(name = "settings")
+// 設定のファイルが壊れていても起動できるよう、壊れていれば初期値に戻す
+val Context.dataStore by preferencesDataStore(
+    name = "settings",
+    corruptionHandler = androidx.datastore.core.handlers.ReplaceFileCorruptionHandler {
+        androidx.datastore.preferences.core.emptyPreferences()
+    },
+)
 
 enum class AudioFormat(val label: String, val ext: String, val mime: String) {
     WAV("WAV", "wav", "audio/x-wav"),
@@ -197,7 +204,10 @@ object Keys {
 }
 
 class SettingsRepository(private val context: Context) {
-    val flow: Flow<AppSettings> = context.dataStore.data.map { p ->
+    val flow: Flow<AppSettings> = context.dataStore.data.catch { e ->
+        // 読み込めないときは初期値で動かす(落ちないように)
+        if (e is java.io.IOException) emit(androidx.datastore.preferences.core.emptyPreferences()) else throw e
+    }.map { p ->
         val d = AppSettings()
         AppSettings(
             format = AudioFormat.entries.getOrElse(p[Keys.format] ?: d.format.ordinal) { d.format },
