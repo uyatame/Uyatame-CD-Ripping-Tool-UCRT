@@ -252,11 +252,15 @@ fun App(vm: MainViewModel) {
                 }
             },
         ) { pad ->
+            // タブごとに、スクロールの位置などを覚えておく(タブを切り替えて戻ったときに、元の位置に戻れるように)
+            val tabStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
             Box(Modifier.padding(pad).fillMaxSize()) {
-                when (tab) {
-                    0 -> LibraryScreen(vm, s)
-                    1 -> CdScreen(vm, s) { tab = 2; settingsPage = 0 }
-                    else -> SettingsScreen(vm, s, settingsPage) { settingsPage = it }
+                tabStates.SaveableStateProvider("tab$tab") {
+                    when (tab) {
+                        0 -> LibraryScreen(vm, s)
+                        1 -> CdScreen(vm, s) { tab = 2; settingsPage = 0 }
+                        else -> SettingsScreen(vm, s, settingsPage) { settingsPage = it }
+                    }
                 }
             }
         }

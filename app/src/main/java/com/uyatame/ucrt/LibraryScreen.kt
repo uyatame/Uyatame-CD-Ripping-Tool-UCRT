@@ -124,6 +124,13 @@ fun LibraryScreen(vm: MainViewModel, s: AppSettings) {
         }
         vm.pendingAlbumTitle = null
     }
+    // 行き先ごとに、スクロールの位置などを覚えておく(曲を再生してから戻ったときなどに、元の位置に戻れるように)
+    val holder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    holder.SaveableStateProvider(route ?: "home") { LibraryRoute(vm, s, route) }
+}
+
+@Composable
+private fun LibraryRoute(vm: MainViewModel, s: AppSettings, route: String?) {
     when {
         route == null -> LibraryHome(vm, s)
         route == "search" -> SearchPage(vm)
@@ -278,7 +285,10 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
     }
     val full: androidx.compose.foundation.lazy.grid.LazyGridItemSpanScope.() -> GridItemSpan = { GridItemSpan(maxLineSpan) }
 
+    val homeState = rememberLazyGridState()
+    Box(Modifier.fillMaxSize()) {
     LazyVerticalGrid(
+        state = homeState,
         columns = GridCells.Adaptive(96.dp),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -372,6 +382,8 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
             }
             item(key = "playedRow", span = full) { AlbumStrip(vm, playedAlbums) }
         }
+    }
+    ScrollTopButton(homeState.firstVisibleItemIndex > 6) { homeState.scrollToItem(0) }
     }
 }
 

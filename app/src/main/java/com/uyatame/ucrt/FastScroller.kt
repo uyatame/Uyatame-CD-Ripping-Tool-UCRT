@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -58,6 +59,8 @@ fun BoxScope.FastScroller(
     label: (Int) -> String,
     scrollTo: suspend (Int) -> Unit,
 ) {
+    // 下の方まで進んだら、いちばん上へ戻るボタンを出す
+    ScrollTopButton(first > maxOf(visible, 6)) { scrollTo(0) }
     if (total <= visible || total < 2) return
     val scope = rememberCoroutineScope()
     val curLabel by rememberUpdatedState(label)
@@ -153,5 +156,27 @@ fun initialOf(s: String): String {
         c.isLetter() -> c.uppercaseChar().toString()
         c.isDigit() -> "#"
         else -> c.toString()
+    }
+}
+
+/** いちばん上へ戻るボタン(右下)。show のときだけ出る */
+@Composable
+fun BoxScope.ScrollTopButton(show: Boolean, scrollTop: suspend () -> Unit) {
+    val scope = rememberCoroutineScope()
+    androidx.compose.animation.AnimatedVisibility(
+        visible = show,
+        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
+        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(),
+        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = 16.dp),
+    ) {
+        androidx.compose.material3.SmallFloatingActionButton(
+            onClick = { scope.launch { scrollTop() } },
+            containerColor = androidx.compose.material3.MaterialTheme.colorScheme.secondaryContainer,
+        ) {
+            androidx.compose.material3.Icon(
+                androidx.compose.material.icons.Icons.Filled.KeyboardArrowUp,
+                com.uyatame.ucrt.T("いちばん上へ", "Back to top"),
+            )
+        }
     }
 }
