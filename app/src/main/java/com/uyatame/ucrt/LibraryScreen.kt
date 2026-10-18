@@ -808,7 +808,7 @@ private class FolderNode(val path: String, val name: String) {
     var trackCount = 0
 }
 
-/** アルバムの入っているフォルダから、フォルダの木を作る */
+/** アルバムの入っているフォルダから、実際のフォルダの階層どおりの木を作る */
 private fun buildFolderTree(albums: List<LibAlbum>): FolderNode {
     val root = FolderNode("", "")
     for (a in albums) {
@@ -821,27 +821,13 @@ private fun buildFolderTree(albums: List<LibAlbum>): FolderNode {
         }
         n.albums.add(a)
     }
-    // 子が 1 つだけで、アルバムを持たないフォルダは、その子とまとめて 1 行にする(Music/CD など、深い階層を短くする)
-    fun squash(n: FolderNode): FolderNode {
-        var cur = n
-        val names = arrayListOf(n.name)
-        while (cur.albums.isEmpty() && cur.children.size == 1) {
-            cur = cur.children.values.first()
-            names.add(cur.name)
-        }
-        val out = FolderNode(cur.path, names.joinToString("/"))
-        out.albums.addAll(cur.albums.sortedBy { folderName(it).lowercase() })
-        out.albumCount = n.albumCount
-        out.trackCount = n.trackCount
-        for (c in cur.children.values) out.children[c.name] = squash(c)
-        return out
+    // 実際のフォルダの階層どおりに出す(まとめない)。アルバムはフォルダの名前の順
+    fun sortAlbums(n: FolderNode) {
+        n.albums.sortBy { folderName(it).lowercase() }
+        n.children.values.forEach { sortAlbums(it) }
     }
-    val r = FolderNode("", "")
-    r.albums.addAll(root.albums)
-    r.albumCount = root.albumCount
-    r.trackCount = root.trackCount
-    for (c in root.children.values) r.children[c.name] = squash(c)
-    return r
+    sortAlbums(root)
+    return root
 }
 
 /**
@@ -851,19 +837,7 @@ private fun buildFolderTree(albums: List<LibAlbum>): FolderNode {
 @Composable
 private fun FolderBrowsePage(vm: MainViewModel, path: String) {
     val node = remember(vm.albums, path) {
-        // 実際の階層どおりにたどる(まとめない)
-        val root = FolderNode("", "")
-        for (a in vm.albums) {
-            val parts = folderPath(a).split('/').filter { it.isNotEmpty() }
-            var n = root
-            n.albumCount++; n.trackCount += a.tracks.size
-            for (p in parts) {
-                n = n.children.getOrPut(p) { FolderNode(if (n.path.isEmpty()) p else n.path + "/" + p, p) }
-                n.albumCount++; n.trackCount += a.tracks.size
-            }
-            n.albums.add(a)
-        }
-        var n: FolderNode? = root
+        var n: FolderNode? = buildFolderTree(vm.albums)
         for (p in path.split('/').filter { it.isNotEmpty() }) n = n?.children?.get(p)
         n
     }
@@ -903,7 +877,7 @@ private fun FolderBrowsePage(vm: MainViewModel, path: String) {
                         { vm.libPush("dir:" + c.path) },
                     ) { RoundIcon(AppIcons.Folder) }
                 }
-                items(node.albums.sortedBy { folderName(it).lowercase() }, key = { "a:" + it.key }) { a -> AlbumListRow(vm, a) }
+                items(node.albums, key = { "a:" + it.key }) { a -> AlbumListRow(vm, a) }
             }
             ScrollTopButton(st.firstVisibleItemIndex > 8) { st.scrollToItem(0) }
         }
