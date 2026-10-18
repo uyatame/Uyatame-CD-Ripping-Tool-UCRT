@@ -532,7 +532,8 @@ private fun ArtImageAt(key: String?, trackUri: String?, coverUri: String?, bucke
         // 曲やアルバムが変わったら、まず前の画像を消してから読み込む
         value = ArtLoader.peek(key, bucket)
         if (key != null) {
-            value = withContext(Dispatchers.IO) { ArtLoader.load(ctx, key, trackUri, coverUri, bucket) } ?: value
+            // 画面から外れたら(取り消されたら)、読み込みの順番待ちもやめる
+            value = kotlinx.coroutines.runInterruptible(Dispatchers.IO) { ArtLoader.load(ctx, key, trackUri, coverUri, bucket) } ?: value
         }
     }
     CoverBox(img, modifier, corner)

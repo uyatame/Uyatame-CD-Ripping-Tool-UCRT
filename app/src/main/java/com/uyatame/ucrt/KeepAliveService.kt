@@ -45,7 +45,12 @@ class KeepAliveService : Service() {
             try {
                 startForeground(ID, n, info.type)
             } catch (e: Exception) {
-                runCatching { startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK) }
+                val ok = runCatching { startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK) }.isSuccess
+                if (!ok) {
+                    // 前面サービスにできなかった(裏から起動できない状態など): 止めておく(そのままだとアプリごと止められる)
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
             }
         } else {
             // Android 9 以前は種類を指定しない

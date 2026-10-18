@@ -309,6 +309,13 @@ object BurnPrep {
             frames += count
         }
 
-        fun finish(): Long = frames
+        /** 書き終える。周波数を変換したときは、フィルターに残っている最後の音も出す */
+        fun finish(): Long {
+            rs?.let { r ->
+                val n = r.delayFrames
+                put(FloatArray(n * ch), 0, n)
+            }
+            return frames
+        }
     }
 }

@@ -227,9 +227,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 読み込んだすべての曲(CUE シートで分けたため一覧に出さない元のファイルも含む。次の読み込みで使う) */
     private var libAll: List<com.uyatame.ucrt.library.LibTrack> = emptyList()
 
-    private class LibIndex(val tracks: Map<String, com.uyatame.ucrt.library.LibTrack>, val albumOf: Map<String, String>)
+    private class LibIndex(
+        val tracks: Map<String, com.uyatame.ucrt.library.LibTrack>,
+        val albumOf: Map<String, String>,
+        val albums: Map<String, LibAlbum>,
+    )
     private var indexFor: List<LibAlbum>? = null
-    private var indexCache = LibIndex(emptyMap(), emptyMap())
+    private var indexCache = LibIndex(emptyMap(), emptyMap(), emptyMap())
 
     private fun libIndex(): LibIndex {
         val a = albums
@@ -237,7 +241,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val t = HashMap<String, com.uyatame.ucrt.library.LibTrack>()
             val k = HashMap<String, String>()
             for (al in a) for (tr in al.tracks) { t[tr.uri] = tr; k[tr.uri] = al.key }
-            indexCache = LibIndex(t, k)
+            indexCache = LibIndex(t, k, a.associateBy { it.key })
             indexFor = a
         }
         return indexCache
@@ -249,7 +253,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 曲の URI から、その曲のアルバムのキーを引く */
     fun albumKeyOf(uri: String?): String? = uri?.let { libIndex().albumOf[it] }
 
-    fun albumByKey(key: String?): LibAlbum? = key?.let { k -> albums.firstOrNull { it.key == k } }
+    fun albumByKey(key: String?): LibAlbum? = key?.let { libIndex().albums[it] }
     var libScanning by mutableStateOf(false)
         private set
     /** すべての曲を読み直しているか(false なら新しい曲だけ) */
@@ -1835,9 +1839,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val list = withContext(Dispatchers.IO) {
                     val all = ArrayList<com.uyatame.ucrt.library.LibTrack>()
                     for (t in trees) {
+                        // そのフォルダの、前に読んだ曲(フォルダを読めないときは、これを残す)
+                        val prev = libAll.filter { it.uri.startsWith("$t/document/") }
                         runCatching {
-                            all.addAll(library.scan(Uri.parse(t), old, light) { i, n -> libProgress = "$i / $n"; libNew = n })
-                        }.onFailure { log(T("フォルダを読めません: ${folderLabel(t)}", "Cannot read folder: ${folderLabel(t)}")) }
+                            val got = library.scan(Uri.parse(t), old, light) { i, n -> libProgress = "$i / $n"; libNew = n }
+                            // SD カードを外した・許可が外れたなどで一時的に読めないときは、曲を消さずに前のままにする
+                            // (消すと、戻ったときに全曲を読み直すことになる)
+                            val gone = got.isEmpty() && prev.isNotEmpty() &&
+                                runCatching { DocumentFile.fromTreeUri(ctx, Uri.parse(t))?.exists() != true }.getOrDefault(true)
+                            all.addAll(if (gone) prev else got)
+                        }.onFailure {
+                            log(T("フォルダを読めません: ${folderLabel(t)}", "Cannot read folder: ${folderLabel(t)}"))
+                            all.addAll(prev)
+                        }
                     }
                     // 重なったフォルダから同じファイルが 2 回見つかっても、1 曲として扱う(先に読んだ保存先のものを残す)
                     all.distinctBy { Library.docKey(it.uri) }.also { library.saveCache(it) }

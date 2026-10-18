@@ -98,9 +98,11 @@ internal class DsdConvertOutput private constructor(
         // DAC 本体で音量を変えられないときは、ソフトウェアの音量を変換の前に掛ける
         var gain = UsbDac.softGain.toFloat()
         if (AudioEngine.eqEnabled) {
-            if (eq.version != AudioEngine.version) {
+            // 番号を先に読む(読むあいだに設定が変わっても、古い帯域のまま新しい番号を覚えてしまわないように)
+            val v = AudioEngine.version
+            if (eq.version != v) {
                 eq.update(AudioEngine.bands)
-                eq.version = AudioEngine.version
+                eq.version = v
             }
             eq.process(fbuf, samples)
             gain *= AudioEngine.preampGain()

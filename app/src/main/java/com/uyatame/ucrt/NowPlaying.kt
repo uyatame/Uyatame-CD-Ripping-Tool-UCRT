@@ -159,7 +159,7 @@ private fun rememberArt(vm: MainViewModel, item: PlayItem): ImageBitmap? {
         // 一覧で読んだ小さな画像があれば先に出し、再生画面用の元の大きさの画像に差し替える
         value = ArtLoader.peek(k)
         if (k != null) {
-            value = withContext(Dispatchers.IO) { ArtLoader.load(ctx, k, item.artTrackUri, item.artCoverUri) } ?: value
+            value = kotlinx.coroutines.runInterruptible(Dispatchers.IO) { ArtLoader.load(ctx, k, item.artTrackUri, item.artCoverUri) } ?: value
         }
     }
     return img

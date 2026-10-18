@@ -70,6 +70,9 @@ class RationalResampler(
     /** frames フレーム入れたときに出る最大のフレーム数 */
     fun maxOut(frames: Int): Int = (frames.toLong() * up / down).toInt() + 2
 
+    /** フィルターの遅れ(入力のフレーム数)。最後にこれだけ無音を入れると、残りの音が出てくる */
+    val delayFrames: Int get() = taps / 2 + 1
+
     /** 変換して out に書き、書いたフレーム数を返す */
     fun process(input: FloatArray, frames: Int, out: FloatArray): Int {
         val ch = channels
