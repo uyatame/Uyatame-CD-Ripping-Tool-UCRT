@@ -23,6 +23,8 @@ class CdRipper(private val drive: UsbScsiDrive, private val opt: RipOptions) {
     private val c2Sector = 2646
     private var c2 = opt.useC2
     private var errors = 0
+    /** 中止の確認(1 セクターずつ読み直すあいだも中止できるように) */
+    private var check: () -> Unit = {}
 
     private class Out(val data: ByteArray?, val clean: Boolean)
 
@@ -34,6 +36,7 @@ class CdRipper(private val drive: UsbScsiDrive, private val opt: RipOptions) {
         onProgress: (Float) -> Unit,
         check: () -> Unit,
     ): RipResult {
+        this.check = check
         runCatching { drive.setSpeed(if (opt.speedX <= 0) 0 else opt.speedX * 176) }
         val offBytes = opt.offsetSamples.toLong() * 4
         val startByte = startLba.toLong() * sector + offBytes
@@ -79,7 +82,10 @@ class CdRipper(private val drive: UsbScsiDrive, private val opt: RipOptions) {
         if (r.clean && r.data != null) return r.data
         if (cnt > 1) {
             val out = ByteArray(cnt * sector)
-            for (i in 0 until cnt) System.arraycopy(readChunk(lba + i, 1), 0, out, i * sector, sector)
+            for (i in 0 until cnt) {
+                check()
+                System.arraycopy(readChunk(lba + i, 1), 0, out, i * sector, sector)
+            }
             return out
         }
         errors++

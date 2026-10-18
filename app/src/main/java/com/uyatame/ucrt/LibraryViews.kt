@@ -150,7 +150,7 @@ fun TrackRow(
                 else Text(number, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             showArt -> Box {
-                ArtImage(vm.albumKeyOf(t.uri) ?: t.uri, t.uri, t.coverUri, Modifier.size(48.dp), 6.dp)
+                ArtImage(vm.albumKeyOf(t.uri) ?: t.uri, t.uri, t.coverUri, Modifier.size(48.dp), 6.dp, 48.dp)
                 if (playing) {
                     Box(
                         Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.45f)),
@@ -224,7 +224,7 @@ fun AlbumListRow(vm: MainViewModel, a: LibAlbum, sub: String? = null) {
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(56.dp), 8.dp)
+        ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(56.dp), 8.dp, 56.dp)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(a.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -481,7 +481,7 @@ private fun TrackMenuSheet(vm: MainViewModel) {
     ModalBottomSheet(onDismissRequest = close, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = land)) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Row(Modifier.padding(horizontal = 24.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                ArtImage(vm.albumKeyOf(t.uri) ?: t.uri, t.uri, t.coverUri, Modifier.size(56.dp), 8.dp)
+                ArtImage(vm.albumKeyOf(t.uri) ?: t.uri, t.uri, t.coverUri, Modifier.size(56.dp), 8.dp, 56.dp)
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(t.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -527,7 +527,7 @@ private fun AlbumMenuSheet(vm: MainViewModel) {
     ModalBottomSheet(onDismissRequest = close, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = land)) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Row(Modifier.padding(horizontal = 24.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(56.dp), 8.dp)
+                ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(56.dp), 8.dp, 56.dp)
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(a.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)

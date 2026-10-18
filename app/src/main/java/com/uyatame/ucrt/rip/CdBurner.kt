@@ -70,8 +70,17 @@ class CdBurner(private val drive: UsbScsiDrive, private val opt: BurnOptions, pr
             false
         }
         log("burn: ${if (sao) "SAO" else "TAO"} ${img.tracks.size} tracks ${img.totalSectors} sectors speed=${opt.speedX}x test=${opt.testWrite}")
-        RandomAccessFile(img.file, "r").use { f ->
-            if (sao) writeSao(img, f, onProgress, check) else writeTao(img, f, onProgress, check)
+        try {
+            RandomAccessFile(img.file, "r").use { f ->
+                if (sao) writeSao(img, f, onProgress, check) else writeTao(img, f, onProgress, check)
+            }
+        } catch (e: Throwable) {
+            // 中止・失敗したときも、ドライブのバッファーを書き終えさせて書き込みの状態から戻す
+            // (そのままだと、次のディスクの確認や書き込みのコマンドがはねられることがある)
+            if (!(e is ScsiException && e.senseKey == -1)) {
+                runCatching { syncCache(); waitReady(2 * 60_000L) }.onFailure { log("burn: flush after error: ${it.message}") }
+            }
+            throw e
         }
     }
 
@@ -151,7 +160,7 @@ class CdBurner(private val drive: UsbScsiDrive, private val opt: BurnOptions, pr
                 done += n
                 onProgress(done.toFloat() / total * 0.98f)
             }
-            drive.synchronizeCache()
+            syncCache()
             waitReady()
             runCatching { drive.closeTrackSession(1, i + 1) }.onFailure { log("burn: close track: ${it.message}") }
             waitReady()
@@ -192,13 +201,27 @@ class CdBurner(private val drive: UsbScsiDrive, private val opt: BurnOptions, pr
 
     /** バッファーの残りを書き終え、ドライブが落ち着くまで待つ(SAO はこのあとドライブがリードアウトを書く) */
     private fun finish() {
-        drive.synchronizeCache()
+        syncCache()
         waitReady()
     }
 
-    private fun waitReady() {
+    /** SYNCHRONIZE CACHE。ドライブがまだバッファーを書いている(2/04/xx)ならしばらく待ってやり直す */
+    private fun syncCache() {
+        var tries = 0
+        while (true) {
+            try {
+                drive.synchronizeCache()
+                return
+            } catch (e: ScsiException) {
+                if (e.senseKey == 2 && e.asc == 0x04 && tries++ < 120) { Thread.sleep(500); continue }
+                throw e
+            }
+        }
+    }
+
+    private fun waitReady(maxMs: Long = 15 * 60_000L) {
         val t0 = System.currentTimeMillis()
-        while (System.currentTimeMillis() - t0 < 15 * 60_000) {
+        while (System.currentTimeMillis() - t0 < maxMs) {
             try {
                 drive.testUnitReady()
                 return
@@ -207,7 +230,7 @@ class CdBurner(private val drive: UsbScsiDrive, private val opt: BurnOptions, pr
                 // 2/04/xx: 準備中(リードアウトの書き込みなど)
                 if (e.senseKey == 2 && e.asc == 0x04) { Thread.sleep(1000); continue }
                 // ディスク交換などの知らせは一度読めば消える
-                if (e.senseKey == 6) continue
+                if (e.senseKey == 6) { Thread.sleep(100); continue }
                 return
             }
         }

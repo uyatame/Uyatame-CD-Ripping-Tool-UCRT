@@ -119,6 +119,7 @@ object BurnPrep {
         if (kind != null) {
             val inp = BuiltinCodecs.openInput(ctx, uri)
             if (inp != null) {
+                // 書き始めてから失敗したときは OS のデコーダーでやり直さない(同じ音が二重に書かれてしまう)
                 val done = inp.use { i ->
                     runCatching {
                         val d = BuiltinCodecs.create(kind, i)
@@ -140,6 +141,7 @@ object BurnPrep {
                         }
                         true
                     }.getOrElse { e ->
+                        if (w.finish() > 0 || e is java.util.concurrent.CancellationException) throw e
                         log("burn: built-in decoder failed (${e.message}), using OS decoder")
                         false
                     }

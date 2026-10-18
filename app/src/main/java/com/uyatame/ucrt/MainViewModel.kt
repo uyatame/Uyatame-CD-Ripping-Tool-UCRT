@@ -392,7 +392,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { ctx.unregisterReceiver(permReceiver) }
         runCatching { ctx.unregisterReceiver(detachReceiver) }
         player.release()
-        drive?.close()
+        closeAsync(drive)
+        drive = null
         MediaBridge.player = null
         KeepAliveService.hide(ctx)
     }
@@ -660,7 +661,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val d = withContext(Dispatchers.IO) { UsbScsiDrive.open(usb, dev) }
                 d.logger = { m -> log(m) }
                 d.verbose = settings.value.verboseLog
-                drive?.close()
+                closeAsync(drive)
                 drive = d
                 connected = true
                 driveName = d.name
@@ -701,11 +702,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         discText = text
     }
 
+    /**
+     * ドライブを閉じる。ほかのスレッド(取り込み・再生など)のコマンドが終わるのを待ってから閉じるので、
+     * メインスレッドを止めないよう別のスレッドで行う
+     */
+    private fun closeAsync(d: UsbScsiDrive?) {
+        if (d != null) Thread({ d.close() }, "ucrt-drive-close").start()
+    }
+
     private fun closeDrive(msg: String) {
         job?.cancel()
         monitorJob?.cancel()
         if (player.isCd) player.stop()
-        drive?.close()
+        closeAsync(drive)
         drive = null
         connected = false
         status = msg
@@ -726,12 +735,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val mediaNone = 2
     private val mediaLoading = 3
     private val mediaChanged = 4
+    private val mediaGone = 5
 
     private fun mediaState(d: UsbScsiDrive): Int = try {
         d.testUnitReady()
         mediaReady
     } catch (e: ScsiException) {
         when {
+            // 通信できず、USB 機器の一覧にもない: 外れている(開いている途中で外れると、外れた知らせを受け取れない)
+            e.senseKey == -1 && usb.deviceList.values.none { it.deviceName == d.deviceName } -> mediaGone
             e.senseKey == 6 -> mediaChanged
             e.asc == 0x3A -> mediaNone
             e.asc == 0x04 -> mediaLoading
@@ -747,6 +759,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // 書き込みの画面を出しているあいだは、ディスクを読みに行かない(書き込みのコマンドと重ならないように)
                 if (!busy && !discBusy && !playingCd && burn == null) {
                     val st = withContext(Dispatchers.IO) { mediaState(d) }
+                    if (st == mediaGone && drive === d) {
+                        closeDrive(T("ドライブが取り外されました", "The drive was disconnected"))
+                        break
+                    }
                     if (!busy && !discBusy && drive === d) {
                         when (st) {
                             mediaReady, mediaChanged -> if (lastMedia != mediaReady || st == mediaChanged) {
@@ -1416,30 +1432,39 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (busy) return
         if (player.isCd) player.stop()
         val burner = com.uyatame.ucrt.rip.CdBurner(d, com.uyatame.ucrt.rip.BurnOptions(speedX, testWrite)) { log(it) }
+        // ディスクを確かめているあいだも busy にして、「書き込む」を続けて押しても二重に書き込まないようにする
+        busy = true
+        busyKind = 3
+        ripCount = 1
+        ripIndex = 0
+        ripOverall = 0f
         job = viewModelScope.launch {
-            // ディスクを確かめる(空か・容量が足りるか)
-            val err = withContext(Dispatchers.IO) {
-                runCatching { d.testUnitReady() }
-                runCatching { burner.checkDisc(b.image); null }.getOrElse { it }
-            }
-            if (err != null) {
-                val erasable = withContext(Dispatchers.IO) { runCatching { d.readDiscInfo() }.getOrNull() }
-                    ?.let { it.erasable && it.status != 0 } == true
-                burn = b.copyMsg(
-                    if (err is ScsiException && err.asc == 0x3A) T("ディスクが入っていません", "No disc inserted") else err.message ?: "",
-                    true, erasable,
-                )
-                return@launch
-            }
-            busy = true
-            busyKind = 3
-            ripCount = 1
-            ripIndex = 0
-            ripOverall = 0f
-            ripStartMs = System.currentTimeMillis()
-            notifPct = -1
-            updateService()
+            var started = false
             try {
+                // ディスクを確かめる(空か・容量が足りるか)。入れた直後で回転が安定していなければ少し待つ
+                val err = withContext(Dispatchers.IO) {
+                    val t0 = System.currentTimeMillis()
+                    while (System.currentTimeMillis() - t0 < 30_000) {
+                        ensureActive()
+                        val e = runCatching { d.testUnitReady() }.exceptionOrNull() as? ScsiException ?: break
+                        if (!(e.senseKey == 6 || (e.senseKey == 2 && e.asc == 0x04))) break
+                        Thread.sleep(500)
+                    }
+                    runCatching { burner.checkDisc(b.image); null }.getOrElse { it }
+                }
+                if (err != null) {
+                    val erasable = withContext(Dispatchers.IO) { runCatching { d.readDiscInfo() }.getOrNull() }
+                        ?.let { it.erasable && it.status != 0 } == true
+                    burn = b.copyMsg(
+                        if (err is ScsiException && err.asc == 0x3A) T("ディスクが入っていません", "No disc inserted") else err.message ?: "",
+                        true, erasable,
+                    )
+                    return@launch
+                }
+                started = true
+                ripStartMs = System.currentTimeMillis()
+                notifPct = -1
+                updateService()
                 withContext(Dispatchers.IO) {
                     burner.burn(b.image, { p ->
                         ripOverall = p
@@ -1455,7 +1480,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     else T("書き込みが完了しました", "Finished writing the CD"),
                 )
             } catch (e: CancellationException) {
-                burn = b.copyMsg(T("書き込みを中止しました。このディスクは使えなくなっている可能性があります", "Writing was stopped; this disc may be unusable"), true)
+                if (started) burn = b.copyMsg(T("書き込みを中止しました。このディスクは使えなくなっている可能性があります", "Writing was stopped; this disc may be unusable"), true)
                 throw e
             } catch (e: Exception) {
                 log(T("書き込みエラー: ${e.message}", "Write error: ${e.message}"))
@@ -1493,6 +1518,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 burn = BurnSession(b.title, b.image, 0, T("消去しました。「書き込む」を押してください", "Erased. Tap Write"))
+            } catch (e: CancellationException) {
+                burn = b.copyMsg(T("消去の確認を中止しました(ドライブは消去を続けていることがあります)", "Stopped waiting for the erase (the drive may still be erasing)"), true)
+                throw e
             } catch (e: Exception) {
                 burn = b.copyMsg(T("消去できませんでした: ${e.message}", "Could not erase: ${e.message}"), true)
             } finally {
@@ -1599,6 +1627,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         var os: OutputStream? = null
         var sink: AudioSink? = null
+        /** 元のファイルを消した(このあと失敗しても、取り込んだファイルは消さずに残す) */
+        var oldGone = false
         val tmp = File(ctx.cacheDir, "rip_tmp.m4a")
         try {
             val sk: AudioSink = when (s.format) {
@@ -1647,7 +1677,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 openOut(file).use { o -> tmp.inputStream().use { it.copyTo(o, 1 shl 16) } }
                 tmp.delete()
             }
-            if (existing != null) replaceFile(dir, existing, file, name, s.format.mime)
+            if (existing != null) replaceFile(dir, existing, file, name, s.format.mime) { oldGone = true }
             progress[t.number] = 1f
             trackStatus[t.number] = if (res.errorSectors == 0) T("完了", "Done") else T("完了(エラー${res.errorSectors})", "Done (${res.errorSectors} errors)")
             if (res.c2Disabled) log(T("このドライブはC2エラー検出に非対応のため無効にしました", "C2 error detection is not supported by this drive and was turned off"))
@@ -1656,7 +1686,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             runCatching { sink?.abort() }
             runCatching { os?.close() }
             os = null
-            runCatching { file.delete() }
+            if (!oldGone) runCatching { file.delete() }
             tmp.delete()
             trackStatus[t.number] = if (e is CancellationException) T("中止", "Cancel") else T("失敗", "Failed")
             throw e
@@ -1666,15 +1696,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** 取り込み終えた一時ファイルで、元のファイルを置き換える */
-    private fun replaceFile(dir: DocumentFile, old: DocumentFile, tmp: DocumentFile, name: String, mime: String) {
+    private fun replaceFile(dir: DocumentFile, old: DocumentFile, tmp: DocumentFile, name: String, mime: String, onOldDeleted: () -> Unit) {
         if (!old.delete()) {
             tmp.delete()
             throw IOException(T("元のファイルを置き換えられません: $name", "Cannot replace the existing file: $name"))
         }
+        onOldDeleted()
         if (tmp.renameTo(name)) return
-        // 名前を変えられない保存先では、中身を写す
-        val f = dir.createFile(mime, name) ?: throw IOException(T("ファイルを作成できません", "Cannot create the file"))
-        openOut(f).use { o -> ctx.contentResolver.openInputStream(tmp.uri)?.use { it.copyTo(o, 1 shl 16) } }
+        // 名前を変えられない保存先では、中身を写す。写せなかったときは、取り込んだファイル(.part)を残す
+        val f = dir.createFile(mime, name) ?: throw IOException(T("ファイルを作成できません($name.part に保存しました)", "Cannot create the file (saved as $name.part)"))
+        try {
+            openOut(f).use { o ->
+                val inp = ctx.contentResolver.openInputStream(tmp.uri) ?: throw IOException(T("ファイルを読めません", "Cannot read the file"))
+                inp.use { it.copyTo(o, 1 shl 16) }
+            }
+        } catch (e: Exception) {
+            runCatching { f.delete() }
+            throw IOException(T("ファイルを置き換えられません($name.part に保存しました): ${e.message}", "Cannot replace the file (saved as $name.part): ${e.message}"), e)
+        }
         tmp.delete()
     }
 

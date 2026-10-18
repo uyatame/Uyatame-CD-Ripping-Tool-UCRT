@@ -117,6 +117,11 @@ class UsbScsiDrive private constructor(
         }
     }
 
+    /**
+     * 閉じる。ほかのスレッドがコマンドの途中なら、それが終わるまで待つ
+     * (転送の途中で閉じると、OS の中で解放済みの領域を使ってしまい、落ちることがある)
+     */
+    @Synchronized
     fun close() {
         runCatching { connection.releaseInterface(itf) }
         runCatching { connection.close() }
@@ -404,8 +409,13 @@ class UsbScsiDrive private constructor(
         if (sense.size < 8 + 16) throw ScsiException(-1, 0, 0, T("書き込み条件を読めません", "Cannot read write parameters"))
         val bdl = ((sense[6].toInt() and 0xFF) shl 8) or (sense[7].toInt() and 0xFF)
         val p = 8 + bdl
+        // ページ 05h が返らない(書き込みに非対応の)ドライブでは、範囲の外を読まないように
+        if (p + 2 > sense.size || (sense[p].toInt() and 0x3F) != 0x05) {
+            throw ScsiException(-1, 0, 0, T("書き込み条件を読めません", "Cannot read write parameters"))
+        }
         val plen = (sense[p + 1].toInt() and 0xFF) + 2
         val page = sense.copyOfRange(p, minOf(sense.size, p + plen))
+        if (page.size < 16) throw ScsiException(-1, 0, 0, T("書き込み条件を読めません", "Cannot read write parameters"))
         page[0] = (page[0].toInt() and 0x3F).toByte() // PS は送り返さない
         // 2: BUFE(バッファーアンダーラン防止)・テスト書き込み・書き込み方式
         page[2] = ((0x40) or (if (testWrite) 0x10 else 0) or (writeType and 0x0F)).toByte()
@@ -414,7 +424,7 @@ class UsbScsiDrive private constructor(
         // 4: データブロックの形式(0 = 生の 2352 バイト)
         page[4] = 0
         page[8] = 0 // セッションの形式: CD-DA / CD-ROM
-        if (page.size > 15) { page[14] = 0; page[15] = 150.toByte() } // トラック間の無音(TAO): 2 秒
+        page[14] = 0; page[15] = 150.toByte() // トラック間の無音(TAO): 2 秒
         val data = ByteArray(8) + page
         executeOut(cdb(0x55, 0x10, 0, 0, 0, 0, 0, (data.size shr 8) and 0xFF, data.size and 0xFF, 0), data)
     }

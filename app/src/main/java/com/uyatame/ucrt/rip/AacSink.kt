@@ -11,7 +11,13 @@ import android.media.MediaMuxer
  */
 class AacSink(path: String, bitrate: Int) : AudioSink {
     private val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
-    private val muxer = MediaMuxer(path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+    // 作れなかったときは、先に作ったエンコーダーを解放する(放っておくと OS のコーデックが使えるまま残る)
+    private val muxer = try {
+        MediaMuxer(path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+    } catch (e: Exception) {
+        runCatching { codec.release() }
+        throw e
+    }
     private val info = MediaCodec.BufferInfo()
     private var track = -1
     private var started = false
@@ -23,8 +29,14 @@ class AacSink(path: String, bitrate: Int) : AudioSink {
         f.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
         f.setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
         f.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 65536)
-        codec.configure(f, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        codec.start()
+        try {
+            codec.configure(f, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            codec.start()
+        } catch (e: Exception) {
+            runCatching { codec.release() }
+            runCatching { muxer.release() }
+            throw e
+        }
     }
 
     override fun write(buf: ByteArray, off: Int, len: Int) {

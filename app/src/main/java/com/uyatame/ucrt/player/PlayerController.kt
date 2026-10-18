@@ -1064,7 +1064,10 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 // 端末によっては、Android が選ぶデコーダーがうまく動かない(Walkman の OMX.google.flac.decoder など)。
                 // 動くものが見つかるまで、その形式のデコーダーを順に試す(float で受け取れなければ元の形式でも試す)
                 var last: Exception? = null
-                for (name in decoderNames(mime)) {
+                val names = decoderNames(mime)
+                // デコーダーが 1 つも無いと、周波数 0 のまま出力を開こうとしてしまう
+                if (names.isEmpty()) throw java.io.IOException("no decoder for $mime")
+                for (name in names) {
                     for (useFloat in if (wantFloat) listOf(true, false) else listOf(false)) {
                         try {
                             startDecoder(name, ti, useFloat, fromMs)
@@ -1521,7 +1524,11 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 while (!stopFlag && o.headFrames() < o.framesWritten) Thread.sleep(50)
                 if (!stopFlag) main.post { if (cd === this) { applySwitches(this, seg, Long.MAX_VALUE); next(true) } }
             } catch (e: Exception) {
-                // 停止・切断時
+                // 停止・切断時。出力を開けなかったときなどは、再生中の表示のまま止まらないよう一時停止にする
+                if (!stopFlag) {
+                    AudioEngine.log("cd: playback error: ${e.javaClass.simpleName}: ${e.message}")
+                    main.post { if (cd === this) pause() }
+                }
             } finally {
                 out?.release()
             }

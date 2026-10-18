@@ -506,6 +506,8 @@ class AudioOutput(
             val t = try {
                 build(AFormat.Builder().setSampleRate(outRate).setChannelMask(stereo).setEncoding(enc).build(), enc, outRate)
             } catch (e: Exception) {
+                // 作れなかった出力の流れ作業のスレッドを止める(残ると動き続ける)
+                pipe?.close()
                 // Android 11 以前の通常の出力は 192 kHz までしか扱えない
                 if (outRate > 192000 && android.os.Build.VERSION.SDK_INT < 31) {
                     AudioEngine.report(
@@ -607,11 +609,16 @@ class AudioOutput(
 
     private val usbDac get() = com.uyatame.ucrt.player.usb.UsbDac
 
+    /** 一時停止中か(通常の出力で、書き込めるまで待つ間隔に使う) */
+    @Volatile private var paused = true
+
     override fun play() {
+        paused = false
         if (dac != null) usbDac.setPaused(dacSession, false) else runCatching { track?.play() }
     }
 
     override fun pause() {
+        paused = true
         if (dac != null) usbDac.setPaused(dacSession, true) else runCatching { track?.pause() }
     }
 
@@ -693,9 +700,11 @@ class AudioOutput(
         var g = gain.toFloat()
         if (useEq) {
             val e = usbEq ?: ParamEqualizer(sampleRate, dch).also { usbEq = it }
-            if (e.version != AudioEngine.version) {
+            // 版を先に読む(帯域より後に読むと、変更の途中で古い帯域のまま新しい版を覚えてしまう)
+            val v = AudioEngine.version
+            if (e.version != v) {
                 e.update(AudioEngine.bands)
-                e.version = AudioEngine.version
+                e.version = v
             }
             e.process(fbuf, inSamples)
             g *= AudioEngine.preampGain()
@@ -755,14 +764,19 @@ class AudioOutput(
         // 通常の出力: float に変換し、イコライザーと音量を通す
         if (fbuf.size < samples) fbuf = FloatArray(samples)
         if (srcEnc == AFormat.ENCODING_PCM_FLOAT) {
-            for (k in 0 until samples) fbuf[k] = src.float
+            // まとめて読む(1 サンプルずつ読むより速い)
+            src.asFloatBuffer().get(fbuf, 0, samples)
+            src.position(src.position() + samples * 4)
         } else {
-            for (k in 0 until samples) fbuf[k] = (readI32(src, srcEnc) / 2147483648.0).toFloat()
+            // 形式ごとの専用ループでまとめて変換する(値は readI32 / 2^31 と同じ)
+            toFloat.read(src, srcEnc, frames, channels, channels, fbuf)
         }
         if (AudioEngine.eqEnabled) {
-            if (eq.version != AudioEngine.version) {
+            // 版を先に読む(帯域より後に読むと、変更の途中で古い帯域のまま新しい版を覚えてしまう)
+            val v = AudioEngine.version
+            if (eq.version != v) {
                 eq.update(AudioEngine.bands)
-                eq.version = AudioEngine.version
+                eq.version = v
             }
             eq.process(fbuf, samples)
             val g = AudioEngine.preampGain()
@@ -795,26 +809,35 @@ class AudioOutput(
     }
 
     private var mixBuf = FloatArray(0)
+    private var mixL: FloatArray? = null
+    private var mixR: FloatArray? = null
+    private var mixN = 0f
+    private var mixNr = 0f
 
     /**
      * 多チャンネルをステレオにまとめる(Android の並び: 左前・右前・中央・LFE・左後・右後・左横・右横…)。
      * 中央とサラウンドは -3 dB で左右に足し、LFE は使わない。まとめたあとに大きくなりすぎないよう、左右それぞれの係数の合計で割る
      */
     private fun downmix(src: FloatArray, frames: Int, ch: Int, dst: FloatArray) {
-        val k = 0.70710678f
-        val wl = FloatArray(ch)
-        val wr = FloatArray(ch)
-        for (c in 0 until ch) {
-            when (c) {
-                0 -> wl[c] = 1f
-                1 -> wr[c] = 1f
-                2 -> { wl[c] = k; wr[c] = k }
-                3 -> {}
-                else -> if (c % 2 == 0) wl[c] = k else wr[c] = k
+        // 係数はチャンネル数だけで決まるので、最初の 1 回だけ作る
+        val wl = mixL ?: FloatArray(ch).also { mixL = it }
+        val wr = mixR ?: FloatArray(ch).also { mixR = it }
+        if (mixN == 0f) {
+            val k = 0.70710678f
+            for (c in 0 until ch) {
+                when (c) {
+                    0 -> wl[c] = 1f
+                    1 -> wr[c] = 1f
+                    2 -> { wl[c] = k; wr[c] = k }
+                    3 -> {}
+                    else -> if (c % 2 == 0) wl[c] = k else wr[c] = k
+                }
             }
+            mixN = 1f / wl.sum()
+            mixNr = 1f / wr.sum()
         }
-        val nl = 1f / wl.sum()
-        val nr = 1f / wr.sum()
+        val nl = mixN
+        val nr = mixNr
         var i = 0
         var o = 0
         for (f in 0 until frames) {
@@ -841,13 +864,16 @@ class AudioOutput(
         }
         var off = 0
         while (off < samples && !stop() && !failed && !released) {
-            val w = t.write(buf, off, samples - off, AudioTrack.WRITE_BLOCKING)
+            // 待たずに書ける分だけ書く。WRITE_BLOCKING だと、一時停止中にバッファが埋まっていると
+            // 再開するまで戻らず、その間に止められても(曲の切り替え・シーク)スレッドが終われず、
+            // AudioTrack とデコーダーを手放せないまま残ってしまう
+            val w = t.write(buf, off, samples - off, AudioTrack.WRITE_NON_BLOCKING)
             if (w < 0) {
                 AudioEngine.log("write error $w")
                 failed = true
                 return
             }
-            if (w == 0) Thread.sleep(20) else off += w
+            if (w == 0) Thread.sleep(if (paused) 50 else 20) else off += w
         }
     }
 

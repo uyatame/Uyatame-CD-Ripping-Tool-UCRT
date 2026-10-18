@@ -163,28 +163,40 @@ fun App(vm: MainViewModel) {
                 if (s.autoOpenDisc) tab = 1
             }
         }
-        LaunchedEffect(vm.actionSnack) {
-            val a = vm.actionSnack ?: return@LaunchedEffect
-            vm.actionSnack = null
-            val res = snackHost.showSnackbar(a.text, a.action, withDismissAction = true, duration = SnackbarDuration.Long)
-            if (res == SnackbarResult.ActionPerformed) {
-                when (a) {
-                    is ActionSnack.OpenAlbum -> {
-                        tab = 0
-                        val key = vm.albums.firstOrNull { it.title == a.album && (it.artist == a.artist || it.tracks.any { t -> t.artist == a.artist }) }?.key
-                            ?: vm.albums.firstOrNull { it.title == a.album }?.key
-                        if (key != null) vm.libPush("album:$key")
+        // お知らせは 1 つずつ順に出す。LaunchedEffect(vm.snack) のように値をキーにすると、
+        // 受け取ってすぐ null に戻した時点で作り直されて、表示中のお知らせがすぐ消えてしまうので、変化を集めて出す
+        LaunchedEffect(Unit) {
+            androidx.compose.runtime.snapshotFlow { vm.actionSnack }.collect { a ->
+                if (a == null) return@collect
+                vm.actionSnack = null
+                val res = snackHost.showSnackbar(a.text, a.action, withDismissAction = true, duration = SnackbarDuration.Long)
+                if (res == SnackbarResult.ActionPerformed) {
+                    when (a) {
+                        is ActionSnack.OpenAlbum -> {
+                            tab = 0
+                            val key = vm.albums.firstOrNull { it.title == a.album && (it.artist == a.artist || it.tracks.any { t -> t.artist == a.artist }) }?.key
+                                ?: vm.albums.firstOrNull { it.title == a.album }?.key
+                            if (key != null) vm.libPush("album:$key")
+                        }
+                        is ActionSnack.UndoMeta -> vm.undoMeta()
                     }
-                    is ActionSnack.UndoMeta -> vm.undoMeta()
                 }
             }
         }
-        LaunchedEffect(vm.snack) {
-            val m = vm.snack
-            if (m != null) {
+        LaunchedEffect(Unit) {
+            androidx.compose.runtime.snapshotFlow { vm.snack }.collect { m ->
+                if (m == null) return@collect
                 vm.snack = null
                 snackHost.showSnackbar(m)
             }
+        }
+        // 再生が終わって曲がなくなったら、再生画面を開いた印も戻す(次に再生したとき、勝手に全画面で開かないように)
+        // (起動直後のまだ曲を読み込んでいないときは戻さない。曲があった状態から無くなったときだけ)
+        val hasCurrent = vm.player.current != null
+        var hadCurrent by remember { mutableStateOf(false) }
+        LaunchedEffect(hasCurrent) {
+            if (!hasCurrent && hadCurrent) showPlayer = false
+            hadCurrent = hasCurrent
         }
         BackHandler(enabled = tab == 2 && settingsPage != 0) { settingsPage = 0 }
 
@@ -492,9 +504,15 @@ fun CoverBox(img: ImageBitmap?, modifier: Modifier, corner: Dp = 8.dp) {
  * 設定で「一覧にジャケットを表示」がオフなら、画像を読まずに目印だけ出す(性能の低い端末向け)
  */
 @Composable
-fun ArtImage(key: String?, trackUri: String?, coverUri: String?, modifier: Modifier, corner: Dp = 8.dp) {
+fun ArtImage(key: String?, trackUri: String?, coverUri: String?, modifier: Modifier, corner: Dp = 8.dp, size: Dp? = null) {
     if (!LocalShowArt.current) {
         CoverBox(null, modifier, corner)
+        return
+    }
+    if (size != null) {
+        // 大きさが決まっているとき(一覧の行など)は、BoxWithConstraints(行ごとに subcompose して重い)を使わない
+        val px = with(androidx.compose.ui.platform.LocalDensity.current) { size.roundToPx() }
+        ArtImageAt(key, trackUri, coverUri, ArtLoader.bucketOf(px), modifier, corner)
         return
     }
     androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
@@ -502,27 +520,31 @@ fun ArtImage(key: String?, trackUri: String?, coverUri: String?, modifier: Modif
         val w = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
         val h = if (constraints.hasBoundedHeight) constraints.maxHeight else 0
         val px = maxOf(w, h).takeIf { it > 0 } ?: with(density) { 96.dp.roundToPx() }
-        val bucket = ArtLoader.bucketOf(px)
-        val ctx = LocalContext.current
-        val gen = ArtLoader.generation
-        val img by produceState(ArtLoader.peek(key, bucket), key, trackUri, coverUri, gen, bucket) {
-            // 曲やアルバムが変わったら、まず前の画像を消してから読み込む
-            value = ArtLoader.peek(key, bucket)
-            if (key != null) {
-                value = withContext(Dispatchers.IO) { ArtLoader.load(ctx, key, trackUri, coverUri, bucket) } ?: value
-            }
-        }
-        CoverBox(img, Modifier.fillMaxSize(), corner)
+        ArtImageAt(key, trackUri, coverUri, ArtLoader.bucketOf(px), Modifier.fillMaxSize(), corner)
     }
+}
+
+@Composable
+private fun ArtImageAt(key: String?, trackUri: String?, coverUri: String?, bucket: Int, modifier: Modifier, corner: Dp) {
+    val ctx = LocalContext.current
+    val gen = ArtLoader.generation
+    val img by produceState(remember(key, bucket) { ArtLoader.peek(key, bucket) }, key, trackUri, coverUri, gen, bucket) {
+        // 曲やアルバムが変わったら、まず前の画像を消してから読み込む
+        value = ArtLoader.peek(key, bucket)
+        if (key != null) {
+            value = withContext(Dispatchers.IO) { ArtLoader.load(ctx, key, trackUri, coverUri, bucket) } ?: value
+        }
+    }
+    CoverBox(img, modifier, corner)
 }
 
 /** 一覧にジャケットを表示するか(設定) */
 val LocalShowArt = androidx.compose.runtime.compositionLocalOf { true }
 
 @Composable
-fun PlayArt(vm: MainViewModel, item: PlayItem, modifier: Modifier, corner: Dp = 8.dp) {
+fun PlayArt(vm: MainViewModel, item: PlayItem, modifier: Modifier, corner: Dp = 8.dp, size: Dp? = null) {
     if (item.cdTrack != null) CoverBox(vm.cdCover, modifier, corner)
-    else ArtImage(item.artKey, item.artTrackUri, item.artCoverUri, modifier, corner)
+    else ArtImage(item.artKey, item.artTrackUri, item.artCoverUri, modifier, corner, size)
 }
 
 // ---------------- プレイヤー ----------------
@@ -613,7 +635,7 @@ fun MiniPlayer(vm: MainViewModel, onOpen: () -> Unit) {
                     },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    PlayArt(vm, cur, Modifier.size(44.dp), 6.dp)
+                    PlayArt(vm, cur, Modifier.size(44.dp), 6.dp, 44.dp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(cur.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)

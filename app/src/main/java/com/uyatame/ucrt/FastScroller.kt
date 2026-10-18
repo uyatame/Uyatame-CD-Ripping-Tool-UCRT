@@ -21,6 +21,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -147,6 +150,24 @@ fun BoxScope.FastScroller(
             )
         }
     }
+}
+
+/**
+ * LazyColumn 用。スクロールの位置はこの中で読む(呼んだ画面の全体が、スクロールの 1 コマごとに描き直されないように)
+ */
+@Composable
+fun BoxScope.FastScroller(state: LazyListState, label: (Int) -> String) {
+    val total by remember(state) { derivedStateOf { state.layoutInfo.totalItemsCount } }
+    val visible by remember(state) { derivedStateOf { state.layoutInfo.visibleItemsInfo.size } }
+    FastScroller(total, state.firstVisibleItemIndex, visible, state.isScrollInProgress, label) { state.scrollToItem(it) }
+}
+
+/** LazyVerticalGrid 用(同上) */
+@Composable
+fun BoxScope.FastScroller(state: LazyGridState, label: (Int) -> String) {
+    val total by remember(state) { derivedStateOf { state.layoutInfo.totalItemsCount } }
+    val visible by remember(state) { derivedStateOf { state.layoutInfo.visibleItemsInfo.size } }
+    FastScroller(total, state.firstVisibleItemIndex, visible, state.isScrollInProgress, label) { state.scrollToItem(it) }
 }
 
 /** 並べ替えの基準となる文字列の頭文字(英字は大文字に、数字・記号は #) */

@@ -77,6 +77,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -146,7 +147,8 @@ private fun LibraryRoute(vm: MainViewModel, s: AppSettings, route: String?) {
             val y = route.removePrefix("year:")
             AlbumCollectionPage(
                 vm, s, y.ifEmpty { T("発売年の情報なし", "Unknown year") },
-                vm.albums.filter { it.year == y }, sortable = false, key = route,
+                // 一覧を作り直すのは、ライブラリが変わったときだけ(画面を描き直すたびに全アルバムを調べない)
+                remember(vm.albums, y) { vm.albums.filter { it.year == y } }, sortable = false, key = route,
             )
         }
         route.startsWith("folder:") -> {
@@ -154,7 +156,9 @@ private fun LibraryRoute(vm: MainViewModel, s: AppSettings, route: String?) {
             AlbumCollectionPage(
                 vm, s, f.substringAfterLast('/').ifEmpty { "/" },
                 // そのフォルダの下(子フォルダも含む)のアルバム
-                vm.albums.filter { a -> a.tracks.any { trackFolder(it).let { p -> p == f || p.startsWith("$f/") } } }.sortedBy { folderPath(it).lowercase() },
+                remember(vm.albums, f) {
+                    vm.albums.filter { a -> a.tracks.any { trackFolder(it).let { p -> p == f || p.startsWith("$f/") } } }.sortedBy { folderPath(it).lowercase() }
+                },
                 sortable = false, key = route, subtitle = f,
             )
         }
@@ -266,25 +270,33 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
     if (editTiles) TileEditDialog(vm, s) { editTiles = false }
     val albums = vm.albums
     val store = vm.store
-    val counts = remember(albums, store.favTracks, store.favAlbums, store.playlists, store.history) {
+    // ライブラリから数えるもの(全曲を調べるので重い)は、ライブラリが変わったときだけ数える。
+    // 再生履歴は曲が変わるたびに増えるので、そちらは別に数える
+    val libCounts = remember(albums) {
         val tracks = albums.sumOf { it.tracks.size }
         mapOf(
             "albums" to "${albums.size}",
             "artists" to "${albums.map { it.artist }.distinct().size}",
             "songs" to "$tracks",
-            "favorites" to "${store.favTracks.size + store.favAlbums.size}",
-            "playlists" to "${store.playlists.size}",
-            "history" to "${store.history.size}",
             "hires" to T("ハイレゾ ${albums.count { Quality.classOf(it) == QualityClass.HiRes }}", "Hi-Res ${albums.count { Quality.classOf(it) == QualityClass.HiRes }}"),
             "genres" to "${albums.flatMap { a -> a.tracks.map { it.genre } }.filter { it.isNotEmpty() }.distinct().size}",
             "years" to "${albums.map { it.year }.filter { it.isNotEmpty() }.distinct().size}",
             "folders" to "${albums.flatMap { a -> a.tracks.map { trackFolder(it) } }.distinct().size}",
         )
     }
+    val counts = remember(libCounts, store.favTracks, store.favAlbums, store.playlists, store.history) {
+        libCounts + mapOf(
+            "favorites" to "${store.favTracks.size + store.favAlbums.size}",
+            "playlists" to "${store.playlists.size}",
+            "history" to "${store.history.size}",
+        )
+    }
     val tiles = remember(s.libTiles) { tileOrder(s.libTiles).filter { it.second }.map { it.first } }
     val recentAlbums = remember(albums) { albums.sortedByDescending { it.added }.take(15) }
-    val playedAlbums = remember(albums, store.history) {
-        store.history.mapNotNull { vm.albumKeyOf(it.uri) }.distinct().mapNotNull { k -> albums.firstOrNull { it.key == k } }.take(15)
+    // 曲が変わるたびに作り直すので、アルバムはキーの表で引き、15 枚そろったらやめる
+    val albumByKey = remember(albums) { albums.associateBy { it.key } }
+    val playedAlbums = remember(albumByKey, store.history) {
+        store.history.asSequence().mapNotNull { vm.albumKeyOf(it.uri) }.distinct().mapNotNull { k -> albumByKey[k] }.take(15).toList()
     }
     val full: androidx.compose.foundation.lazy.grid.LazyGridItemSpanScope.() -> GridItemSpan = { GridItemSpan(maxLineSpan) }
 
@@ -386,7 +398,7 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
             item(key = "playedRow", span = full) { AlbumStrip(vm, playedAlbums) }
         }
     }
-    ScrollTopButton(homeState.firstVisibleItemIndex > 6) { homeState.scrollToItem(0) }
+    ScrollTopButton(remember(homeState) { derivedStateOf { homeState.firstVisibleItemIndex > 6 } }.value) { homeState.scrollToItem(0) }
     }
 }
 
@@ -459,10 +471,13 @@ private fun TileEditDialog(vm: MainViewModel, s: AppSettings, onDismiss: () -> U
 private fun CategoryPage(vm: MainViewModel, s: AppSettings, id: String) {
     when (id) {
         "albums" -> AlbumCollectionPage(vm, s, tileLabel(id), vm.albums, sortable = true, key = "albums")
-        "recent" -> AlbumCollectionPage(
-            vm, s, tileLabel(id), remember(vm.albums) { vm.albums.sortedByDescending { it.added } }, sortable = false, key = "recent",
-            subOf = { a -> java.text.SimpleDateFormat("yyyy/MM/dd", java.util.Locale.getDefault()).format(java.util.Date(a.added)) },
-        )
+        "recent" -> {
+            val ymdFmt = remember { java.text.SimpleDateFormat("yyyy/MM/dd", java.util.Locale.getDefault()) }
+            AlbumCollectionPage(
+                vm, s, tileLabel(id), remember(vm.albums) { vm.albums.sortedByDescending { it.added } }, sortable = false, key = "recent",
+                subOf = { a -> ymdFmt.format(java.util.Date(a.added)) },
+            )
+        }
         "hires" -> AlbumCollectionPage(vm, s, tileLabel(id), vm.albums, sortable = true, key = "hires", initialQuality = 0)
         "artists" -> ArtistsPage(vm)
         "songs" -> SongsPage(vm)
@@ -504,10 +519,12 @@ private fun AlbumCollectionPage(
             else -> f.sortedWith(compareBy({ it.artist.lowercase() }, { it.title.lowercase() }))
         }
     }
+    // 日付の書式は 1 つを使い回す(アルバムごとに作ると、大きなライブラリでは重い)
+    val ymFmt = remember { java.text.SimpleDateFormat("yyyy/MM", java.util.Locale.getDefault()) }
     val labelOf: (LibAlbum) -> String = { a ->
         if (!sortable) initialOf(a.title) else when (sort) {
             1 -> initialOf(a.title)
-            2 -> java.text.SimpleDateFormat("yyyy/MM", java.util.Locale.getDefault()).format(java.util.Date(a.added))
+            2 -> ymFmt.format(java.util.Date(a.added))
             3 -> a.year.ifEmpty { "?" }
             else -> initialOf(a.artist)
         }
@@ -555,11 +572,7 @@ private fun AlbumCollectionPage(
                     item(key = "controls") { controls() }
                     items(shown, key = { it.key }) { a -> AlbumListRow(vm, a, subOf?.invoke(a)) }
                 }
-                FastScroller(
-                    total = st.layoutInfo.totalItemsCount, first = st.firstVisibleItemIndex,
-                    visible = st.layoutInfo.visibleItemsInfo.size, scrolling = st.isScrollInProgress,
-                    label = { labels.getOrElse(it) { "" } },
-                ) { st.scrollToItem(it) }
+                FastScroller(st) { labels.getOrElse(it) { "" } }
             } else {
                 val st = rememberLazyGridState()
                 LazyVerticalGrid(
@@ -572,11 +585,7 @@ private fun AlbumCollectionPage(
                     item(key = "controls", span = { GridItemSpan(maxLineSpan) }) { controls() }
                     items(shown, key = { it.key }) { a -> AlbumTile(vm, a, sub = subOf?.invoke(a)) }
                 }
-                FastScroller(
-                    total = st.layoutInfo.totalItemsCount, first = st.firstVisibleItemIndex,
-                    visible = st.layoutInfo.visibleItemsInfo.size, scrolling = st.isScrollInProgress,
-                    label = { labels.getOrElse(it) { "" } },
-                ) { st.scrollToItem(it) }
+                FastScroller(st) { labels.getOrElse(it) { "" } }
             }
         }
     }
@@ -601,14 +610,10 @@ private fun ArtistsPage(vm: MainViewModel) {
                     GroupRow(
                         e.name, T("${e.albums.size}枚 ・ ${e.tracks}曲", "${e.albums.size} albums · ${e.tracks} songs"),
                         { vm.libPush("artist:" + e.name) },
-                    ) { ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(48.dp), 24.dp) }
+                    ) { ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(48.dp), 24.dp, 48.dp) }
                 }
             }
-            FastScroller(
-                total = st.layoutInfo.totalItemsCount, first = st.firstVisibleItemIndex,
-                visible = st.layoutInfo.visibleItemsInfo.size, scrolling = st.isScrollInProgress,
-                label = { labels.getOrElse(it) { "" } },
-            ) { st.scrollToItem(it) }
+            FastScroller(st) { labels.getOrElse(it) { "" } }
         }
     }
 }
@@ -668,18 +673,20 @@ private fun SongsPage(vm: MainViewModel) {
         }
     }
     val labels = remember(all, sort) {
+        // 日付の書式は 1 つを使い回す(曲ごとに作ると、曲の多いライブラリでは重い)
+        val ymFmt = java.text.SimpleDateFormat("yyyy/MM", java.util.Locale.getDefault())
         val lab: (LibTrack) -> String = { t ->
             when (sort) {
                 1 -> initialOf(t.artist)
                 2 -> initialOf(t.album)
-                3 -> java.text.SimpleDateFormat("yyyy/MM", java.util.Locale.getDefault()).format(java.util.Date(t.modified))
+                3 -> ymFmt.format(java.util.Date(t.modified))
                 else -> initialOf(t.title)
             }
         }
         listOf(all.firstOrNull()?.let(lab).orEmpty()) + all.map(lab)
     }
     Column(Modifier.fillMaxSize()) {
-        PageTop(vm, tileLabel("songs"), countText(all))
+        PageTop(vm, tileLabel("songs"), remember(all) { countText(all) })
         Box(Modifier.fillMaxSize()) {
             val st = rememberLazyListState()
             LazyColumn(state = st, contentPadding = PaddingValues(start = 8.dp, end = 24.dp, bottom = 24.dp)) {
@@ -696,11 +703,7 @@ private fun SongsPage(vm: MainViewModel) {
                     TrackRow(vm, t, { vm.playTracks(all, i) }, sub = t.artist + " ・ " + t.album)
                 }
             }
-            FastScroller(
-                total = st.layoutInfo.totalItemsCount, first = st.firstVisibleItemIndex,
-                visible = st.layoutInfo.visibleItemsInfo.size, scrolling = st.isScrollInProgress,
-                label = { labels.getOrElse(it) { "" } },
-            ) { st.scrollToItem(it) }
+            FastScroller(st) { labels.getOrElse(it) { "" } }
         }
     }
 }
@@ -730,7 +733,7 @@ private fun GroupedTracks(vm: MainViewModel, title: String, tracks: List<LibTrac
                             .padding(horizontal = 8.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        ArtImage(vm.albumKeyOf(first.uri) ?: first.uri, first.uri, first.coverUri, Modifier.size(40.dp), 6.dp)
+                        ArtImage(vm.albumKeyOf(first.uri) ?: first.uri, first.uri, first.coverUri, Modifier.size(40.dp), 6.dp, 40.dp)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(first.album, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -839,6 +842,14 @@ private fun buildFolderTree(albums: List<LibAlbum>): FolderNode {
     return root
 }
 
+/** 作ったフォルダの木(同じライブラリなら使い回す。フォルダを 1 つ潜るたびに全曲から作り直さないように。画面の処理からだけ使う) */
+private var folderTreeCache: Pair<List<LibAlbum>, FolderNode>? = null
+
+private fun folderTreeOf(albums: List<LibAlbum>): FolderNode {
+    folderTreeCache?.let { (a, t) -> if (a === albums) return t }
+    return buildFolderTree(albums).also { folderTreeCache = albums to it }
+}
+
 /**
  * フォルダの中(エクスプローラーのように潜っていく)。上に今いる場所(タップでその階層へ)、
  * その下に中のフォルダとアルバムを並べる。フォルダをタップすると 1 つ下へ、戻るで 1 つ上へ
@@ -846,7 +857,7 @@ private fun buildFolderTree(albums: List<LibAlbum>): FolderNode {
 @Composable
 private fun FolderBrowsePage(vm: MainViewModel, path: String) {
     val node = remember(vm.albums, path) {
-        var n: FolderNode? = buildFolderTree(vm.albums)
+        var n: FolderNode? = folderTreeOf(vm.albums)
         for (p in path.split('/').filter { it.isNotEmpty() }) n = n?.children?.get(p)
         n
     }
@@ -877,10 +888,11 @@ private fun FolderBrowsePage(vm: MainViewModel, path: String) {
             EmptyState(AppIcons.Folder, T("フォルダが見つかりません", "Folder not found"), "")
             return@Column
         }
+        val children = remember(node) { node.children.values.toList() }
         Box(Modifier.fillMaxSize()) {
             val st = rememberLazyListState()
             LazyColumn(state = st, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp)) {
-                items(node.children.values.toList(), key = { "f:" + it.path }) { c ->
+                items(children, key = { "f:" + it.path }) { c ->
                     GroupRow(
                         c.name, T("${c.albumCount}枚 ・ ${c.trackCount}曲", "${c.albumCount} albums · ${c.trackCount} songs"),
                         { vm.libPush("dir:" + c.path) },
@@ -888,13 +900,13 @@ private fun FolderBrowsePage(vm: MainViewModel, path: String) {
                 }
                 items(node.albums, key = { "a:" + it.key }) { a -> AlbumListRow(vm, a) }
             }
-            ScrollTopButton(st.firstVisibleItemIndex > 8) { st.scrollToItem(0) }
+            ScrollTopButton(remember(st) { derivedStateOf { st.firstVisibleItemIndex > 8 } }.value) { st.scrollToItem(0) }
         }
     }
 }
 
-/** 表示する 1 行(フォルダかアルバム) */
-private class FolderRow(val depth: Int, val folder: FolderNode?, val album: LibAlbum?)
+/** 表示する 1 行(フォルダかアルバム)。parent はその行が入っているフォルダ(同じアルバムが複数のフォルダに出るので、キーに使う) */
+private class FolderRow(val depth: Int, val folder: FolderNode?, val album: LibAlbum?, val parent: String = "")
 
 /**
  * フォルダ別: フォルダの階層をたどって開いていく。行をタップすると中のフォルダとアルバムを開き、もう一度タップで閉じる。
@@ -902,7 +914,7 @@ private class FolderRow(val depth: Int, val folder: FolderNode?, val album: LibA
  */
 @Composable
 private fun FoldersPage(vm: MainViewModel) {
-    val tree = remember(vm.albums) { buildFolderTree(vm.albums) }
+    val tree = remember(vm.albums) { folderTreeOf(vm.albums) }
     // 開いているフォルダ(戻ってきたときも同じように開いておく)
     val open = rememberSaveable(saver = androidx.compose.runtime.saveable.listSaver<androidx.compose.runtime.snapshots.SnapshotStateList<String>, String>(
         save = { it.toList() }, restore = { mutableStateListOf<String>().apply { addAll(it) } },
@@ -917,7 +929,7 @@ private fun FoldersPage(vm: MainViewModel) {
                 out.add(FolderRow(depth, c, null))
                 if (c.path in open) walk(c, depth + 1)
             }
-            for (a in n.albums) out.add(FolderRow(depth, null, a))
+            for (a in n.albums) out.add(FolderRow(depth, null, a, n.path))
         }
         walk(tree, 0)
         out
@@ -927,7 +939,8 @@ private fun FoldersPage(vm: MainViewModel) {
         Box(Modifier.fillMaxSize()) {
             val st = rememberLazyListState()
             LazyColumn(state = st, contentPadding = PaddingValues(start = 8.dp, end = 12.dp, bottom = 24.dp)) {
-                items(rows, key = { r -> r.folder?.let { "f:" + it.path } ?: ("a:" + r.album!!.key) }) { r ->
+                // disc1 / disc2 のように分かれたアルバムは複数のフォルダに出るので、入っているフォルダもキーに含める
+                items(rows, key = { r -> r.folder?.let { "f:" + it.path } ?: ("a:" + r.parent + "\u0000" + r.album!!.key) }) { r ->
                     val f = r.folder
                     if (f != null) {
                         val isOpen = f.path in open
@@ -962,7 +975,7 @@ private fun FoldersPage(vm: MainViewModel) {
                     }
                 }
             }
-            ScrollTopButton(st.firstVisibleItemIndex > 8) { st.scrollToItem(0) }
+            ScrollTopButton(remember(st) { derivedStateOf { st.firstVisibleItemIndex > 8 } }.value) { st.scrollToItem(0) }
         }
     }
 }
@@ -1118,7 +1131,7 @@ private fun PlaylistsPage(vm: MainViewModel) {
                 val first = p.uris.firstNotNullOfOrNull { map[it] }
                 val ts = p.uris.mapNotNull { map[it] }
                 GroupRow(p.name, countText(ts), { vm.libPush("playlist:" + p.id) }) {
-                    if (first != null) ArtImage(vm.albumKeyOf(first.uri) ?: first.uri, first.uri, first.coverUri, Modifier.size(48.dp), 8.dp)
+                    if (first != null) ArtImage(vm.albumKeyOf(first.uri) ?: first.uri, first.uri, first.coverUri, Modifier.size(48.dp), 8.dp, 48.dp)
                     else RoundIcon(AppIcons.Queue)
                 }
             }
@@ -1205,11 +1218,22 @@ private fun SearchPage(vm: MainViewModel) {
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     val key = norm(q.trim())
     val albums = vm.albums
-    val result = remember(key, albums) {
+    // 検索用にそろえた文字は、ライブラリが変わったときだけ作る(1 文字打つたびに全曲を Normalizer にかけない)。
+    // 最初に文字を打ったときに一度だけ作る
+    val index = remember(albums) {
+        lazy {
+            val artists = albums.map { it.artist }.distinct().map { it to norm(it) }
+            val al = albums.map { it to (norm(it.title) + "\u0000" + norm(it.artist)) }
+            val songs = albums.flatMap { it.tracks }.map { it to (norm(it.title) + "\u0000" + norm(it.artist)) }
+            Triple(artists, al, songs)
+        }
+    }
+    val result = remember(key, index) {
         if (key.isEmpty()) null else {
-            val artists = albums.map { it.artist }.distinct().filter { norm(it).contains(key) }.take(10)
-            val al = albums.filter { norm(it.title).contains(key) || norm(it.artist).contains(key) }.take(30)
-            val songs = albums.flatMap { it.tracks }.filter { norm(it.title).contains(key) || norm(it.artist).contains(key) }.take(200)
+            val (ia, ial, isg) = index.value
+            val artists = ia.filter { it.second.contains(key) }.take(10).map { it.first }
+            val al = ial.filter { it.second.contains(key) }.take(30).map { it.first }
+            val songs = isg.filter { it.second.contains(key) }.take(200).map { it.first }
             Triple(artists, al, songs)
         }
     }
@@ -1392,7 +1416,7 @@ private fun EditTagsDialog(vm: MainViewModel, a: LibAlbum, onDismiss: () -> Unit
             LazyColumn(Modifier.heightIn(max = 500.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(64.dp), 8.dp)
+                        ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(64.dp), 8.dp, 64.dp)
                         Spacer(Modifier.width(12.dp))
                         FilledTonalButton({
                             pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -1414,7 +1438,8 @@ private fun EditTagsDialog(vm: MainViewModel, a: LibAlbum, onDismiss: () -> Unit
                 }
                 items(titles.size) { i ->
                     Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        val n = a.tracks[i].track
+                        // 開いている間にライブラリが読み直されて曲が減っても落ちないように
+                        val n = a.tracks.getOrNull(i)?.track ?: 0
                         OutlinedTextField(
                             titles[i], { titles[i] = it }, Modifier.fillMaxWidth(),
                             label = { Text(if (n > 0) T("${n}曲目 曲名", "Track ${n} title") else T("曲名", "Title")) }, singleLine = true,

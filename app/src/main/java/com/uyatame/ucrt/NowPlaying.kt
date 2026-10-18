@@ -90,6 +90,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -446,7 +447,8 @@ private fun PlayerPage(
         val skipSize = if (tight) 44.dp else if (compact) 50.dp else 60.dp
         var seeking by remember(cur.id) { mutableStateOf<Float?>(null) }
         val dur = p.durationMs.coerceAtLeast(1)
-        val frac = seeking ?: (p.positionMs.toFloat() / dur).coerceIn(0f, 1f)
+        // 再生位置(0.25 秒ごとに変わる)は、ここでは読まない。読むのは SeekBar と歌詞の中だけにして、
+        // 再生画面の全体が 0.25 秒ごとに描き直されないようにする(性能の低い端末向け)
         val lib = vm.libTrackOf(cur)
 
         // ---- ジャケット(または歌詞) ----
@@ -454,7 +456,7 @@ private fun PlayerPage(
             Box(m, contentAlignment = Alignment.Center) {
                 if (showLyrics) {
                     if (lyrics != null) {
-                        LyricsView(lyrics, p.positionMs, col, Modifier.fillMaxSize()) { p.seek(it) }
+                        LyricsView(lyrics, { p.positionMs }, col, Modifier.fillMaxSize()) { p.seek(it) }
                     } else {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                             Icon(AppIcons.Lyrics, null, Modifier.size(40.dp), tint = col.sub)
@@ -609,21 +611,9 @@ private fun PlayerPage(
             }
             Spacer(Modifier.height(if (compact) 4.dp else 12.dp))
             // ---- 再生位置 ----
-            Slider(
-                value = frac,
-                onValueChange = { seeking = it },
-                onValueChangeFinished = {
-                    seeking?.let { p.seek((it * dur).toLong()) }
-                    seeking = null
-                },
-                colors = if (col.ambient) {
-                    SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = 0.28f))
-                } else SliderDefaults.colors(),
-            )
-            Row(Modifier.fillMaxWidth()) {
-                Text(fmtMs((frac * dur).toLong()), style = MaterialTheme.typography.labelMedium, color = col.sub)
-                Spacer(Modifier.weight(1f))
-                Text("-" + fmtMs(((1f - frac) * dur).toLong().coerceAtLeast(0)), style = MaterialTheme.typography.labelMedium, color = col.sub)
+            SeekBar(p, dur, seeking, col, { seeking = it }) {
+                seeking?.let { p.seek((it * dur).toLong()) }
+                seeking = null
             }
             Spacer(Modifier.height(if (compact) 2.dp else 10.dp))
             // ---- 再生操作 ----
@@ -656,7 +646,16 @@ private fun PlayerPage(
             // ---- 下の帯: 音量・タイマー・曲番号・再生リスト ----
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onVolume) { Icon(AppIcons.Volume, T("音量", "Volume"), tint = col.sub) }
-                val sleepLeft = if (p.sleepAtMs > 0) ((p.sleepAtMs - SystemClock.elapsedRealtime()) / 60_000L + 1).coerceAtLeast(1) else 0L
+                // 残りの分は、時計に合わせて自分で更新する(画面の全体は再生位置では描き直さないので)
+                val sleepAt = p.sleepAtMs
+                fun leftNow() = if (sleepAt > 0) ((sleepAt - SystemClock.elapsedRealtime()) / 60_000L + 1).coerceAtLeast(1) else 0L
+                val sleepLeft by produceState(leftNow(), sleepAt) {
+                    while (sleepAt > 0) {
+                        value = leftNow()
+                        delay(1000)
+                    }
+                    value = 0L
+                }
                 if (sleepLeft > 0 || p.stopAfterTrack) {
                     TextButton(onTimer) {
                         Icon(AppIcons.Timer, null, Modifier.size(18.dp), tint = col.accent)
@@ -704,6 +703,32 @@ private fun PlayerPage(
                 controls()
             }
         }
+    }
+}
+
+/** 再生位置のバーと時刻。再生位置を読むのはここだけ(0.25 秒ごとに描き直すのを、この部分だけにする) */
+@Composable
+private fun SeekBar(
+    p: PlayerController,
+    dur: Long,
+    seeking: Float?,
+    col: PlayerColors,
+    onSeeking: (Float) -> Unit,
+    onDone: () -> Unit,
+) {
+    val frac = seeking ?: (p.positionMs.toFloat() / dur).coerceIn(0f, 1f)
+    Slider(
+        value = frac,
+        onValueChange = onSeeking,
+        onValueChangeFinished = onDone,
+        colors = if (col.ambient) {
+            SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = 0.28f))
+        } else SliderDefaults.colors(),
+    )
+    Row(Modifier.fillMaxWidth()) {
+        Text(fmtMs((frac * dur).toLong()), style = MaterialTheme.typography.labelMedium, color = col.sub)
+        Spacer(Modifier.weight(1f))
+        Text("-" + fmtMs(((1f - frac) * dur).toLong().coerceAtLeast(0)), style = MaterialTheme.typography.labelMedium, color = col.sub)
     }
 }
 
@@ -775,9 +800,10 @@ private fun SwipeCover(
 
 /** 歌詞。時刻付きなら今の行を強調して追いかけ、行をタップするとその位置へ */
 @Composable
-private fun LyricsView(l: Lyrics, posMs: Long, col: PlayerColors, modifier: Modifier, onSeek: (Long) -> Unit) {
+private fun LyricsView(l: Lyrics, posMs: () -> Long, col: PlayerColors, modifier: Modifier, onSeek: (Long) -> Unit) {
     val st = rememberLazyListState()
-    val now = if (l.synced) l.lines.indexOfLast { it.timeMs <= posMs + 250 } else -1
+    // 今の行が変わったときだけ描き直す(再生位置が変わるたびには描き直さない)
+    val now by remember(l) { derivedStateOf { if (l.synced) l.lines.indexOfLast { it.timeMs <= posMs() + 250 } else -1 } }
     LaunchedEffect(now) {
         if (now >= 0) runCatching { st.animateScrollToItem((now - 2).coerceAtLeast(0)) }
     }
@@ -825,7 +851,7 @@ private fun PanelRow(
     ) {
         leading?.invoke()
         Box {
-            PlayArt(vm, item, Modifier.size(44.dp), 6.dp)
+            PlayArt(vm, item, Modifier.size(44.dp), 6.dp, 44.dp)
             if (active) {
                 Box(
                     Modifier.size(44.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.45f)),
@@ -907,11 +933,13 @@ private fun QueuePanel(vm: MainViewModel, col: PlayerColors, onSave: () -> Unit)
             dismissButton = { TextButton({ confirmClear = false }) { Text(T("キャンセル", "Cancel")) } },
         )
     }
-    val left = q.drop(p.index + 1).sumOf { it.durationMs } + (p.durationMs - p.positionMs).coerceAtLeast(0)
+    // 後ろの曲の合計は、再生リストが変わったときだけ数える(再生位置は見出しの中で読む)
+    val after = remember(q, p.index) { q.drop(p.index + 1).sumOf { it.durationMs } }
     LazyColumn(state = st, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp)) {
         item(key = "head") {
             Row(Modifier.fillMaxWidth().padding(start = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
+                    val left = after + (p.durationMs - p.positionMs).coerceAtLeast(0)
                     Text(T("再生リスト", "Queue"), style = MaterialTheme.typography.titleMedium, color = col.content)
                     Text(
                         T("${p.index + 1} / ${q.size}曲 ・ 残り ${fmtMs(left)}", "${p.index + 1} of ${q.size} · ${fmtMs(left)} left"),

@@ -32,6 +32,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
@@ -363,6 +364,13 @@ private fun EqCurve(
     val handleText = TextStyle(fontSize = 11.sp, color = cs.onPrimary)
     val handleTextOff = TextStyle(fontSize = 11.sp, color = cs.primary)
     val maxDb = ParamEq.MAX_DB
+    // 保存すると設定から帯域の一覧が作り直されるので、ドラッグの処理(最初に作ったまま)からは、いつも今の一覧と処理を使う
+    // (古い一覧を書き換えて、2 回目からのドラッグで曲線が指についてこなくなるのを防ぐ)
+    val bandsNow by rememberUpdatedState(bands)
+    val selectNow by rememberUpdatedState(onSelect)
+    val moveNow by rememberUpdatedState(onMove)
+    val moveEndNow by rememberUpdatedState(onMoveEnd)
+    val addNow by rememberUpdatedState(onAdd)
     Canvas(
         Modifier.fillMaxWidth().height(curveH).clip(RoundedCornerShape(12.dp)).background(cs.surfaceVariant)
             .pointerInput(enabled) {
@@ -382,13 +390,13 @@ private fun EqCurve(
                     val touch = 28.dp.toPx()
                     var hit = -1
                     var best = Float.MAX_VALUE
-                    bands.forEachIndexed { i, b ->
+                    bandsNow.forEachIndexed { i, b ->
                         val d = (Offset(xOf(b.freq), handleY(b)) - down.position).getDistance()
                         if (d < touch && d < best) { best = d; hit = i }
                     }
                     if (hit >= 0) {
                         down.consume()
-                        onSelect(hit)
+                        selectNow(hit)
                         var moved = false
                         while (true) {
                             val ev = awaitPointerEvent()
@@ -397,20 +405,20 @@ private fun EqCurve(
                             if (c.positionChanged()) {
                                 c.consume()
                                 moved = true
-                                onMove(hit, posToFreq(c.position.x / w), dbAt(c.position.y))
+                                moveNow(hit, posToFreq(c.position.x / w), dbAt(c.position.y))
                             }
                         }
-                        if (moved) onMoveEnd()
+                        if (moved) moveEndNow()
                         return@awaitEachGesture
                     }
                     // 何もないところ: タップで選択を外し、ダブルタップで帯域を追加
                     val up = waitForUpOrCancellation() ?: return@awaitEachGesture
                     val now = up.uptimeMillis
                     if (now - lastTap < 350 && (up.position - lastPos).getDistance() < 48.dp.toPx()) {
-                        onAdd(posToFreq(up.position.x / w), dbAt(up.position.y))
+                        addNow(posToFreq(up.position.x / w), dbAt(up.position.y))
                         lastTap = 0L
                     } else {
-                        onSelect(-1)
+                        selectNow(-1)
                         lastTap = now
                         lastPos = up.position
                     }
