@@ -154,7 +154,7 @@ private fun LibraryRoute(vm: MainViewModel, s: AppSettings, route: String?) {
             AlbumCollectionPage(
                 vm, s, f.substringAfterLast('/').ifEmpty { "/" },
                 // そのフォルダの下(子フォルダも含む)のアルバム
-                vm.albums.filter { folderPath(it).let { p -> p == f || p.startsWith("$f/") } }.sortedBy { folderPath(it).lowercase() },
+                vm.albums.filter { a -> a.tracks.any { trackFolder(it).let { p -> p == f || p.startsWith("$f/") } } }.sortedBy { folderPath(it).lowercase() },
                 sortable = false, key = route, subtitle = f,
             )
         }
@@ -278,7 +278,7 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
             "hires" to T("ハイレゾ ${albums.count { Quality.classOf(it) == QualityClass.HiRes }}", "Hi-Res ${albums.count { Quality.classOf(it) == QualityClass.HiRes }}"),
             "genres" to "${albums.flatMap { a -> a.tracks.map { it.genre } }.filter { it.isNotEmpty() }.distinct().size}",
             "years" to "${albums.map { it.year }.filter { it.isNotEmpty() }.distinct().size}",
-            "folders" to "${albums.map { folderPath(it) }.distinct().size}",
+            "folders" to "${albums.flatMap { a -> a.tracks.map { trackFolder(it) } }.distinct().size}",
         )
     }
     val tiles = remember(s.libTiles) { tileOrder(s.libTiles).filter { it.second }.map { it.first } }
@@ -803,23 +803,32 @@ private class FolderNode(val path: String, val name: String) {
     val children = java.util.TreeMap<String, FolderNode>(String.CASE_INSENSITIVE_ORDER)
     /** このフォルダにじかに入っているアルバム */
     val albums = ArrayList<LibAlbum>()
-    /** この下(子フォルダも含む)のアルバムの数・曲の数 */
-    var albumCount = 0
+    /** この下(子フォルダも含む)のアルバム(数を数えるため)と曲の数 */
+    val albumKeys = HashSet<String>()
+    val albumCount: Int get() = albumKeys.size
     var trackCount = 0
 }
 
-/** アルバムの入っているフォルダから、実際のフォルダの階層どおりの木を作る */
+/** 曲の入っているフォルダ(例: Music/Artist/Album/disc1) */
+private fun trackFolder(t: LibTrack): String = Uri.decode(t.folderId).substringAfter(':', "")
+
+/**
+ * 曲の入っているフォルダから、実際のフォルダの階層どおりの木を作る。
+ * 1 つのアルバムが disc1 / disc2 のように複数のフォルダに分かれていれば、それぞれのフォルダに出す
+ */
 private fun buildFolderTree(albums: List<LibAlbum>): FolderNode {
     val root = FolderNode("", "")
     for (a in albums) {
-        val parts = folderPath(a).split('/').filter { it.isNotEmpty() }
-        var n = root
-        n.albumCount++; n.trackCount += a.tracks.size
-        for (p in parts) {
-            n = n.children.getOrPut(p) { FolderNode(if (n.path.isEmpty()) p else n.path + "/" + p, p) }
-            n.albumCount++; n.trackCount += a.tracks.size
+        for ((folder, tracks) in a.tracks.groupBy { trackFolder(it) }) {
+            val parts = folder.split('/').filter { it.isNotEmpty() }
+            var n = root
+            n.albumKeys.add(a.key); n.trackCount += tracks.size
+            for (p in parts) {
+                n = n.children.getOrPut(p) { FolderNode(if (n.path.isEmpty()) p else n.path + "/" + p, p) }
+                n.albumKeys.add(a.key); n.trackCount += tracks.size
+            }
+            if (n.albums.none { it.key == a.key }) n.albums.add(a)
         }
-        n.albums.add(a)
     }
     // 実際のフォルダの階層どおりに出す(まとめない)。アルバムはフォルダの名前の順
     fun sortAlbums(n: FolderNode) {
