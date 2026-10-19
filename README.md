@@ -35,7 +35,9 @@ Google Play 以外からのインストールのため、Playプロテクトの�
 ### Termux(Android 端末上)
 
 ```bash
-pkg install openjdk-17 gradle aapt2
+pkg install git openjdk-17 gradle aapt2
+git clone https://github.com/uyatame/Uyatame-CD-Ripping-Tool-UCRT.git ~/UyatameCdRipper
+cd ~/UyatameCdRipper
 echo "android.aapt2FromMavenOverride=$PREFIX/bin/aapt2" >> ~/.gradle/gradle.properties
 echo "sdk.dir=$HOME/android-sdk" > local.properties   # Android SDK(platform 36)の場所
 gradle assembleRelease --no-daemon

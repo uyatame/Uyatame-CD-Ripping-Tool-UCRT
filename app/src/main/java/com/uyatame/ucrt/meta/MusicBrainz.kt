@@ -56,7 +56,7 @@ object MusicBrainz {
     @Volatile var version: String = "0.1"
 
     /** 公開リポジトリのURL(MusicBrainz に送る連絡先として使う) */
-    const val PROJECT_URL = "https://github.com/uyatame/UyatameCdRipper"
+    const val PROJECT_URL = "https://github.com/uyatame/Uyatame-CD-Ripping-Tool-UCRT"
 
     private val ua: String
         get() = "UCRT/$version ( " + contact.ifBlank { PROJECT_URL } + " )"

@@ -20,7 +20,7 @@ data class ReleaseInfo(
  * 送るのはアプリの名前と版だけ(GitHub の API の決まりで User-Agent が必要なため)
  */
 object UpdateCheck {
-    private const val REPO = "uyatame/UyatameCdRipper"
+    private const val REPO = "uyatame/Uyatame-CD-Ripping-Tool-UCRT"
     const val RELEASES_PAGE = "https://github.com/$REPO/releases/latest"
 
     /** 最新のリリース。リリースが無い・つながらないときは null */
