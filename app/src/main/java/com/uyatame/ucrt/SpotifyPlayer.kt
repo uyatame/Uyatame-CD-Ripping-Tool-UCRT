@@ -8,7 +8,12 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import kotlinx.coroutines.launch
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -140,6 +145,13 @@ fun SpotifyNowPlaying(sp: SpotifyViewModel, s: AppSettings, onClose: () -> Unit,
     val scope = rememberCoroutineScope()
     val shift = remember { Animatable(0f) }
     val threshold = with(LocalDensity.current) { 120.dp.toPx() }
+    // 操作したことが指に伝わるように、軽く振動させる(閉じる位置まで下げたとき・再生・曲送り・お気に入り)
+    val haptic = LocalHapticFeedback.current
+    var armed by remember { mutableStateOf(false) }
+    // 縦に余裕のある画面(Xperia 1 VI などの縦長の画面)では、曲名とボタンを一回り大きくする
+    val roomy = !isLandscape() && LocalConfiguration.current.screenHeightDp >= 760
+    val skipSize = if (roomy) 62.dp else 56.dp
+    val playSize = if (roomy) 84.dp else 76.dp
     Box(
         Modifier.fillMaxSize()
             .graphicsLayer { translationY = shift.value }
@@ -148,6 +160,7 @@ fun SpotifyNowPlaying(sp: SpotifyViewModel, s: AppSettings, onClose: () -> Unit,
             .pointerInput(Unit) {
                 detectVerticalDragGestures(
                     onDragEnd = {
+                        armed = false
                         scope.launch {
                             if (shift.value > threshold) {
                                 closeNow()
@@ -157,10 +170,15 @@ fun SpotifyNowPlaying(sp: SpotifyViewModel, s: AppSettings, onClose: () -> Unit,
                             }
                         }
                     },
-                    onDragCancel = { scope.launch { shift.animateTo(0f) } },
+                    onDragCancel = { armed = false; scope.launch { shift.animateTo(0f) } },
                 ) { change, d ->
                     change.consume()
-                    scope.launch { shift.snapTo((shift.value + d).coerceAtLeast(0f)) }
+                    val next = (shift.value + d).coerceAtLeast(0f)
+                    if ((next > threshold) != armed) {
+                        armed = next > threshold
+                        if (armed) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+                    scope.launch { shift.snapTo(next) }
                 }
             },
     ) {
@@ -230,7 +248,8 @@ fun SpotifyNowPlaying(sp: SpotifyViewModel, s: AppSettings, onClose: () -> Unit,
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(
-                                sp.trackTitle, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
+                                sp.trackTitle, style = if (roomy) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold,
                                 maxLines = 2, overflow = TextOverflow.Ellipsis, color = content,
                             )
                             Text(
@@ -246,7 +265,10 @@ fun SpotifyNowPlaying(sp: SpotifyViewModel, s: AppSettings, onClose: () -> Unit,
                         }
                         // お気に入りの曲に入れる・外す
                         val liked = sp.saved[sp.trackUri] == true
-                        IconButton({ sp.setSaved(ctx, sp.trackUri, SpKind.TRACK, sp.trackTitle, !liked) }) {
+                        IconButton({
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            sp.setSaved(ctx, sp.trackUri, SpKind.TRACK, sp.trackTitle, !liked)
+                        }) {
                             Icon(
                                 if (liked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                                 spSaveLabel(SpKind.TRACK, liked), tint = if (liked) accent else sub,
@@ -284,18 +306,27 @@ fun SpotifyNowPlaying(sp: SpotifyViewModel, s: AppSettings, onClose: () -> Unit,
                                 tint = if (sp.repeatMode != 0) accent else sub,
                             )
                         }
-                        OutlinedIconButton({ sp.prev(ctx) }, Modifier.size(56.dp), enabled = sp.canSkipPrev, border = BorderStroke(2.dp, content)) {
-                            Icon(AppIcons.SkipPrevious, S(R.string.spotify_previous_track), Modifier.size(26.dp), tint = content)
+                        OutlinedIconButton(
+                            { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); sp.prev(ctx) },
+                            Modifier.size(skipSize), enabled = sp.canSkipPrev, border = BorderStroke(2.dp, content),
+                        ) {
+                            Icon(AppIcons.SkipPrevious, S(R.string.spotify_previous_track), Modifier.size(skipSize * 0.46f), tint = content)
                         }
-                        OutlinedIconButton({ sp.toggle(ctx) }, Modifier.size(76.dp), shape = CircleShape, border = BorderStroke(2.5.dp, content)) {
+                        OutlinedIconButton(
+                            { haptic.performHapticFeedback(HapticFeedbackType.LongPress); sp.toggle(ctx) },
+                            Modifier.size(playSize), shape = CircleShape, border = BorderStroke(2.5.dp, content),
+                        ) {
                             Icon(
                                 if (sp.paused) Icons.Filled.PlayArrow else AppIcons.Pause,
                                 if (sp.paused) S(R.string.play) else S(R.string.pause),
-                                Modifier.size(40.dp), tint = content,
+                                Modifier.size(playSize * 0.52f), tint = content,
                             )
                         }
-                        OutlinedIconButton({ sp.next(ctx) }, Modifier.size(56.dp), enabled = sp.canSkipNext, border = BorderStroke(2.dp, content)) {
-                            Icon(AppIcons.SkipNext, S(R.string.next_track), Modifier.size(26.dp), tint = content)
+                        OutlinedIconButton(
+                            { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); sp.next(ctx) },
+                            Modifier.size(skipSize), enabled = sp.canSkipNext, border = BorderStroke(2.dp, content),
+                        ) {
+                            Icon(AppIcons.SkipNext, S(R.string.next_track), Modifier.size(skipSize * 0.46f), tint = content)
                         }
                         IconButton({ sp.toggleShuffle(ctx) }) {
                             Icon(AppIcons.Shuffle, S(R.string.shuffle_2), tint = if (sp.shuffle) accent else sub)
@@ -305,6 +336,9 @@ fun SpotifyNowPlaying(sp: SpotifyViewModel, s: AppSettings, onClose: () -> Unit,
                     // ---- 下の帯: 再生する機器・次に再生 ----
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         IconButton({ showDevices = true }) { Icon(AppIcons.Speaker, S(R.string.spotify_devices), tint = sub) }
+                        Spacer(Modifier.weight(1f))
+                        // この端末の中での出力先(有線ヘッドホン・Bluetooth など)。タップで Android の出力の切り替え
+                        OutputChip(content, sub)
                         Spacer(Modifier.weight(1f))
                         IconButton({ showUpNext = true }) { Icon(AppIcons.Queue, S(R.string.spotify_up_next), tint = sub) }
                     }
@@ -396,7 +430,11 @@ private fun SpotifyDeviceSheet(sp: SpotifyViewModel, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     LaunchedEffect(Unit) { sp.loadDevices() }
     androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // 横向きでは高さが足りないので、スクロールできるようにする
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(S(R.string.spotify_devices), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                 androidx.compose.material3.TextButton({ sp.loadDevices() }) { Text(S(R.string.spotify_reload)) }

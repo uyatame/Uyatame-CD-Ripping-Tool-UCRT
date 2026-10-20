@@ -440,13 +440,42 @@ class SpotifyViewModel(app: Application) : AndroidViewModel(app) {
         withRemote(activity) { r ->
             // シャッフル再生: 先にシャッフルをオンにしてから再生する
             if (shuffle != null) r.playerApi.setShuffle(shuffle)
-            val call = if (index >= 0) r.playerApi.skipToIndex(contextUri, index) else r.playerApi.play(contextUri)
-            call.setErrorCallback { e ->
-                // 位置を指定した再生に失敗したら、その曲だけを再生する
-                if (fallbackTrack != null) r.playerApi.play(fallbackTrack).setErrorCallback { message = remoteError(it) }
-                else message = remoteError(e)
+            if (index < 0) {
+                r.playerApi.play(contextUri).setErrorCallback { message = remoteError(it) }
+                return@withRemote
+            }
+            // 途中の曲から: Spotify アプリの「位置へ飛ぶ」は、今再生中でないプレイリストには効かないことがあるので、
+            // まず Web API で「この位置から再生」と伝える(この端末の Spotify アプリにつないだ直後なので、ここで鳴る)
+            viewModelScope.launch {
+                val web = withContext(Dispatchers.IO) { runCatching { SpotifyApi.playFrom(ctx, contextUri, index) } }
+                if (web.isSuccess) return@launch
+                Log.w(TAG, "play from position via Web API failed; using the app", web.exceptionOrNull())
+                playFromViaApp(r, contextUri, index, fallbackTrack)
             }
         }
+
+    /**
+     * Web API が使えないとき(お気に入りの曲など)の方法: 先にアルバム・プレイリストを再生し、
+     * Spotify アプリの再生元が切り替わったのを確かめてから、その位置へ飛ぶ
+     */
+    private fun playFromViaApp(r: SpotifyAppRemote, contextUri: String, index: Int, fallbackTrack: String?) {
+        val fail: (Throwable) -> Unit = { e ->
+            if (fallbackTrack != null) r.playerApi.play(fallbackTrack).setErrorCallback { message = remoteError(it) }
+            else message = remoteError(e)
+        }
+        r.playerApi.play(contextUri)
+            .setResultCallback {
+                viewModelScope.launch {
+                    // 再生元が切り替わるまで待つ(最大 3 秒)
+                    val until = SystemClock.elapsedRealtime() + 3000
+                    while (this@SpotifyViewModel.contextUri != contextUri && SystemClock.elapsedRealtime() < until) {
+                        kotlinx.coroutines.delay(100)
+                    }
+                    r.playerApi.skipToIndex(contextUri, index).setErrorCallback(fail)
+                }
+            }
+            .setErrorCallback(fail)
+    }
 
     fun playTrack(activity: Context, uri: String) = withRemote(activity) { r ->
         r.playerApi.play(uri).setErrorCallback { message = remoteError(it) }

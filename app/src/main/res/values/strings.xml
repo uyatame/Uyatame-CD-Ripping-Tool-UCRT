@@ -888,4 +888,10 @@
     <string name="spotify_unfollow">"Unfollow"</string>
     <string name="spotify_up_next">"Up next"</string>
     <string name="spotify_up_next_note">"Tap a song to skip to it. To remove or reorder songs, use the Spotify app."</string>
+    <string name="output_wired">"Wired headphones"</string>
+    <string name="output_bluetooth">"Bluetooth"</string>
+    <string name="output_usb">"USB audio"</string>
+    <string name="output_usb_named">"USB: %1$s"</string>
+    <string name="output_speaker">"This phone"</string>
+    <string name="output_other">"Other output"</string>
 </resources>

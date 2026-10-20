@@ -884,4 +884,10 @@
     <string name="spotify_unfollow">"フォローをやめる"</string>
     <string name="spotify_up_next">"次に再生"</string>
     <string name="spotify_up_next_note">"曲をタップすると、その曲まで飛びます。曲の削除や並べ替えはSpotifyアプリで行ってください。"</string>
+    <string name="output_wired">"有線ヘッドホン"</string>
+    <string name="output_bluetooth">"Bluetooth"</string>
+    <string name="output_usb">"USBオーディオ"</string>
+    <string name="output_usb_named">"USB: %1$s"</string>
+    <string name="output_speaker">"この端末のスピーカー"</string>
+    <string name="output_other">"そのほかの出力"</string>
 </resources>

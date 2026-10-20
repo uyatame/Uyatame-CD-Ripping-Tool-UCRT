@@ -185,6 +185,18 @@ object SpotifyApi {
         }
     }
 
+    /**
+     * アルバム・プレイリストを、position 番目(0 から。消えた曲も数える)の曲から再生する。
+     * 再生先は今使われている機器(この端末の Spotify アプリにつないだ直後なら、この端末)
+     */
+    fun playFrom(ctx: Context, contextUri: String, position: Int) {
+        val body = JSONObject()
+            .put("context_uri", contextUri)
+            .put("offset", JSONObject().put("position", position))
+            .put("position_ms", 0)
+        send(ctx, "PUT", "/me/player/play", body.toString())
+    }
+
     /** 再生先を切り替える(切り替えた先で再生を続ける) */
     fun transfer(ctx: Context, deviceId: String) {
         send(ctx, "PUT", "/me/player", JSONObject().put("device_ids", JSONArray().put(deviceId)).put("play", true).toString())
