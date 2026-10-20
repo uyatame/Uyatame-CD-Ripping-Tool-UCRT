@@ -457,6 +457,7 @@
     <string name="on">"On"</string>
     <string name="on_upsamples_only_by_integer">"On: upsamples only by integer multiples (e.g. 44.1 → 176.4 kHz) for the cleanest result. If the output doesn't accept any integer multiple, the output's rate is used instead and a warning appears in red.\nOff: uses the highest rate the output accepts, including non-integer conversions (e.g. 44.1 → 192 kHz).\nUSB DAC direct output always uses integer multiples"</string>
     <string name="open_app">"Open %1$s"</string>
+    <string name="open_app_info">"Open app info"</string>
     <string name="open_disc_tab">"Open the Disc tab"</string>
     <string name="open_download_page">"Open download page"</string>
     <string name="open_folder">"Open folder"</string>
@@ -545,6 +546,7 @@
     <string name="reset_3">"Reset"</string>
     <string name="reset_cd_drive_settings">"Reset CD drive settings"</string>
     <string name="reset_to_defaults">"Reset to defaults?"</string>
+    <string name="restricted_settings_help">"On Android 13 or later, if you can't turn it on, open App info, tap ⋮ in the top-right corner, choose \"Allow restricted settings\", and then try again."</string>
     <string name="results">"%1$s: %2$s results"</string>
     <string name="retries">"Retries"</string>
     <string name="retries_2">" · %1$s retries"</string>
@@ -649,6 +651,7 @@
     <string name="stops_at_end_of_this">"Stops at the end of this song"</string>
     <string name="stops_in_about_min">"Stops in about %1$s min"</string>
     <string name="streaminfo_block_is_missing">"STREAMINFO block is missing"</string>
+    <string name="streaming_trademark_note">"Spotify, Qobuz and Amazon Music are trademarks of their respective owners. UCRT is not affiliated with or endorsed by these services."</string>
     <string name="swap_native_dsd_byte_order">"Swap native DSD byte order"</string>
     <string name="swipe_artwork_left_or_right">"Swipe the artwork left or right"</string>
     <string name="swipe_down">"Swipe down"</string>

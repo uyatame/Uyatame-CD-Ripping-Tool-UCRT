@@ -775,6 +775,26 @@ private fun ExternalMediaSection(vm: MainViewModel, s: AppSettings) {
             FilledTonalButton({ ext.openPermissionSettings(ctx) }) {
                 Text(if (ext.permitted) S(R.string.open_settings_to_revoke) else S(R.string.allow))
             }
+            // Android 13 以降、GitHub などから入れたアプリは「制限付き設定」を許可するまで、通知へのアクセスをオンにできない
+            if (!ext.permitted && android.os.Build.VERSION.SDK_INT >= 33) {
+                Text(
+                    S(R.string.restricted_settings_help),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton({
+                    runCatching {
+                        ctx.startActivity(
+                            android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                .setData(android.net.Uri.fromParts("package", ctx.packageName, null))
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
+                }) { Text(S(R.string.open_app_info)) }
+            }
         }
+        Text(
+            S(R.string.streaming_trademark_note),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

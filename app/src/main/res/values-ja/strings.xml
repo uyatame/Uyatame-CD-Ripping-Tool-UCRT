@@ -453,6 +453,7 @@
     <string name="on">"オン"</string>
     <string name="on_upsamples_only_by_integer">"オン: 44.1 kHz → 176.4 kHzのように整数倍でのみ変換します（最も高音質）。出力先が整数倍の周波数に対応していない場合は、やむを得ず出力先の周波数に合わせ、その旨を赤字で表示します。\nオフ: 出力先が対応する最も高い周波数に変換します（44.1 kHz → 192 kHzのような整数倍でない変換も含みます）。\nUSB DAC直接出力では常に整数倍で変換します"</string>
     <string name="open_app">"%1$sを開く"</string>
+    <string name="open_app_info">"アプリ情報を開く"</string>
     <string name="open_disc_tab">"ディスク画面を開く"</string>
     <string name="open_download_page">"ダウンロードページを開く"</string>
     <string name="open_folder">"フォルダを開く"</string>
@@ -541,6 +542,7 @@
     <string name="reset_3">"戻す"</string>
     <string name="reset_cd_drive_settings">"CDドライブの設定を初期値に戻す"</string>
     <string name="reset_to_defaults">"初期値に戻しますか？"</string>
+    <string name="restricted_settings_help">"Android 13以降で許可できない場合は、「アプリ情報」を開き、右上の「︙」から「制限付き設定を許可」を選んでから、もう一度許可してください。"</string>
     <string name="results">"%1$s: %2$s件"</string>
     <string name="retries">"リトライ回数"</string>
     <string name="retries_2">" ・ リトライ %1$s回"</string>
@@ -645,6 +647,7 @@
     <string name="stops_at_end_of_this">"この曲が終わると停止します"</string>
     <string name="stops_in_about_min">"約%1$s分後に停止します"</string>
     <string name="streaminfo_block_is_missing">"STREAMINFOブロックがありません"</string>
+    <string name="streaming_trademark_note">"Spotify、Qobuz、Amazon Musicは各社の商標です。UCRTはこれらのサービスとは関係がなく、提携や承認を受けたものではありません。"</string>
     <string name="swap_native_dsd_byte_order">"ネイティブDSDのバイト順を入れ替える"</string>
     <string name="swipe_artwork_left_or_right">"ジャケットを左右にスワイプ"</string>
     <string name="swipe_down">"画面を下にスワイプ"</string>

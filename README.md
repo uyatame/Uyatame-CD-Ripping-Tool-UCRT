@@ -91,6 +91,18 @@ keyPassword=********
 
 「通知へのアクセス」を許可した場合も、使うのはほかの音楽アプリの再生状態（曲名・ジャケット・再生位置）だけで、通知の内容は読み取りません。この情報が端末の外に送られることもありません。
 
+### 「通知へのアクセス」を許可できないとき
+
+Android 13以降では、Google Play以外（GitHubなど）からインストールしたアプリは、最初は「通知へのアクセス」をオンにできません。次の手順で許可してください。
+
+1. 端末の設定で「アプリ」→「UCRT」を開く
+2. 右上の「︙」をタップし、「制限付き設定を許可」を選ぶ
+3. UCRTの「設定」→「表示」→「ほかの音楽アプリ」から、もう一度「許可する」を押す
+
+### 商標について
+
+Spotify、Qobuz、Amazon Music、YouTube Musicなど、本書とアプリに記載しているサービス名は各社の商標です。UCRTはこれらのサービスとは関係がなく、提携や承認を受けたものではありません。
+
 ## ライセンス
 
 このアプリは [GNU General Public License v3.0](LICENSE) で公開しています。
@@ -113,8 +125,10 @@ UCRT turns an Android phone and a USB optical drive into a CD ripper and player.
 - CUE sheet support (one WAV / FLAC file split into tracks)
 - Full-screen player with ambient mode and audio format details, direct CD playback and lock screen controls
 - Tag editing for ripped and existing files
-- Shows and controls what's playing in other music apps such as Spotify, Qobuz and Amazon Music (requires notification access; the audio still plays from that app through Android)
+- Shows and controls what's playing in other music apps such as Spotify, Qobuz and Amazon Music (requires notification access; the audio still plays from that app through Android). On Android 13 or later, apps installed from outside Google Play need "Allow restricted settings" in App info before notification access can be turned on
 
 To build it yourself, run `./gradlew assembleRelease` (JDK 17 and the Android SDK are required). Unit tests run with `./gradlew testDebugUnitTest`, and GitHub Actions runs them on every push and pull request. The latest source is on the `main` branch.
 
 Requires Android 8.0 or later and a device with USB OTG support. Licensed under GPL-3.0.
+
+Spotify, Qobuz, Amazon Music, YouTube Music and other service names mentioned here are trademarks of their respective owners. UCRT is not affiliated with or endorsed by these services.
