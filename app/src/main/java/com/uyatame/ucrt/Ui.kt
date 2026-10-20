@@ -294,6 +294,16 @@ fun App(vm: MainViewModel) {
         ) {
             NowPlayingScreen(vm, s) { showPlayer = false }
         }
+        // ほかの音楽アプリ(ストリーミングサービスなど)の曲の再生画面。そのアプリが終了したら閉じる
+        val extNow = com.uyatame.ucrt.player.ExternalMedia.now != null
+        LaunchedEffect(extNow) { if (!extNow) vm.externalPlayerOpen = false }
+        AnimatedVisibility(
+            visible = vm.externalPlayerOpen && com.uyatame.ucrt.player.ExternalMedia.now != null,
+            enter = slideInVertically { it },
+            exit = slideOutVertically { it },
+        ) {
+            ExternalPlayerScreen(vm, s) { vm.externalPlayerOpen = false }
+        }
         }
         }
         GlobalSheets(vm)

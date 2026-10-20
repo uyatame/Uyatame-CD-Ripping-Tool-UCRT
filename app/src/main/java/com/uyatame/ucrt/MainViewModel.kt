@@ -269,6 +269,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var snack by mutableStateOf<String?>(null)
 
+    /** ほかの音楽アプリの曲の再生画面を開いているか */
+    var externalPlayerOpen by mutableStateOf(false)
+
     val audioTracks: List<TocTrack> get() = tracks.filter { it.isAudio }
     val albumTitle: String get() = meta?.title ?: UNKNOWN_ALBUM
     val albumArtist: String get() = meta?.artist ?: UNKNOWN_ARTIST

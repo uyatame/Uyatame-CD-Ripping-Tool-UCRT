@@ -58,6 +58,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
@@ -197,6 +198,71 @@ private fun dominantColor(img: ImageBitmap): Color {
 /** 再生画面の文字色など */
 private class PlayerColors(val content: Color, val sub: Color, val accent: Color, val ambient: Boolean, val panel: Color)
 
+@Composable
+private fun playerColors(ambient: Boolean): PlayerColors = if (ambient) {
+    PlayerColors(Color.White, Color.White.copy(alpha = 0.75f), Color(0xFFF3D58C), true, Color.White.copy(alpha = 0.12f))
+} else {
+    PlayerColors(
+        MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.onSurfaceVariant,
+        MaterialTheme.colorScheme.tertiary, false, MaterialTheme.colorScheme.secondaryContainer,
+    )
+}
+
+/** 再生画面の背景が暗いときは、状態バーの文字を白にする(右に出したままの再生画面では変えない) */
+@Composable
+private fun PlayerStatusBar(ambient: Boolean, inPane: Boolean) {
+    val dark = ambient || MaterialTheme.colorScheme.background.let { (it.red + it.green + it.blue) / 3 < 0.5f }
+    val view = LocalView.current
+    DisposableEffect(dark, inPane) {
+        if (inPane) return@DisposableEffect onDispose {}
+        val w = (view.context as? Activity)?.window
+        val c = w?.let { WindowCompat.getInsetsController(it, view) }
+        val before = c?.isAppearanceLightStatusBars
+        c?.isAppearanceLightStatusBars = !dark
+        onDispose { if (before != null) c?.isAppearanceLightStatusBars = before }
+    }
+}
+
+/** ジャケットの代表色(背景の色付けに使う。色が変わるときはゆっくり変える) */
+@Composable
+private fun rememberTint(art: ImageBitmap?): Color {
+    val base by produceState(Color(0xFF2A2A2A), art) {
+        val a = art
+        value = if (a == null) Color(0xFF2A2A2A) else withContext(Dispatchers.Default) { runCatching { dominantColor(a) }.getOrNull() } ?: Color(0xFF2A2A2A)
+    }
+    val tint by animateColorAsState(base, tween(700), label = "tint")
+    return tint
+}
+
+/**
+ * 再生画面の背景。アンビエントモードでは、ジャケットを敷いて(設定によってぼかし)その色で染め、
+ * 一時停止中は dim の分だけ暗くする。オフのときは上の方を薄く色付けする
+ */
+@Composable
+private fun PlayerBackground(ambient: Boolean, blur: Boolean, art: ImageBitmap?, tint: Color, dim: Float) {
+    if (ambient) {
+        if (art != null) {
+            // ぼかさない設定では、ぼかしに対応していない端末(Android 11 以前)と同じく、そのまま薄く敷く
+            Image(
+                art, null, if (blur) Modifier.fillMaxSize().blur(70.dp) else Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop, alpha = 0.85f,
+            )
+        }
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(listOf(tint.copy(alpha = 0.55f), tint.copy(alpha = 0.35f), Color.Black.copy(alpha = 0.8f))),
+            ),
+        )
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dim)))
+    } else {
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(listOf(tint.copy(alpha = 0.22f), Color.Transparent)),
+            ),
+        )
+    }
+}
+
 /**
  * 全画面のプレイヤー。左右のページで「お気に入り|再生中|再生リスト」を切り替える。
  * アンビエントモードでは、ジャケットの色で画面を染め、一時停止中は暗くする。
@@ -208,11 +274,7 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
     val ctx = LocalContext.current
     val ambient = s.ambientPlayer
     val art = rememberArt(vm, cur)
-    val base by produceState(Color(0xFF2A2A2A), art) {
-        val a = art
-        value = if (a == null) Color(0xFF2A2A2A) else withContext(Dispatchers.Default) { runCatching { dominantColor(a) }.getOrNull() } ?: Color(0xFF2A2A2A)
-    }
-    val tint by animateColorAsState(base, tween(700), label = "tint")
+    val tint = rememberTint(art)
     val dim by animateFloatAsState(if (p.isPlaying) 0f else 0.4f, tween(500), label = "dim")
     val detail by produceState<AudioInfo.Detail?>(null, cur) {
         value = null
@@ -231,7 +293,7 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
     var savingQueue by remember { mutableStateOf(false) }
     if (showSound) AudioSettingsSheet(vm, s) { showSound = false }
     if (showOutput) OutputDeviceSheet(vm, s) { showOutput = false }
-    if (showVolume) VolumeSheet(vm) { showVolume = false }
+    if (showVolume) VolumeSheet(vm, { showVolume = false })
     if (showTimer) SleepTimerDialog(p) { showTimer = false }
     if (showGuide) GuideDialog { showGuide = false }
     if (savingQueue) SaveQueueDialog(vm) { savingQueue = false }
@@ -244,51 +306,12 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
     // 左右のページを表示中は、戻るで再生中のページへ
     BackHandler(enabled = pager.currentPage != 1) { scope.launch { pager.animateScrollToPage(1) } }
 
-    val dark = ambient || MaterialTheme.colorScheme.background.let { (it.red + it.green + it.blue) / 3 < 0.5f }
-    val view = LocalView.current
-    DisposableEffect(dark, inPane) {
-        // 右に出したままのときは、画面全体の状態バーの色は変えない
-        if (inPane) return@DisposableEffect onDispose {}
-        val w = (view.context as? Activity)?.window
-        val c = w?.let { WindowCompat.getInsetsController(it, view) }
-        val before = c?.isAppearanceLightStatusBars
-        c?.isAppearanceLightStatusBars = !dark
-        onDispose { if (before != null) c?.isAppearanceLightStatusBars = before }
-    }
-    val col = if (ambient) {
-        PlayerColors(Color.White, Color.White.copy(alpha = 0.75f), Color(0xFFF3D58C), true, Color.White.copy(alpha = 0.12f))
-    } else {
-        PlayerColors(
-            MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.onSurfaceVariant,
-            MaterialTheme.colorScheme.tertiary, false, MaterialTheme.colorScheme.secondaryContainer,
-        )
-    }
+    PlayerStatusBar(ambient, inPane)
+    val col = playerColors(ambient)
 
     // 下にある画面へタッチが抜けないよう、空の pointerInput で受け止める
     Box(Modifier.fillMaxSize().background(if (ambient) Color.Black else MaterialTheme.colorScheme.surface).pointerInput(Unit) {}) {
-        // ---- 背景 ----
-        if (ambient) {
-            if (art != null) {
-                // ぼかさない設定では、ぼかしに対応していない端末(Android 11 以前)と同じく、そのまま薄く敷く
-                Image(
-                    art, null, if (s.ambientBlur) Modifier.fillMaxSize().blur(70.dp) else Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop, alpha = 0.85f,
-                )
-            }
-            Box(
-                Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(listOf(tint.copy(alpha = 0.55f), tint.copy(alpha = 0.35f), Color.Black.copy(alpha = 0.8f))),
-                ),
-            )
-            // 一時停止中は暗くする
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dim)))
-        } else {
-            Box(
-                Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(listOf(tint.copy(alpha = 0.22f), Color.Transparent)),
-                ),
-            )
-        }
+        PlayerBackground(ambient, s.ambientBlur, art, tint, dim)
         CompositionLocalProvider(LocalContentColor provides col.content) {
             // 横向きでは、カメラの切り欠きが左右に来るので、そこも避ける
             val bars = when {
@@ -1003,9 +1026,10 @@ private fun SaveQueueDialog(vm: MainViewModel, onDismiss: () -> Unit) {
 
 /** 音量。USB DAC 直接出力のときは DAC の音量、それ以外は端末のメディア音量 */
 @Composable
-private fun VolumeSheet(vm: MainViewModel, onDismiss: () -> Unit) {
+private fun VolumeSheet(vm: MainViewModel, onDismiss: () -> Unit, system: Boolean = false) {
     val ctx = LocalContext.current
-    val usb = AudioEngine.output?.kind == OutputKind.UsbDirect
+    // ほかのアプリの音(system)は、DAC を直接使っていても Android の音量で変える
+    val usb = !system && AudioEngine.output?.kind == OutputKind.UsbDirect
     val am = remember { ctx.getSystemService(AudioManager::class.java) }
     val max = if (usb) 100 else am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
     fun read(): Int = if (usb) UsbDac.volume() else am.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -1200,4 +1224,206 @@ private fun GuideDialog(onDismiss: () -> Unit) {
         },
         confirmButton = { TextButton(onDismiss) { Text(S(R.string.close)) } },
     )
+}
+
+// =====================================================================
+// ほかの音楽アプリ(ストリーミングサービスなど)の再生画面
+// =====================================================================
+
+/**
+ * ほかのアプリで再生中の曲を、このアプリの再生画面と同じ見た目(アンビエントモードを含む)で表示・操作する。
+ * 音はそのアプリから出るので、音質の表示や再生リストなどは無い
+ */
+@Composable
+fun ExternalPlayerScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
+    val ext = com.uyatame.ucrt.player.ExternalMedia
+    val n = ext.now ?: return
+    val ctx = LocalContext.current
+    val ambient = s.ambientPlayer
+    val art = n.art
+    val tint = rememberTint(art)
+    val dim by animateFloatAsState(if (n.playing) 0f else 0.4f, tween(500), label = "dim")
+    var showVolume by remember { mutableStateOf(false) }
+    if (showVolume) VolumeSheet(vm, { showVolume = false }, system = true)
+    BackHandler(onBack = onClose)
+    PlayerStatusBar(ambient, inPane = false)
+    val col = playerColors(ambient)
+    // 再生位置は自分で進める(アプリからの知らせは、再生・一時停止・移動のときにしか来ない)
+    var pos by remember { androidx.compose.runtime.mutableLongStateOf(n.positionNow()) }
+    LaunchedEffect(n) {
+        while (true) {
+            pos = n.positionNow()
+            delay(500)
+        }
+    }
+    var seeking by remember(n.title) { mutableStateOf<Float?>(null) }
+    val dur = n.durationMs.coerceAtLeast(1)
+
+    Box(Modifier.fillMaxSize().background(if (ambient) Color.Black else MaterialTheme.colorScheme.surface).pointerInput(Unit) {}) {
+        PlayerBackground(ambient, s.ambientBlur, art, tint, dim)
+        CompositionLocalProvider(LocalContentColor provides col.content) {
+            val bars = if (isLandscape()) Modifier.windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
+            else Modifier.systemBarsPadding()
+            Column(Modifier.fillMaxSize().then(bars)) {
+                // ---- 上の帯: 閉じる・どのアプリで再生中か・アプリを開く ----
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClose) { Icon(Icons.Filled.KeyboardArrowDown, S(R.string.close), tint = col.content) }
+                    Text(
+                        S(R.string.playing_in_app, n.appName), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                    )
+                    IconButton({ ext.openApp(ctx) }) {
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, S(R.string.open_app, n.appName), tint = col.content)
+                    }
+                }
+                var drag by remember { mutableStateOf(0f) }
+                BoxWithConstraints(
+                    Modifier.weight(1f).fillMaxWidth().pointerInput(Unit) {
+                        // 下へスワイプで閉じる
+                        detectVerticalDragGestures(
+                            onDragEnd = {
+                                if (drag > 220f) onClose()
+                                drag = 0f
+                            },
+                            onDragCancel = { drag = 0f },
+                        ) { _, d -> drag += d }
+                    },
+                ) {
+                    val compact = maxHeight < 640.dp || maxWidth < 340.dp
+                    val tiny = maxHeight < 540.dp
+                    val land = isLandscape()
+                    val tight = land && maxHeight < 420.dp
+                    val pageH = maxHeight
+                    val playSize = if (tight) 56.dp else if (compact) 64.dp else 80.dp
+                    val skipSize = if (tight) 44.dp else if (compact) 50.dp else 60.dp
+                    val artPane: @Composable (Modifier) -> Unit = { m ->
+                        Box(m, contentAlignment = Alignment.Center) {
+                            SwipeCover(
+                                art, compact,
+                                overlay = seeking?.let { fmtMs((it * dur).toLong()) },
+                                onPrev = { if (n.canPrev) ext.previous() }, onNext = { if (n.canNext) ext.next() }, onTap = {},
+                            )
+                        }
+                    }
+                    val controls: @Composable ColumnScope.() -> Unit = {
+                        // ---- 再生しているアプリ(タップで開く) ----
+                        val chipColors = if (col.ambient) {
+                            FilterChipDefaults.filterChipColors(labelColor = col.sub)
+                        } else FilterChipDefaults.filterChipColors()
+                        FilterChip(
+                            selected = false,
+                            onClick = { ext.openApp(ctx) },
+                            label = { Text(n.appName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            leadingIcon = {
+                                Icon(
+                                    AppIcons.MusicNote, null, Modifier.size(18.dp),
+                                    tint = if (col.ambient) col.sub else MaterialTheme.colorScheme.primary,
+                                )
+                            },
+                            colors = chipColors,
+                            border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = false),
+                            modifier = Modifier.widthIn(max = 220.dp),
+                        )
+                        Spacer(Modifier.height(if (compact) 4.dp else 10.dp))
+                        // ---- 曲名 ----
+                        Text(
+                            n.title, style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
+                            textAlign = TextAlign.Center, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold,
+                        )
+                        if (n.artist.isNotEmpty()) {
+                            Text(
+                                n.artist, style = if (compact) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleMedium,
+                                color = col.sub, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        if (n.album.isNotEmpty() && !tiny) {
+                            Text(n.album, style = MaterialTheme.typography.bodyMedium, color = col.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Spacer(Modifier.height(if (compact) 4.dp else 12.dp))
+                        // ---- 再生位置(長さが分からない曲・シークできないアプリでは操作できない) ----
+                        if (n.durationMs > 0) {
+                            val frac = seeking ?: (pos.toFloat() / dur).coerceIn(0f, 1f)
+                            Slider(
+                                value = frac,
+                                onValueChange = { seeking = it },
+                                onValueChangeFinished = {
+                                    seeking?.let { ext.seekTo((it * dur).toLong()) }
+                                    seeking = null
+                                },
+                                enabled = n.canSeek,
+                                colors = if (col.ambient) {
+                                    SliderDefaults.colors(
+                                        thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = 0.28f),
+                                        disabledThumbColor = Color.White.copy(alpha = 0.6f), disabledActiveTrackColor = Color.White.copy(alpha = 0.6f),
+                                        disabledInactiveTrackColor = Color.White.copy(alpha = 0.2f),
+                                    )
+                                } else SliderDefaults.colors(),
+                            )
+                            Row(Modifier.fillMaxWidth()) {
+                                Text(fmtMs((frac * dur).toLong()), style = MaterialTheme.typography.labelMedium, color = col.sub)
+                                Spacer(Modifier.weight(1f))
+                                Text("-" + fmtMs(((1f - frac) * dur).toLong().coerceAtLeast(0)), style = MaterialTheme.typography.labelMedium, color = col.sub)
+                            }
+                        }
+                        Spacer(Modifier.height(if (compact) 2.dp else 10.dp))
+                        // ---- 再生操作 ----
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                            IconButton({ showVolume = true }) { Icon(AppIcons.Volume, S(R.string.volume), tint = col.sub) }
+                            OutlinedIconButton(
+                                { ext.previous() }, Modifier.size(skipSize), enabled = n.canPrev,
+                                border = BorderStroke(2.dp, if (n.canPrev) col.content else col.sub.copy(alpha = 0.3f)),
+                            ) {
+                                Icon(AppIcons.SkipPrevious, S(R.string.previous_track), Modifier.size(skipSize * 0.47f), tint = if (n.canPrev) col.content else col.sub.copy(alpha = 0.3f))
+                            }
+                            OutlinedIconButton({ ext.playPause() }, Modifier.size(playSize), shape = CircleShape, border = BorderStroke(2.5.dp, col.content)) {
+                                Icon(
+                                    if (n.playing) AppIcons.Pause else Icons.Filled.PlayArrow,
+                                    if (n.playing) S(R.string.pause) else S(R.string.play),
+                                    Modifier.size(playSize * 0.52f), tint = col.content,
+                                )
+                            }
+                            OutlinedIconButton(
+                                { ext.next() }, Modifier.size(skipSize), enabled = n.canNext,
+                                border = BorderStroke(2.dp, if (n.canNext) col.content else col.sub.copy(alpha = 0.3f)),
+                            ) {
+                                Icon(AppIcons.SkipNext, S(R.string.next_track), Modifier.size(skipSize * 0.47f), tint = if (n.canNext) col.content else col.sub.copy(alpha = 0.3f))
+                            }
+                            IconButton({ ext.openApp(ctx) }) {
+                                Icon(Icons.AutoMirrored.Filled.ExitToApp, S(R.string.open_app, n.appName), tint = col.sub)
+                            }
+                        }
+                        Spacer(Modifier.height(if (compact) 2.dp else 8.dp))
+                        Text(
+                            S(R.string.external_audio_note), style = MaterialTheme.typography.labelSmall, color = col.sub,
+                            textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 8.dp),
+                        )
+                        Spacer(Modifier.height(if (compact) 2.dp else 6.dp))
+                    }
+                    if (land) {
+                        Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            artPane(Modifier.weight(0.42f).fillMaxHeight().padding(vertical = 8.dp))
+                            Spacer(Modifier.width(20.dp))
+                            val st = rememberScrollState()
+                            Column(Modifier.weight(0.58f).fillMaxHeight().verticalScroll(st, enabled = st.maxValue > 0)) {
+                                Column(
+                                    Modifier.fillMaxWidth().heightIn(min = pageH).padding(vertical = 4.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    content = controls,
+                                )
+                            }
+                        }
+                    } else {
+                        Column(
+                            Modifier.fillMaxSize().padding(horizontal = if (compact) 16.dp else 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            artPane(Modifier.weight(1f).fillMaxWidth().padding(vertical = if (compact) 6.dp else 14.dp))
+                            controls()
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

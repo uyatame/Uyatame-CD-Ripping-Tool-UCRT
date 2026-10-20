@@ -323,7 +323,7 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
         }
         // ほかの音楽アプリ(ストリーミングサービスなど)で再生中の曲
         if (ExternalMedia.now != null) {
-            item(key = "external", span = full) { ExternalNowPlayingCard(Modifier.padding(top = 4.dp)) }
+            item(key = "external", span = full) { ExternalNowPlayingCard(vm, Modifier.padding(top = 4.dp)) }
         }
         // 新しい曲が無いときの自動確認では、何も表示しない
         if (vm.libScanning && (vm.libFull || vm.libNew > 0 || albums.isEmpty())) {
