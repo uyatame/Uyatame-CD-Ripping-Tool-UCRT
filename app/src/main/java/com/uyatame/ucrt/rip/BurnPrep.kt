@@ -5,7 +5,8 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 import com.uyatame.ucrt.player.BuiltinCodecs
 import com.uyatame.ucrt.player.RationalResampler
 import java.io.File
@@ -45,7 +46,7 @@ object BurnPrep {
         onProgress: (Float) -> Unit,
         check: () -> Unit,
     ): BurnImage {
-        if (tracks.isEmpty()) throw IOException(T("音楽トラックがありません", "No audio tracks"))
+        if (tracks.isEmpty()) throw IOException(S(R.string.no_audio_tracks))
         val first = tracks.first().startLba
         val end = tracks.last().endLba
         val starts = tracks.map { it.startLba - first }
@@ -88,7 +89,7 @@ object BurnPrep {
                 if (pad > 0) os.write(ByteArray(pad * 4))
                 if (sectors < MIN_TRACK) { writeSilence(os, MIN_TRACK - sectors); sectors = MIN_TRACK }
                 pos += sectors
-                if (pos > MAX_SECTORS) throw IOException(T("80分を超えるため、CD1枚に収まりません", "Too long for one CD (over 80 minutes)"))
+                if (pos > MAX_SECTORS) throw IOException(S(R.string.too_long_for_one_cd))
             }
         }
         return BurnImage(out, starts, gaps, pos)
@@ -112,7 +113,7 @@ object BurnPrep {
     ): Long {
         val name = Uri.decode(uri.toString())
         if (com.uyatame.ucrt.player.dsd.DsdFile.isDsd(name)) {
-            throw IOException(T("DSDの曲はCDに書き込めません", "DSD tracks cannot be written to a CD"))
+            throw IOException(S(R.string.dsd_tracks_cannot_be_written))
         }
         val w = Writer(os, startMs, endMs)
         val kind = BuiltinCodecs.kindOf(name)
@@ -160,7 +161,7 @@ object BurnPrep {
             ex.setDataSource(ctx, uri, null)
             val ti = (0 until ex.trackCount).firstOrNull {
                 ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
-            } ?: throw IOException(T("音声が見つかりません", "No audio track found"))
+            } ?: throw IOException(S(R.string.no_audio_track_found))
             ex.selectTrack(ti)
             val fmt = ex.getTrackFormat(ti)
             val durUs = if (fmt.containsKey(MediaFormat.KEY_DURATION)) fmt.getLong(MediaFormat.KEY_DURATION) else 0L

@@ -36,7 +36,7 @@ internal class NativeDsdSink(private val fmt: DacFormat, private val channels: I
         AudioEngine.setOutput(
             com.uyatame.ucrt.player.OutputDevice(
                 com.uyatame.ucrt.player.OutputDevices.KEY_USB_DIRECT, com.uyatame.ucrt.player.OutputKind.UsbDirect,
-                UsbDac.deviceName() ?: "USB DAC", com.uyatame.ucrt.T("USB DAC · ネイティブDSD", "USB DAC · Native DSD"), UsbDac.maxSpec(),
+                UsbDac.deviceName() ?: "USB DAC", com.uyatame.ucrt.S(com.uyatame.ucrt.R.string.usb_dac_native_dsd), UsbDac.maxSpec(),
             ),
         )
     }

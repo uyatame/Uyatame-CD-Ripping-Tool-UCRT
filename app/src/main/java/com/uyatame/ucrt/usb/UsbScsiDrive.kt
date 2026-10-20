@@ -1,6 +1,7 @@
 package com.uyatame.ucrt.usb
 
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
@@ -78,7 +79,7 @@ class UsbScsiDrive private constructor(
         }
 
         fun open(manager: UsbManager, device: UsbDevice): UsbScsiDrive {
-            val itf = findInterface(device) ?: throw IllegalStateException(T("Bulk-Only対応のインターフェースがありません", "No Bulk-Only interface found"))
+            val itf = findInterface(device) ?: throw IllegalStateException(S(R.string.no_bulk_only_interface_found))
             var epIn: UsbEndpoint? = null
             var epOut: UsbEndpoint? = null
             for (i in 0 until itf.endpointCount) {
@@ -87,11 +88,11 @@ class UsbScsiDrive private constructor(
                     if (ep.direction == UsbConstants.USB_DIR_IN) epIn = ep else epOut = ep
                 }
             }
-            if (epIn == null || epOut == null) throw IllegalStateException(T("バルクエンドポイントが見つかりません", "No bulk endpoints found"))
-            val conn = manager.openDevice(device) ?: throw IllegalStateException(T("デバイスを開けません", "Cannot open the device"))
+            if (epIn == null || epOut == null) throw IllegalStateException(S(R.string.no_bulk_endpoints_found))
+            val conn = manager.openDevice(device) ?: throw IllegalStateException(S(R.string.cannot_open_device))
             if (!conn.claimInterface(itf, true)) {
                 conn.close()
-                throw IllegalStateException(T("インターフェースを取得できません", "Cannot claim the interface"))
+                throw IllegalStateException(S(R.string.cannot_claim_interface))
             }
             runCatching { conn.setInterface(itf) }
             val n = listOfNotNull(device.manufacturerName, device.productName)
@@ -100,7 +101,7 @@ class UsbScsiDrive private constructor(
         }
 
         fun profileName(p: Int): String = when (p) {
-            0x00 -> T("メディアなし", "No media")
+            0x00 -> S(R.string.no_media)
             0x08 -> "CD-ROM / CD-DA"
             0x09 -> "CD-R"
             0x0A -> "CD-RW"
@@ -113,7 +114,7 @@ class UsbScsiDrive private constructor(
             0x40 -> "BD-ROM"
             0x41, 0x42 -> "BD-R"
             0x43 -> "BD-RE"
-            else -> T("不明（0x%02X）", "Unknown (0x%02X)").format(p)
+            else -> S(R.string.unknown_0x).format(p)
         }
     }
 
@@ -157,7 +158,7 @@ class UsbScsiDrive private constructor(
         val op = "cmd=0x%02X".format(cdb[0].toInt() and 0xFF)
         if (connection.bulkTransfer(epOut, cbw, 31, timeout) != 31) {
             resetRecovery()
-            throw ScsiException(-1, 0, 0, T("USB送信に失敗しました", "USB send failed"))
+            throw ScsiException(-1, 0, 0, S(R.string.usb_send_failed_2))
         }
         var sent = 0
         var dataFail = false
@@ -178,29 +179,29 @@ class UsbScsiDrive private constructor(
             r = connection.bulkTransfer(epIn, csw, 13, timeout)
             if (r != 13) {
                 resetRecovery()
-                logger?.invoke(T("$op: CSW受信失敗", "$op: CSW receive failed"))
-                throw ScsiException(-1, 0, 0, T("USB受信に失敗しました（ドライブの電力が不足している可能性があります）", "USB receive failed (the drive may not be getting enough power)"))
+                logger?.invoke(S(R.string.csw_receive_failed, op))
+                throw ScsiException(-1, 0, 0, S(R.string.usb_receive_failed_drive_may))
             }
         }
         if (ByteBuffer.wrap(csw).order(ByteOrder.LITTLE_ENDIAN).int != 0x53425355) {
             resetRecovery()
-            throw ScsiException(-1, 0, 0, T("USBの応答が不正です", "Invalid USB response"))
+            throw ScsiException(-1, 0, 0, S(R.string.invalid_usb_response))
         }
         val status = csw[12].toInt()
         if (status == 2) {
             resetRecovery()
-            throw ScsiException(-1, 0, 0, T("USBフェーズエラー", "USB phase error"))
+            throw ScsiException(-1, 0, 0, S(R.string.usb_phase_error))
         }
         if (status != 0 || dataFail) {
             val s = try {
                 execute(cdb(0x03, 0, 0, 0, 18, 0), 18, withSense = false).copyOf(18)
             } catch (e: Exception) {
-                throw ScsiException(-1, 0, 0, T("SCSIコマンドに失敗しました", "SCSI command failed"))
+                throw ScsiException(-1, 0, 0, S(R.string.scsi_command_failed))
             }
             val key = s[2].toInt() and 0x0F
             val asc = s[12].toInt() and 0xFF
             val ascq = s[13].toInt() and 0xFF
-            val msg = T("SCSIエラー key=%X asc=%02X/%02X", "SCSI error key=%X asc=%02X/%02X").format(key, asc, ascq)
+            val msg = S(R.string.scsi_error_key_asc).format(key, asc, ascq)
             logger?.invoke("$op: $msg")
             throw ScsiException(key, asc, ascq, msg)
         }
@@ -223,8 +224,8 @@ class UsbScsiDrive private constructor(
         if (connection.bulkTransfer(epOut, cbw, 31, timeout) != 31) {
             resetRecovery()
             // 接続直後は1回目が失敗しやすいが自動で復旧するため、詳細ログのときだけ記録
-            if (verbose) logger?.invoke(T("$op: USB送信失敗", "$op: USB send failed"))
-            throw ScsiException(-1, 0, 0, T("USB送信に失敗しました", "USB send failed"))
+            if (verbose) logger?.invoke(S(R.string.usb_send_failed, op))
+            throw ScsiException(-1, 0, 0, S(R.string.usb_send_failed_2))
         }
         var got = 0
         var dataFail = false
@@ -246,30 +247,30 @@ class UsbScsiDrive private constructor(
             r = connection.bulkTransfer(epIn, csw, 13, timeout)
             if (r != 13) {
                 resetRecovery()
-                logger?.invoke(T("$op: CSW受信失敗", "$op: CSW receive failed"))
-                throw ScsiException(-1, 0, 0, T("USB受信に失敗しました（ドライブの電力が不足している可能性があります）", "USB receive failed (the drive may not be getting enough power)"))
+                logger?.invoke(S(R.string.csw_receive_failed, op))
+                throw ScsiException(-1, 0, 0, S(R.string.usb_receive_failed_drive_may))
             }
         }
         if (ByteBuffer.wrap(csw).order(ByteOrder.LITTLE_ENDIAN).int != 0x53425355) {
             resetRecovery()
-            throw ScsiException(-1, 0, 0, T("USBの応答が不正です", "Invalid USB response"))
+            throw ScsiException(-1, 0, 0, S(R.string.invalid_usb_response))
         }
         val status = csw[12].toInt()
         if (status == 2) {
             resetRecovery()
-            throw ScsiException(-1, 0, 0, T("USBフェーズエラー", "USB phase error"))
+            throw ScsiException(-1, 0, 0, S(R.string.usb_phase_error))
         }
         if (status != 0 || dataFail) {
-            if (!withSense) throw ScsiException(-1, 0, 0, T("SCSIコマンドに失敗しました", "SCSI command failed"))
+            if (!withSense) throw ScsiException(-1, 0, 0, S(R.string.scsi_command_failed))
             val s = try {
                 execute(cdb(0x03, 0, 0, 0, 18, 0), 18, withSense = false).copyOf(18)
             } catch (e: Exception) {
-                throw ScsiException(-1, 0, 0, T("SCSIコマンドに失敗しました", "SCSI command failed"))
+                throw ScsiException(-1, 0, 0, S(R.string.scsi_command_failed))
             }
             val key = s[2].toInt() and 0x0F
             val asc = s[12].toInt() and 0xFF
             val ascq = s[13].toInt() and 0xFF
-            val msg = T("SCSIエラー key=%X asc=%02X/%02X", "SCSI error key=%X asc=%02X/%02X").format(key, asc, ascq)
+            val msg = S(R.string.scsi_error_key_asc).format(key, asc, ascq)
             if (verbose) logger?.invoke("$op: $msg")
             throw ScsiException(key, asc, ascq, msg)
         }
@@ -307,7 +308,7 @@ class UsbScsiDrive private constructor(
             msf = true
             execute(cdb(0x43, 0x02, 0, 0, 0, 0, 1, 0x03, 0x24, 0), 804)
         }
-        if (d.size < 4) throw ScsiException(-1, 0, 0, T("TOCの応答が短すぎます", "TOC response too short"))
+        if (d.size < 4) throw ScsiException(-1, 0, 0, S(R.string.toc_response_too_short))
         val len = ((d[0].toInt() and 0xFF) shl 8) or (d[1].toInt() and 0xFF)
         val cnt = (len - 2) / 8
         val e = ArrayList<Triple<Int, Int, Int>>()
@@ -322,7 +323,7 @@ class UsbScsiDrive private constructor(
         }
         val leadOut = e.firstOrNull { it.first == 0xAA }?.third ?: 0
         val real = e.filter { it.first in 1..99 }
-        if (real.isEmpty()) throw ScsiException(-1, 0, 0, T("TOCにトラックがありません", "No tracks in TOC"))
+        if (real.isEmpty()) throw ScsiException(-1, 0, 0, S(R.string.no_tracks_in_toc))
         val tracks = real.mapIndexed { i, t ->
             val audio = (t.second and 0x4) == 0
             val next = real.getOrNull(i + 1)
@@ -361,7 +362,7 @@ class UsbScsiDrive private constructor(
             // セクタータイプ指定(CD-DA)を受け付けないドライブ向け: タイプ指定なしで再試行
             if (e.senseKey == 5 && e.asc == 0x24 && sectorType != 0) {
                 sectorType = 0
-                logger?.invoke(T("READ CD: セクタータイプ指定なしに切り替えました", "READ CD: switched to no sector type"))
+                logger?.invoke(S(R.string.read_cd_switched_to_no))
                 return readCdRaw(lba, count, c2)
             }
             throw e
@@ -392,7 +393,7 @@ class UsbScsiDrive private constructor(
 
     fun readDiscInfo(): DiscInfo {
         val d = execute(cdb(0x51, 0, 0, 0, 0, 0, 0, 0, 34, 0), 34)
-        if (d.size < 24) throw ScsiException(-1, 0, 0, T("ディスク情報の応答が短すぎます", "Disc information response too short"))
+        if (d.size < 24) throw ScsiException(-1, 0, 0, S(R.string.disc_information_response_too_short))
         val status = d[2].toInt() and 0x03
         val erasable = (d[2].toInt() and 0x10) != 0
         // 20〜23: 書き込める最後のリードアウトの位置(MSF)
@@ -406,16 +407,16 @@ class UsbScsiDrive private constructor(
     /** 書き込みの条件(モードページ 05h)を設定する */
     fun setWriteParameters(writeType: Int, testWrite: Boolean, multiSession: Boolean = false) {
         val sense = execute(cdb(0x5A, 0x08, 0x05, 0, 0, 0, 0, 0, 0xFF, 0), 0xFF)
-        if (sense.size < 8 + 16) throw ScsiException(-1, 0, 0, T("書き込み条件を読み取れません", "Cannot read write parameters"))
+        if (sense.size < 8 + 16) throw ScsiException(-1, 0, 0, S(R.string.cannot_read_write_parameters))
         val bdl = ((sense[6].toInt() and 0xFF) shl 8) or (sense[7].toInt() and 0xFF)
         val p = 8 + bdl
         // ページ 05h が返らない(書き込みに非対応の)ドライブでは、範囲の外を読まないように
         if (p + 2 > sense.size || (sense[p].toInt() and 0x3F) != 0x05) {
-            throw ScsiException(-1, 0, 0, T("書き込み条件を読み取れません", "Cannot read write parameters"))
+            throw ScsiException(-1, 0, 0, S(R.string.cannot_read_write_parameters))
         }
         val plen = (sense[p + 1].toInt() and 0xFF) + 2
         val page = sense.copyOfRange(p, minOf(sense.size, p + plen))
-        if (page.size < 16) throw ScsiException(-1, 0, 0, T("書き込み条件を読み取れません", "Cannot read write parameters"))
+        if (page.size < 16) throw ScsiException(-1, 0, 0, S(R.string.cannot_read_write_parameters))
         page[0] = (page[0].toInt() and 0x3F).toByte() // PS は送り返さない
         // 2: BUFE(バッファーアンダーラン防止)・テスト書き込み・書き込み方式
         page[2] = ((0x40) or (if (testWrite) 0x10 else 0) or (writeType and 0x0F)).toByte()
@@ -443,9 +444,9 @@ class UsbScsiDrive private constructor(
     /** 次に書き込める位置(TAO。まだ書いていないトラックの READ TRACK INFORMATION) */
     fun nextWritableAddress(): Int {
         val d = execute(cdb(0x52, 0x01, 0, 0, 0, 0xFF, 0, 0, 36, 0), 36)
-        if (d.size < 16) throw ScsiException(-1, 0, 0, T("トラック情報の応答が短すぎます", "Track information response too short"))
+        if (d.size < 16) throw ScsiException(-1, 0, 0, S(R.string.track_information_response_too_short))
         val nwaValid = (d[7].toInt() and 0x01) != 0
-        if (!nwaValid) throw ScsiException(-1, 0, 0, T("書き込める位置がありません", "No writable address found"))
+        if (!nwaValid) throw ScsiException(-1, 0, 0, S(R.string.no_writable_address_found))
         return be32(d, 12).toInt()
     }
 

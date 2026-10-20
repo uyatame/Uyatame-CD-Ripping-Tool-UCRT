@@ -22,7 +22,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 import com.uyatame.ucrt.usb.TocTrack
 import com.uyatame.ucrt.usb.UsbScsiDrive
 import com.uyatame.ucrt.player.usb.UsbDac
@@ -768,7 +769,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             }
             try {
                 val info = com.uyatame.ucrt.player.dsd.DsdFile.parse(rf)
-                if (info.compressed) throw java.io.IOException(T("DST圧縮のDSDIFFには対応していません", "DST-compressed DSDIFF is not supported"))
+                if (info.compressed) throw java.io.IOException(S(R.string.dst_compressed_dsdiff_is_not))
                 val d = info.durationMs
                 main.post { if (file === this) { durationMs = d; publish() } }
                 // 多チャンネルの場合は前方の左右だけを使う
@@ -782,9 +783,9 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 if (stopFlag) return
                 if (!paused) s.play()
                 val how = when (s.label) {
-                    "Native DSD" -> T("ネイティブDSD", "Native DSD")
+                    "Native DSD" -> S(R.string.native_dsd)
                     "DoP" -> "DoP"
-                    else -> T("PCMに変換", "Converted to PCM") + " (${AudioEngine.khz(s.sampleRate)})"
+                    else -> S(R.string.converted_to_pcm) + " (${AudioEngine.khz(s.sampleRate)})"
                 }
                 AudioEngine.report(s.bitPerfect, info.label() + " · " + how)
                 AudioEngine.log("dsd: ${info.label()} ${info.channels}ch ${if (info.dff) "DFF" else "DSF"} -> $how")
@@ -1112,10 +1113,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             AudioEngine.log("mpeg-h: $entry")
             if (android.os.Build.VERSION.SDK_INT < 29) {
                 throw Unsupported(
-                    T(
-                        "MPEG-H 3D Audio(360 Reality Audio)の曲の再生には Android 10 以降が必要です",
-                        "Playing MPEG-H 3D Audio (360 Reality Audio) needs Android 10 or later",
-                    ),
+                    S(R.string.playing_mpeg_h_3d_audio),
                 )
             }
             val mime = "audio/$entry"
@@ -1126,10 +1124,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             }.getOrDefault(false)
             if (!has) {
                 throw Unsupported(
-                    T(
-                        "この端末には MPEG-H 3D Audio(360 Reality Audio)のデコーダーがないため再生できません",
-                        "This device has no MPEG-H 3D Audio (360 Reality Audio) decoder",
-                    ),
+                    S(R.string.this_device_has_no_mpeg),
                 )
             }
         }

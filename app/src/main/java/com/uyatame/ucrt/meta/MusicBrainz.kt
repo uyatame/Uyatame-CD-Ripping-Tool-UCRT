@@ -1,6 +1,7 @@
 package com.uyatame.ucrt.meta
 
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 
 import android.util.Base64
 import com.uyatame.ucrt.usb.TocTrack
@@ -155,9 +156,9 @@ object MusicBrainz {
         } ?: ""
         return listOf(
             meta.date, r.optString("country"), label,
-            if (total > 1) T("ディスク${meta.discNo}/$total", "Disc ${meta.discNo}/$total") else "",
-            T("${trackCount}曲", "$trackCount tracks"),
-        ).filter { it.isNotEmpty() }.joinToString(T(" ・ ", " · "))
+            if (total > 1) S(R.string.disc_2, meta.discNo, total) else "",
+            S(R.string.tracks, trackCount),
+        ).filter { it.isNotEmpty() }.joinToString(S(R.string.label_5))
     }
 
     private val luceneSpecial = Regex("""([+\-&|!(){}\[\]^"~*?:\\/])""")
@@ -171,7 +172,7 @@ object MusicBrainz {
         val parts = ArrayList<String>()
         if (album.isNotBlank()) parts.add("release:(${esc(album)})")
         if (artist.isNotBlank()) parts.add("artist:(${esc(artist)})")
-        if (parts.isEmpty()) throw IOException(T("検索キーワードを入力してください", "Enter a search term"))
+        if (parts.isEmpty()) throw IOException(S(R.string.enter_search_term))
         val q = URLEncoder.encode(parts.joinToString(" AND "), "UTF-8")
         val bytes = get("$BASE/release/?query=$q&limit=25&fmt=json", "application/json")
         val rels = bytes?.let { JSONObject(String(it, Charsets.UTF_8)).optJSONArray("releases") } ?: JSONArray()
@@ -239,7 +240,7 @@ object MusicBrainz {
             if (rg.isNotEmpty()) {
                 fetchImage("https://coverartarchive.org/release-group/$rg/front-500")?.let { return CoverResult(it, "release-group") }
             }
-            CoverResult(null, T("このアルバムのジャケット画像は登録されていません", "No artwork is available for this album"))
+            CoverResult(null, S(R.string.no_artwork_is_available_for))
         } catch (e: Exception) {
             CoverResult(null, describeNetError(e))
         }
@@ -314,6 +315,6 @@ object MusicBrainz {
                 c.disconnect()
             }
         }
-        throw IOException(T("サーバーが混雑しています（HTTP 503）", "The server is busy (HTTP 503)"))
+        throw IOException(S(R.string.server_is_busy_http_503))
     }
 }

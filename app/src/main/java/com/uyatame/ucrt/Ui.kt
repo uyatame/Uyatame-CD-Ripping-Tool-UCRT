@@ -216,9 +216,9 @@ fun App(vm: MainViewModel) {
         // ライブラリを表示中にもう一度押すと、ライブラリのトップへ戻る
         val onTab: (Int) -> Unit = { t -> if (t == 0 && tab == 0) vm.libHome() else tab = t }
         val tabs = listOf(
-            Triple(AppIcons.Library, T("ライブラリ", "Library"), 0),
-            Triple(AppIcons.Album, T("ディスク", "Disc"), 1),
-            Triple(Icons.Filled.Settings, T("設定", "Settings"), 2),
+            Triple(AppIcons.Library, S(R.string.library), 0),
+            Triple(AppIcons.Album, S(R.string.disc), 1),
+            Triple(Icons.Filled.Settings, S(R.string.settings), 2),
         )
         CompositionLocalProvider(LocalTablet provides tablet, LocalShowArt provides s.listArt) {
         Box(Modifier.fillMaxSize()) {
@@ -346,7 +346,7 @@ fun ScreenHeader(title: String, actions: @Composable RowScope.() -> Unit = {}) {
 @Composable
 fun PageHeader(title: String, onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, T("戻る", "Back")) }
+        IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, S(R.string.back)) }
         Text(title, style = MaterialTheme.typography.titleLarge)
     }
 }
@@ -454,7 +454,7 @@ fun QualityOptions(vm: MainViewModel, s: AppSettings) {
         }
         if (cur < 0) {
             Text(
-                T("カスタム：${s.qualityLabel()}（「詳細設定」で変更）", "Custom: ${s.qualityLabel()} (change in Advanced settings)"),
+                S(R.string.custom_change_in_advanced_settings, s.qualityLabel()),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(start = 12.dp, top = 4.dp),
@@ -562,17 +562,14 @@ fun RipBar(vm: MainViewModel, onOpen: () -> Unit) {
     if (confirmCancel) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { confirmCancel = false },
-            title = { Text(T("取り込みを中止しますか？", "Stop ripping?")) },
+            title = { Text(S(R.string.stop_ripping)) },
             text = {
                 Text(
-                    T(
-                        "取り込み中の曲は保存されません。取り込み済みの曲と、上書き予定だった元のファイルは残ります。",
-                        "The track being ripped won't be saved. Finished tracks and any files that would have been overwritten are kept.",
-                    ),
+                    S(R.string.track_being_ripped_wont_be),
                 )
             },
-            confirmButton = { TextButton({ confirmCancel = false; vm.cancelRip() }) { Text(T("中止する", "Stop")) } },
-            dismissButton = { TextButton({ confirmCancel = false }) { Text(T("続ける", "Continue")) } },
+            confirmButton = { TextButton({ confirmCancel = false; vm.cancelRip() }) { Text(S(R.string.stop_2)) } },
+            dismissButton = { TextButton({ confirmCancel = false }) { Text(S(R.string.continue_label)) } },
         )
     }
     Surface(color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
@@ -586,11 +583,11 @@ fun RipBar(vm: MainViewModel, onOpen: () -> Unit) {
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(
-                        "${(p * 100).toInt()}%" + if (eta >= 0) T(" ・ 残り約${fmtMs(eta)}", " · about ${fmtMs(eta)} left") else "",
+                        "${(p * 100).toInt()}%" + if (eta >= 0) S(R.string.about_left, fmtMs(eta)) else "",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                TextButton({ confirmCancel = true }) { Text(T("中止", "Stop")) }
+                TextButton({ confirmCancel = true }) { Text(S(R.string.stop)) }
             }
             LinearProgressIndicator({ p }, Modifier.fillMaxWidth().padding(top = 4.dp, end = 12.dp))
         }
@@ -643,16 +640,16 @@ fun MiniPlayer(vm: MainViewModel, onOpen: () -> Unit) {
                     Column(Modifier.weight(1f)) {
                         Text(cur.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            (if (p.isCd) T("CD ・ ", "CD · ") else "") + cur.artist,
+                            (if (p.isCd) S(R.string.cd) else "") + cur.artist,
                             style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
                 IconButton({ p.toggle() }) {
-                    Icon(if (p.isPlaying) AppIcons.Pause else Icons.Filled.PlayArrow, if (p.isPlaying) T("一時停止", "Pause") else T("再生", "Play"))
+                    Icon(if (p.isPlaying) AppIcons.Pause else Icons.Filled.PlayArrow, if (p.isPlaying) S(R.string.pause) else S(R.string.play))
                 }
-                IconButton({ p.next() }) { Icon(AppIcons.SkipNext, T("次の曲", "Next track")) }
+                IconButton({ p.next() }) { Icon(AppIcons.SkipNext, S(R.string.next_track)) }
             }
         }
     }

@@ -303,9 +303,9 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                 var menu by remember { mutableStateOf(false) }
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (inPane) Spacer(Modifier.size(48.dp))
-                    else IconButton(onClose) { Icon(Icons.Filled.KeyboardArrowDown, T("閉じる", "Close"), tint = col.content) }
+                    else IconButton(onClose) { Icon(Icons.Filled.KeyboardArrowDown, S(R.string.close), tint = col.content) }
                     Row(Modifier.weight(1f), horizontalArrangement = Arrangement.Center) {
-                        listOf(T("お気に入り", "Favorites"), T("再生中", "Playing"), T("再生リスト", "Queue")).forEachIndexed { i, l ->
+                        listOf(S(R.string.favorites), S(R.string.playing), S(R.string.queue)).forEachIndexed { i, l ->
                             val sel = pager.currentPage == i
                             Column(
                                 Modifier.clip(RoundedCornerShape(8.dp)).clickable { scope.launch { pager.animateScrollToPage(i) } }
@@ -325,56 +325,56 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                         }
                     }
                     Box {
-                        IconButton({ menu = true }) { Icon(Icons.Filled.MoreVert, T("メニュー", "Menu"), tint = col.content) }
+                        IconButton({ menu = true }) { Icon(Icons.Filled.MoreVert, S(R.string.menu), tint = col.content) }
                         DropdownMenu(menu, { menu = false }) {
                             val lib = vm.libTrackOf(cur)
                             DropdownMenuItem(
-                                text = { Text(if (showLyrics) T("歌詞を隠す", "Hide lyrics") else T("歌詞を表示", "Show lyrics")) },
+                                text = { Text(if (showLyrics) S(R.string.hide_lyrics) else S(R.string.show_lyrics)) },
                                 leadingIcon = { Icon(AppIcons.Lyrics, null) },
                                 onClick = { menu = false; showLyrics = !showLyrics; scope.launch { pager.animateScrollToPage(1) } },
                             )
                             DropdownMenuItem(
-                                text = { Text(T("スリープタイマー", "Sleep timer")) },
+                                text = { Text(S(R.string.sleep_timer)) },
                                 leadingIcon = { Icon(AppIcons.Timer, null) },
                                 onClick = { menu = false; showTimer = true },
                             )
                             DropdownMenuItem(
-                                text = { Text(T("曲の詳細", "Song details")) },
+                                text = { Text(S(R.string.song_details)) },
                                 leadingIcon = { Icon(Icons.Filled.Info, null) },
                                 onClick = { menu = false; vm.infoItem = cur },
                             )
                             if (lib != null) {
                                 vm.albumKeyOf(lib.uri)?.let { k ->
                                     DropdownMenuItem(
-                                        text = { Text(T("アルバムを表示", "Go to album")) },
+                                        text = { Text(S(R.string.go_to_album)) },
                                         leadingIcon = { Icon(AppIcons.Album, null) },
                                         onClick = { menu = false; vm.openRoute("album:$k") },
                                     )
                                 }
                                 DropdownMenuItem(
-                                    text = { Text(T("アーティストを表示", "Go to artist")) },
+                                    text = { Text(S(R.string.go_to_artist)) },
                                     leadingIcon = { Icon(Icons.Filled.Person, null) },
                                     onClick = { menu = false; vm.openRoute("artist:" + artistOf(lib)) },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text(T("プレイリストに追加", "Add to playlist")) },
+                                    text = { Text(S(R.string.add_to_playlist_2)) },
                                     leadingIcon = { Icon(AppIcons.PlaylistAdd, null) },
                                     onClick = { menu = false; vm.playlistPick = listOf(lib.uri) },
                                 )
                             }
                             DropdownMenuItem(
-                                text = { Text(T("音質設定", "Sound settings")) },
+                                text = { Text(S(R.string.sound_settings)) },
                                 leadingIcon = { Icon(AppIcons.Tune, null) },
                                 onClick = { menu = false; showSound = true },
                             )
                             DropdownMenuItem(
-                                text = { Text(T("操作ガイド", "Gesture guide")) },
+                                text = { Text(S(R.string.gesture_guide)) },
                                 leadingIcon = { Icon(Icons.Filled.Info, null) },
                                 onClick = { menu = false; showGuide = true },
                             )
                             HorizontalDivider()
                             DropdownMenuItem(
-                                text = { Text(T("再生を終了", "Stop playback")) },
+                                text = { Text(S(R.string.stop_playback)) },
                                 leadingIcon = { Icon(Icons.Filled.Close, null) },
                                 onClick = { menu = false; p.stop(); onClose() },
                             )
@@ -465,16 +465,13 @@ private fun PlayerPage(
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                             Icon(AppIcons.Lyrics, null, Modifier.size(40.dp), tint = col.sub)
                             Spacer(Modifier.height(12.dp))
-                            Text(T("歌詞が見つかりません", "No lyrics found"), style = MaterialTheme.typography.titleMedium, color = col.content)
+                            Text(S(R.string.no_lyrics_found), style = MaterialTheme.typography.titleMedium, color = col.content)
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                T(
-                                    "曲と同じフォルダに同名の.lrcファイルを置くか、曲に歌詞を埋め込むと表示されます",
-                                    "Add an .lrc file with the same name to the song's folder, or embed the lyrics in the song",
-                                ),
+                                S(R.string.add_lrc_file_with_same),
                                 style = MaterialTheme.typography.bodySmall, color = col.sub, textAlign = TextAlign.Center,
                             )
-                            TextButton(onToggleLyrics) { Text(T("ジャケットに戻る", "Back to artwork"), color = col.accent) }
+                            TextButton(onToggleLyrics) { Text(S(R.string.back_to_artwork), color = col.accent) }
                         }
                     }
                 } else {
@@ -509,7 +506,7 @@ private fun PlayerPage(
                 FilterChip(
                     selected = false,
                     onClick = onOutput,
-                    label = { Text(outDev?.name ?: T("出力先", "Output"), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    label = { Text(outDev?.name ?: S(R.string.output), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     leadingIcon = {
                         Icon(
                             outputIcon(outDev?.kind ?: OutputKind.Auto), null,
@@ -524,19 +521,19 @@ private fun PlayerPage(
                 // 状態の表示は、実際にその状態のときだけ出す
                 val perfect = AudioEngine.bitPerfectActive
                 if (perfect) {
-                    FilterChip(selected = true, onClick = onSound, label = { Text("Bit-perfect") }, colors = chipColors, border = border)
+                    FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_bit_perfect)) }, colors = chipColors, border = border)
                 } else if (s.sourceDirect) {
-                    FilterChip(selected = true, onClick = onSound, label = { Text("Source Direct") }, colors = chipColors, border = border)
+                    FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_source_direct)) }, colors = chipColors, border = border)
                 }
                 if (!perfect && !s.sourceDirect && s.eqEnabled) {
-                    val name = EqBands.PRESETS.getOrNull(s.eqPreset)?.let { T(it.ja, it.en) } ?: T("カスタム", "Custom")
-                    FilterChip(selected = true, onClick = onSound, label = { Text("EQ · $name") }, colors = chipColors, border = border)
+                    val name = EqBands.PRESETS.getOrNull(s.eqPreset)?.let { it.label() } ?: S(R.string.custom)
+                    FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_eq, name)) }, colors = chipColors, border = border)
                 }
                 // 音質設定を開く(いつでも開けるように、アイコンだけのボタン)
                 FilterChip(
                     selected = false,
                     onClick = onSound,
-                    label = { Icon(AppIcons.Tune, T("音質設定", "Sound settings"), Modifier.size(18.dp)) },
+                    label = { Icon(AppIcons.Tune, S(R.string.sound_settings), Modifier.size(18.dp)) },
                     colors = chipColors,
                     border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = false),
                 )
@@ -565,7 +562,7 @@ private fun PlayerPage(
                 IconButton({ lib?.let { vm.toggleFav(it.uri) } }, enabled = lib != null) {
                     Icon(
                         if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                        if (fav) T("お気に入りから外す", "Remove from favorites") else T("お気に入りに追加", "Add to favorites"),
+                        if (fav) S(R.string.remove_from_favorites) else S(R.string.add_to_favorites),
                         tint = when { lib == null -> col.sub.copy(alpha = 0.3f); fav -> col.accent; else -> col.sub },
                     )
                 }
@@ -592,14 +589,14 @@ private fun PlayerPage(
                         DropdownMenu(related, { related = false }) {
                             vm.albumKeyOf(lib.uri)?.let { k ->
                                 DropdownMenuItem(
-                                    text = { Text(T("アルバム「${lib.album}」を表示", "Go to album \"${lib.album}\"")) },
+                                    text = { Text(S(R.string.go_to_album_2, lib.album)) },
                                     leadingIcon = { Icon(AppIcons.Album, null) },
                                     onClick = { related = false; vm.openRoute("album:$k") },
                                 )
                             }
                             val ar = artistOf(lib)
                             DropdownMenuItem(
-                                text = { Text(T("アーティスト「$ar」を表示", "Go to artist \"$ar\"")) },
+                                text = { Text(S(R.string.go_to_artist_2, ar)) },
                                 leadingIcon = { Icon(Icons.Filled.Person, null) },
                                 onClick = { related = false; vm.openRoute("artist:$ar") },
                             )
@@ -608,7 +605,7 @@ private fun PlayerPage(
                 }
                 IconButton(onToggleLyrics) {
                     Icon(
-                        AppIcons.Lyrics, if (showLyrics) T("歌詞を隠す", "Hide lyrics") else T("歌詞を表示", "Show lyrics"),
+                        AppIcons.Lyrics, if (showLyrics) S(R.string.hide_lyrics) else S(R.string.show_lyrics),
                         tint = when { showLyrics -> col.accent; lyrics != null -> col.content; else -> col.sub.copy(alpha = 0.4f) },
                     )
                 }
@@ -625,31 +622,31 @@ private fun PlayerPage(
                 IconButton({ p.cycleRepeat() }) {
                     Icon(
                         if (p.repeatMode == 2) AppIcons.RepeatOne else AppIcons.Repeat,
-                        when (p.repeatMode) { 1 -> T("全曲リピート", "Repeat all"); 2 -> T("1曲リピート", "Repeat one"); else -> T("リピートなし", "Repeat off") },
+                        when (p.repeatMode) { 1 -> S(R.string.repeat_all); 2 -> S(R.string.repeat_one); else -> S(R.string.repeat_off) },
                         tint = if (p.repeatMode != 0) col.accent else col.sub,
                     )
                 }
                 OutlinedIconButton({ p.prev() }, Modifier.size(skipSize), border = BorderStroke(2.dp, col.content)) {
-                    Icon(AppIcons.SkipPrevious, T("前の曲", "Previous track"), Modifier.size(skipSize * 0.47f), tint = col.content)
+                    Icon(AppIcons.SkipPrevious, S(R.string.previous_track), Modifier.size(skipSize * 0.47f), tint = col.content)
                 }
                 OutlinedIconButton({ p.toggle() }, Modifier.size(playSize), shape = CircleShape, border = BorderStroke(2.5.dp, col.content)) {
                     Icon(
                         if (p.isPlaying) AppIcons.Pause else Icons.Filled.PlayArrow,
-                        if (p.isPlaying) T("一時停止", "Pause") else T("再生", "Play"),
+                        if (p.isPlaying) S(R.string.pause) else S(R.string.play),
                         Modifier.size(playSize * 0.52f), tint = col.content,
                     )
                 }
                 OutlinedIconButton({ p.next() }, Modifier.size(skipSize), border = BorderStroke(2.dp, col.content)) {
-                    Icon(AppIcons.SkipNext, T("次の曲", "Next track"), Modifier.size(skipSize * 0.47f), tint = col.content)
+                    Icon(AppIcons.SkipNext, S(R.string.next_track), Modifier.size(skipSize * 0.47f), tint = col.content)
                 }
                 IconButton({ p.toggleShuffle() }) {
-                    Icon(AppIcons.Shuffle, T("シャッフル", "Shuffle"), tint = if (p.shuffle) col.accent else col.sub)
+                    Icon(AppIcons.Shuffle, S(R.string.shuffle_2), tint = if (p.shuffle) col.accent else col.sub)
                 }
             }
             Spacer(Modifier.height(if (compact) 0.dp else 6.dp))
             // ---- 下の帯: 音量・タイマー・曲番号・再生リスト ----
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onVolume) { Icon(AppIcons.Volume, T("音量", "Volume"), tint = col.sub) }
+                IconButton(onVolume) { Icon(AppIcons.Volume, S(R.string.volume), tint = col.sub) }
                 // 残りの分は、時計に合わせて自分で更新する(画面の全体は再生位置では描き直さないので)
                 val sleepAt = p.sleepAtMs
                 fun leftNow() = if (sleepAt > 0) ((sleepAt - SystemClock.elapsedRealtime()) / 60_000L + 1).coerceAtLeast(1) else 0L
@@ -665,20 +662,20 @@ private fun PlayerPage(
                         Icon(AppIcons.Timer, null, Modifier.size(18.dp), tint = col.accent)
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            if (p.stopAfterTrack) T("曲の終わりで停止", "End of song") else T("残り${sleepLeft}分", "${sleepLeft} min"),
+                            if (p.stopAfterTrack) S(R.string.end_of_song) else S(R.string.min, sleepLeft),
                             color = col.accent, style = MaterialTheme.typography.labelMedium,
                         )
                     }
                 } else {
-                    IconButton(onTimer) { Icon(AppIcons.Timer, T("スリープタイマー", "Sleep timer"), tint = col.sub) }
+                    IconButton(onTimer) { Icon(AppIcons.Timer, S(R.string.sleep_timer), tint = col.sub) }
                 }
                 Spacer(Modifier.weight(1f))
                 Text(
-                    T("${p.index + 1} / ${p.queue.size}", "${p.index + 1} / ${p.queue.size}"),
+                    S(R.string.label_3, p.index + 1, p.queue.size),
                     style = MaterialTheme.typography.labelMedium, color = col.sub,
                 )
                 Spacer(Modifier.weight(1f))
-                IconButton(onQueue) { Icon(AppIcons.Queue, T("再生リスト", "Queue"), tint = col.sub) }
+                IconButton(onQueue) { Icon(AppIcons.Queue, S(R.string.queue), tint = col.sub) }
             }
             Spacer(Modifier.height(if (compact) 2.dp else 6.dp))
         }
@@ -889,10 +886,10 @@ private fun FavoritesPanel(vm: MainViewModel, col: PlayerColors) {
         ) {
             Icon(Icons.Filled.FavoriteBorder, null, Modifier.size(48.dp), tint = col.sub)
             Spacer(Modifier.height(12.dp))
-            Text(T("お気に入りの曲はまだありません", "No favorite songs yet"), style = MaterialTheme.typography.titleMedium, color = col.content)
+            Text(S(R.string.no_favorite_songs_yet), style = MaterialTheme.typography.titleMedium, color = col.content)
             Spacer(Modifier.height(6.dp))
             Text(
-                T("再生画面のハートボタンで追加できます", "Tap the heart in the player to add songs"),
+                S(R.string.tap_heart_in_player_to),
                 style = MaterialTheme.typography.bodySmall, color = col.sub, textAlign = TextAlign.Center,
             )
         }
@@ -902,11 +899,11 @@ private fun FavoritesPanel(vm: MainViewModel, col: PlayerColors) {
         item(key = "head") {
             Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(T("お気に入りの曲", "Favorite songs"), style = MaterialTheme.typography.titleMedium, color = col.content)
-                    Text(T("${songs.size}曲", "${songs.size} songs"), style = MaterialTheme.typography.bodySmall, color = col.sub)
+                    Text(S(R.string.favorite_songs), style = MaterialTheme.typography.titleMedium, color = col.content)
+                    Text(S(R.string.songs_4, songs.size), style = MaterialTheme.typography.bodySmall, color = col.sub)
                 }
-                IconButton({ vm.playTracks(songs, 0, shuffle = true) }) { Icon(AppIcons.Shuffle, T("シャッフル", "Shuffle"), tint = col.content) }
-                IconButton({ vm.playTracks(songs, 0) }) { Icon(Icons.Filled.PlayArrow, T("再生", "Play"), tint = col.content) }
+                IconButton({ vm.playTracks(songs, 0, shuffle = true) }) { Icon(AppIcons.Shuffle, S(R.string.shuffle_2), tint = col.content) }
+                IconButton({ vm.playTracks(songs, 0) }) { Icon(Icons.Filled.PlayArrow, S(R.string.play), tint = col.content) }
             }
         }
         itemsIndexed(items, key = { _, it -> "f:" + it.artTrackUri }) { i, it ->
@@ -914,7 +911,7 @@ private fun FavoritesPanel(vm: MainViewModel, col: PlayerColors) {
                 vm, it, it.artTrackUri == playingUri, col, { vm.playTracks(songs, i) },
                 trailing = {
                     IconButton({ vm.toggleFav(songs[i].uri) }) {
-                        Icon(Icons.Filled.Favorite, T("お気に入りから外す", "Remove from favorites"), tint = col.accent)
+                        Icon(Icons.Filled.Favorite, S(R.string.remove_from_favorites), tint = col.accent)
                     }
                 },
             )
@@ -932,9 +929,9 @@ private fun QueuePanel(vm: MainViewModel, col: PlayerColors, onSave: () -> Unit)
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text(T("この曲より後の曲を消去しますか？", "Clear songs after this one?")) },
-            confirmButton = { TextButton({ p.clearUpcoming(); confirmClear = false }) { Text(T("消去", "Clear")) } },
-            dismissButton = { TextButton({ confirmClear = false }) { Text(T("キャンセル", "Cancel")) } },
+            title = { Text(S(R.string.clear_songs_after_this_one)) },
+            confirmButton = { TextButton({ p.clearUpcoming(); confirmClear = false }) { Text(S(R.string.clear)) } },
+            dismissButton = { TextButton({ confirmClear = false }) { Text(S(R.string.cancel)) } },
         )
     }
     // 後ろの曲の合計は、再生リストが変わったときだけ数える(再生位置は見出しの中で読む)
@@ -944,17 +941,17 @@ private fun QueuePanel(vm: MainViewModel, col: PlayerColors, onSave: () -> Unit)
             Row(Modifier.fillMaxWidth().padding(start = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     val left = after + (p.durationMs - p.positionMs).coerceAtLeast(0)
-                    Text(T("再生リスト", "Queue"), style = MaterialTheme.typography.titleMedium, color = col.content)
+                    Text(S(R.string.queue), style = MaterialTheme.typography.titleMedium, color = col.content)
                     Text(
-                        T("${p.index + 1} / ${q.size}曲 ・ 残り${fmtMs(left)}", "${p.index + 1} of ${q.size} · ${fmtMs(left)} left"),
+                        S(R.string.of_left, p.index + 1, q.size, fmtMs(left)),
                         style = MaterialTheme.typography.bodySmall, color = col.sub,
                     )
                 }
                 if (q.any { it.uri != null }) {
-                    IconButton(onSave) { Icon(AppIcons.PlaylistAdd, T("プレイリストとして保存", "Save as playlist"), tint = col.content) }
+                    IconButton(onSave) { Icon(AppIcons.PlaylistAdd, S(R.string.save_as_playlist), tint = col.content) }
                 }
                 if (p.index < q.lastIndex) {
-                    IconButton({ confirmClear = true }) { Icon(Icons.Filled.Delete, T("この曲より後を消去", "Clear upcoming"), tint = col.content) }
+                    IconButton({ confirmClear = true }) { Icon(Icons.Filled.Delete, S(R.string.clear_upcoming), tint = col.content) }
                 }
             }
         }
@@ -969,7 +966,7 @@ private fun QueuePanel(vm: MainViewModel, col: PlayerColors, onSave: () -> Unit)
                 ),
                 leading = { DragHandle(reorder, i, col.sub) },
                 trailing = {
-                    IconButton({ p.removeAt(i) }) { Icon(Icons.Filled.Close, T("再生リストから外す", "Remove from queue"), tint = col.sub) }
+                    IconButton({ p.removeAt(i) }) { Icon(Icons.Filled.Close, S(R.string.remove_from_queue), tint = col.sub) }
                 },
             )
         }
@@ -983,19 +980,19 @@ private fun SaveQueueDialog(vm: MainViewModel, onDismiss: () -> Unit) {
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(T("プレイリストとして保存", "Save as playlist")) },
+        title = { Text(S(R.string.save_as_playlist)) },
         text = {
             Column {
                 Text(
-                    T("再生リストの曲（CDの曲を除く）を保存します", "Saves the songs in the queue, except CD tracks"),
+                    S(R.string.saves_songs_in_queue_except),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(T("名前", "Name")) })
+                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(S(R.string.name)) })
             }
         },
-        confirmButton = { TextButton({ vm.saveQueueAsPlaylist(name); onDismiss() }, enabled = name.isNotBlank()) { Text(T("保存", "Save")) } },
-        dismissButton = { TextButton(onDismiss) { Text(T("キャンセル", "Cancel")) } },
+        confirmButton = { TextButton({ vm.saveQueueAsPlaylist(name); onDismiss() }, enabled = name.isNotBlank()) { Text(S(R.string.save)) } },
+        dismissButton = { TextButton(onDismiss) { Text(S(R.string.cancel)) } },
     )
 }
 
@@ -1027,9 +1024,9 @@ private fun VolumeSheet(vm: MainViewModel, onDismiss: () -> Unit) {
     }
     val land = isLandscape()
     val title: @Composable () -> Unit = {
-        Text(T("音量", "Volume"), style = MaterialTheme.typography.titleLarge)
+        Text(S(R.string.volume), style = MaterialTheme.typography.titleLarge)
         Text(
-            (AudioEngine.output?.name ?: T("出力先", "Output")) + if (usb) T(" ・ DACの音量", " · DAC volume") else "",
+            (AudioEngine.output?.name ?: S(R.string.output)) + if (usb) S(R.string.dac_volume_2) else "",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -1040,7 +1037,7 @@ private fun VolumeSheet(vm: MainViewModel, onDismiss: () -> Unit) {
             OutlinedIconButton({ setVol(v + 1, true) }, Modifier.size(52.dp)) { Text("+", fontSize = 24.sp) }
         }
         Text(
-            T("ダイヤルに沿ってなぞると、大きく調整できます", "Trace around the dial for larger changes"),
+            S(R.string.trace_around_dial_for_larger),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 12.dp),
         )
@@ -1136,29 +1133,29 @@ private fun SleepTimerDialog(p: PlayerController, onDismiss: () -> Unit) {
     val left = if (p.sleepAtMs > 0) ((p.sleepAtMs - SystemClock.elapsedRealtime()) / 60_000L + 1).coerceAtLeast(1) else 0L
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(T("スリープタイマー", "Sleep timer")) },
+        title = { Text(S(R.string.sleep_timer)) },
         text = {
             // 横向きの電話では収まらないので、スクロールできるようにする
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
                     when {
-                        p.stopAfterTrack -> T("この曲が終わると停止します", "Stops at the end of this song")
-                        left > 0 -> T("約${left}分後に停止します", "Stops in about $left min")
-                        else -> T("指定した時間が経過すると再生を一時停止します", "Pauses playback after the selected time")
+                        p.stopAfterTrack -> S(R.string.stops_at_end_of_this)
+                        left > 0 -> S(R.string.stops_in_about_min, left)
+                        else -> S(R.string.pauses_playback_after_selected_time)
                     },
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
                 listOf(15, 30, 45, 60, 90, 120).forEach { m ->
                     Text(
-                        T("${m}分", "$m min"),
+                        S(R.string.min_2, m),
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { p.setSleep(m); onDismiss() }
                             .padding(horizontal = 8.dp, vertical = 12.dp),
                         style = MaterialTheme.typography.bodyLarge,
                     )
                 }
                 Text(
-                    T("この曲の終わりで停止", "At the end of this song"),
+                    S(R.string.at_end_of_this_song),
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { p.stopAtTrackEnd(true); onDismiss() }
                         .padding(horizontal = 8.dp, vertical = 12.dp),
                     style = MaterialTheme.typography.bodyLarge,
@@ -1167,29 +1164,29 @@ private fun SleepTimerDialog(p: PlayerController, onDismiss: () -> Unit) {
         },
         confirmButton = {
             if (left > 0 || p.stopAfterTrack) {
-                TextButton({ p.setSleep(0); onDismiss() }) { Text(T("タイマーを解除", "Turn off timer")) }
+                TextButton({ p.setSleep(0); onDismiss() }) { Text(S(R.string.turn_off_timer)) }
             }
         },
-        dismissButton = { TextButton(onDismiss) { Text(T("閉じる", "Close")) } },
+        dismissButton = { TextButton(onDismiss) { Text(S(R.string.close)) } },
     )
 }
 
 @Composable
 private fun GuideDialog(onDismiss: () -> Unit) {
     val rows = listOf(
-        T("ジャケットを左右にスワイプ", "Swipe the artwork left or right") to T("前の曲 / 次の曲", "Previous / next song"),
-        T("ジャケットをタップ", "Tap the artwork") to T("歌詞の表示・非表示", "Show or hide lyrics"),
-        T("画面を左右にスワイプ", "Swipe the screen left or right") to T("お気に入り / 再生リスト", "Favorites / queue"),
-        T("画面を下にスワイプ", "Swipe down") to T("再生画面を閉じる", "Close the player"),
-        T("画面を上にスワイプ", "Swipe up") to T("音質設定", "Sound settings"),
-        T("曲名をタップ", "Tap the title") to T("アルバム・アーティストを表示", "Go to the album or artist"),
-        T("ミニプレーヤーを左右にスワイプ", "Swipe the mini player left or right") to T("前の曲 / 次の曲", "Previous / next song"),
-        T("再生リストのつまみをドラッグ", "Drag the handle in the queue") to T("曲を並べ替え", "Reorder songs"),
-        T("曲やアルバムを長押し", "Long-press a song or album") to T("次に再生・お気に入り・プレイリストなど", "Play next, favorites, playlists and more"),
+        S(R.string.swipe_artwork_left_or_right) to S(R.string.previous_next_song),
+        S(R.string.tap_artwork) to S(R.string.show_or_hide_lyrics),
+        S(R.string.swipe_screen_left_or_right) to S(R.string.favorites_queue),
+        S(R.string.swipe_down) to S(R.string.close_player),
+        S(R.string.swipe_up) to S(R.string.sound_settings),
+        S(R.string.tap_title) to S(R.string.go_to_album_or_artist),
+        S(R.string.swipe_mini_player_left_or) to S(R.string.previous_next_song),
+        S(R.string.drag_handle_in_queue) to S(R.string.reorder_songs),
+        S(R.string.long_press_song_or_album) to S(R.string.play_next_favorites_playlists_and),
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(T("操作ガイド", "Gesture guide")) },
+        title = { Text(S(R.string.gesture_guide)) },
         text = {
             LazyColumn {
                 itemsIndexed(rows) { _, (k, v) ->
@@ -1200,6 +1197,6 @@ private fun GuideDialog(onDismiss: () -> Unit) {
                 }
             }
         },
-        confirmButton = { TextButton(onDismiss) { Text(T("閉じる", "Close")) } },
+        confirmButton = { TextButton(onDismiss) { Text(S(R.string.close)) } },
     )
 }

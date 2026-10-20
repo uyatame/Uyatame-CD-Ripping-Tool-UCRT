@@ -1,6 +1,7 @@
 package com.uyatame.ucrt.library
 
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -61,8 +62,8 @@ data class LibAlbum(val key: String, val title: String, val artist: String, val 
     internal val badge: String by lazy { Quality.albumBadge(tracks) }
 }
 
-val UNKNOWN_ALBUM: String get() = T("不明なアルバム", "Unknown album")
-val UNKNOWN_ARTIST: String get() = T("不明なアーティスト", "Unknown artist")
+val UNKNOWN_ALBUM: String get() = S(R.string.unknown_album)
+val UNKNOWN_ARTIST: String get() = S(R.string.unknown_artist)
 
 private val AUDIO_EXT = setOf("flac", "wav", "m4a", "mp3", "ogg", "opus", "aac", "dsf", "dff", "aif", "aiff", "aifc", "mp4", "wv", "ape")
 private val COVER_NAMES = setOf(
@@ -235,7 +236,7 @@ class Library(private val ctx: Context) {
                         added.add(
                             base.copy(
                                 uri = Cue.trackUri(base.uri, ct.number),
-                                title = ct.title ?: T("トラック %02d", "Track %02d").format(ct.number),
+                                title = ct.title ?: S(R.string.track_2).format(ct.number),
                                 artist = ct.performer ?: sheet.performer ?: base.artist,
                                 album = sheet.title ?: base.album,
                                 albumArtist = sheet.performer ?: base.albumArtist,
@@ -610,7 +611,7 @@ class Library(private val ctx: Context) {
                 val artist = mostCommon(sorted.map { it.albumArtist }) ?: run {
                     // アルバムアーティストが無ければ、半分以上の曲のアーティスト(feat. 付きの曲が混ざっていても)
                     val top = sorted.groupingBy { it.artist }.eachCount().maxByOrNull { it.value }
-                    if (top != null && top.value * 2 >= sorted.size) top.key else T("さまざまなアーティスト", "Various artists")
+                    if (top != null && top.value * 2 >= sorted.size) top.key else S(R.string.various_artists)
                 }
                 LibAlbum(k, f.album, artist, sorted)
             }.sortedBy { it.artist.lowercase() + "\u0000" + it.title.lowercase() }

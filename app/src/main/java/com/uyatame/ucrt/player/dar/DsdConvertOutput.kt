@@ -2,7 +2,8 @@ package com.uyatame.ucrt.player.dar
 
 import android.content.Context
 import android.media.AudioAttributes
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 import com.uyatame.ucrt.player.AudioEngine
 import com.uyatame.ucrt.player.AudioOutput
 import com.uyatame.ucrt.player.ParamEqualizer
@@ -79,7 +80,7 @@ internal class DsdConvertOutput private constructor(
         AudioEngine.log("dar: DSD$mult conversion is too slow on this device (load %.2f), switching to DSD$lower".format(java.util.Locale.US, load))
         AudioEngine.report(
             false,
-            T("DAR: この端末ではDSD${mult}への変換が間に合わないため、DSD${lower}に下げました", "DAR: Switched to DSD$lower (this device is too slow for DSD$mult)"),
+            S(R.string.dar_switched_to_dsd_this, lower, mult),
         )
         UsbDac.onChanged?.invoke()
     }
@@ -138,10 +139,10 @@ internal class DsdConvertOutput private constructor(
                 val sink = openSink(ctx, attrs, dsdRate) ?: continue
                 // ネイティブ DSD は 4 バイト、DoP は 2 バイト単位で送る
                 val align = if (sink.label == "DoP") 2 else 4
-                val how = if (sink.label == "DoP") "DoP" else T("ネイティブDSD", "Native DSD")
+                val how = if (sink.label == "DoP") "DoP" else S(R.string.native_dsd)
                 AudioEngine.report(
                     false,
-                    T("DAR: DSD${m}に変換", "DAR: DSD$m conversion") + " · ${AudioEngine.khz(srcRate)} → ${"%.4f".format(java.util.Locale.US, dsdRate / 1e6)} MHz ($how)",
+                    S(R.string.dar_dsd_conversion, m) + " · ${AudioEngine.khz(srcRate)} → ${"%.4f".format(java.util.Locale.US, dsdRate / 1e6)} MHz ($how)",
                     "DAR · DSD$m ($how) · ${AudioEngine.khz(srcRate)} → ${"%.4f".format(java.util.Locale.US, dsdRate / 1e6)} MHz · " +
                         AudioEngine.bitrateText(dsdRate.toLong() * OUT_CH),
                 )

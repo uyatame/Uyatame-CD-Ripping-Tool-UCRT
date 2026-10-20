@@ -146,7 +146,7 @@ private fun LibraryRoute(vm: MainViewModel, s: AppSettings, route: String?) {
         route.startsWith("year:") -> {
             val y = route.removePrefix("year:")
             AlbumCollectionPage(
-                vm, s, y.ifEmpty { T("発売年不明", "Unknown year") },
+                vm, s, y.ifEmpty { S(R.string.unknown_year) },
                 // 一覧を作り直すのは、ライブラリが変わったときだけ(画面を描き直すたびに全アルバムを調べない)
                 remember(vm.albums, y) { vm.albums.filter { it.year == y } }, sortable = false, key = route,
             )
@@ -174,7 +174,7 @@ private fun LibraryRoute(vm: MainViewModel, s: AppSettings, route: String?) {
 @Composable
 private fun PageTop(vm: MainViewModel, title: String, sub: String? = null, actions: @Composable RowScope.() -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton({ vm.libPop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, T("戻る", "Back")) }
+        IconButton({ vm.libPop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, S(R.string.back)) }
         Column(Modifier.weight(1f).padding(start = 4.dp)) {
             Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!sub.isNullOrEmpty()) {
@@ -190,8 +190,8 @@ private fun MissingPage(vm: MainViewModel) {
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, "")
         EmptyState(
-            AppIcons.Album, T("見つかりません", "Not found"),
-            T("ライブラリを読み込み中か、ファイルが移動または削除された可能性があります", "The library may still be loading, or the files may have been moved or deleted"),
+            AppIcons.Album, S(R.string.not_found),
+            S(R.string.library_may_still_be_loading),
         )
     }
 }
@@ -199,7 +199,7 @@ private fun MissingPage(vm: MainViewModel) {
 /** 曲の合計時間と曲数(例: 12曲 ・ 48:10) */
 private fun countText(tracks: List<LibTrack>): String {
     val d = fmtMs(tracks.sumOf { it.durationMs })
-    return T("${tracks.size}曲 ・ $d", "${tracks.size} songs · $d")
+    return S(R.string.songs_6, tracks.size, d)
 }
 
 /** 検索用に文字をそろえる(全角/半角、大文字/小文字、カタカナ/ひらがな) */
@@ -232,18 +232,18 @@ private fun tileIcon(id: String): ImageVector = when (id) {
 }
 
 private fun tileLabel(id: String): String = when (id) {
-    "albums" -> T("アルバム", "Albums")
-    "artists" -> T("アーティスト", "Artists")
-    "songs" -> T("全曲", "Songs")
-    "favorites" -> T("お気に入り", "Favorites")
-    "playlists" -> T("プレイリスト", "Playlists")
-    "recent" -> T("最近追加", "Recently added")
-    "history" -> T("最近再生", "Recently played")
-    "top" -> T("よく聴く曲", "Most played")
-    "hires" -> T("音質別", "By quality")
-    "genres" -> T("ジャンル", "Genres")
-    "years" -> T("発売年", "Years")
-    else -> T("フォルダ", "Folders")
+    "albums" -> S(R.string.albums)
+    "artists" -> S(R.string.artists)
+    "songs" -> S(R.string.songs)
+    "favorites" -> S(R.string.favorites)
+    "playlists" -> S(R.string.playlists)
+    "recent" -> S(R.string.recently_added)
+    "history" -> S(R.string.recently_played)
+    "top" -> S(R.string.most_played)
+    "hires" -> S(R.string.by_quality)
+    "genres" -> S(R.string.genres)
+    "years" -> S(R.string.years)
+    else -> S(R.string.folders)
 }
 
 /** 設定の文字列 → (カテゴリー, 表示するか) の並び */
@@ -278,7 +278,7 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
             "albums" to "${albums.size}",
             "artists" to "${albums.map { it.artist }.distinct().size}",
             "songs" to "$tracks",
-            "hires" to T("ハイレゾ ${albums.count { Quality.classOf(it) == QualityClass.HiRes }}", "Hi-Res ${albums.count { Quality.classOf(it) == QualityClass.HiRes }}"),
+            "hires" to S(R.string.hi_res_2, albums.count { Quality.classOf(it) == QualityClass.HiRes }),
             "genres" to "${albums.flatMap { a -> a.tracks.map { it.genre } }.filter { it.isNotEmpty() }.distinct().size}",
             "years" to "${albums.map { it.year }.filter { it.isNotEmpty() }.distinct().size}",
             "folders" to "${albums.flatMap { a -> a.tracks.map { trackFolder(it) } }.distinct().size}",
@@ -312,11 +312,11 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
     ) {
         item(key = "head", span = full) {
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(T("ライブラリ", "Library"), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f).padding(start = 4.dp))
-                IconButton({ editTiles = true }) { Icon(Icons.Filled.Edit, T("カテゴリーを並べ替え", "Reorder categories")) }
+                Text(S(R.string.library), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f).padding(start = 4.dp))
+                IconButton({ editTiles = true }) { Icon(Icons.Filled.Edit, S(R.string.reorder_categories)) }
                 // 手動の更新: すべての曲を読み直す(普段は新しく入った曲だけを自動で読み込む)
                 IconButton({ vm.refreshLibrary(fresh = true) }, enabled = !vm.libScanning && hasFolders) {
-                    Icon(Icons.Filled.Refresh, T("ライブラリを再読み込み", "Rescan library"))
+                    Icon(Icons.Filled.Refresh, S(R.string.rescan_library))
                 }
             }
         }
@@ -326,8 +326,8 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
                 Column {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                     Text(
-                        if (vm.libFull) T("ライブラリを再読み込みしています ${vm.libProgress}", "Rescanning library ${vm.libProgress}")
-                        else T("新しい曲を読み込んでいます ${vm.libProgress}", "Scanning for new songs ${vm.libProgress}"),
+                        if (vm.libFull) S(R.string.rescanning_library, vm.libProgress)
+                        else S(R.string.scanning_for_new_songs, vm.libProgress),
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(vertical = 4.dp),
                     )
@@ -337,12 +337,9 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
         if (albums.isEmpty() && !vm.libScanning) {
             item(key = "empty", span = full) {
                 EmptyState(
-                    AppIcons.Library, T("曲はまだありません", "No songs yet"),
-                    T(
-                        "取り込んだCDがここに表示されます。端末の音楽フォルダを追加して再生することもできます。",
-                        "Ripped CDs appear here. You can also add a music folder on your device to play its songs.",
-                    ),
-                    T("音楽フォルダを追加", "Add a music folder"),
+                    AppIcons.Library, S(R.string.no_songs_yet),
+                    S(R.string.ripped_cds_appear_here_you),
+                    S(R.string.add_music_folder),
                 ) { picker.launch(null) }
             }
             return@LazyVerticalGrid
@@ -358,7 +355,7 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
                     Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        T("曲名・アルバム・アーティストで検索", "Search songs, albums, and artists"),
+                        S(R.string.search_songs_albums_and_artists),
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
@@ -367,14 +364,14 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
         item(key = "shuffle", span = full) {
             Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    T("${albums.size}枚 ・ ${counts["songs"]}曲", "${albums.size} albums · ${counts["songs"]} songs"),
+                    S(R.string.albums_songs, albums.size, counts["songs"]),
                     style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f).padding(start = 4.dp),
                 )
                 FilledTonalButton({ vm.shuffleAll() }) {
                     Icon(AppIcons.Shuffle, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(T("全曲シャッフル", "Shuffle all"))
+                    Text(S(R.string.shuffle_all))
                 }
             }
         }
@@ -383,16 +380,16 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
         }
         if (recentAlbums.isNotEmpty()) {
             item(key = "recentHead", span = full) {
-                ListHeading(T("最近追加したアルバム", "Recently added"), Modifier.padding(start = 4.dp)) {
-                    TextButton({ vm.libPush("cat:recent") }) { Text(T("すべて", "All")) }
+                ListHeading(S(R.string.recently_added_2), Modifier.padding(start = 4.dp)) {
+                    TextButton({ vm.libPush("cat:recent") }) { Text(S(R.string.all)) }
                 }
             }
             item(key = "recentRow", span = full) { AlbumStrip(vm, recentAlbums) }
         }
         if (playedAlbums.isNotEmpty()) {
             item(key = "playedHead", span = full) {
-                ListHeading(T("最近再生したアルバム", "Recently played"), Modifier.padding(start = 4.dp)) {
-                    TextButton({ vm.libPush("cat:history") }) { Text(T("履歴", "History")) }
+                ListHeading(S(R.string.recently_played_2), Modifier.padding(start = 4.dp)) {
+                    TextButton({ vm.libPush("cat:history") }) { Text(S(R.string.history)) }
                 }
             }
             item(key = "playedRow", span = full) { AlbumStrip(vm, playedAlbums) }
@@ -436,7 +433,7 @@ private fun TileEditDialog(vm: MainViewModel, s: AppSettings, onDismiss: () -> U
     val list = remember { mutableStateListOf<Pair<String, Boolean>>().apply { addAll(tileOrder(s.libTiles)) } }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(T("カテゴリーの並べ替え", "Reorder categories")) },
+        title = { Text(S(R.string.reorder_categories_2)) },
         text = {
             LazyColumn(Modifier.heightIn(max = 480.dp)) {
                 itemsIndexed(list, key = { _, it -> it.first }) { i, (id, on) ->
@@ -446,20 +443,20 @@ private fun TileEditDialog(vm: MainViewModel, s: AppSettings, onDismiss: () -> U
                         Spacer(Modifier.width(10.dp))
                         Text(tileLabel(id), modifier = Modifier.weight(1f))
                         IconButton({ if (i > 0) list.add(i - 1, list.removeAt(i)) }, enabled = i > 0) {
-                            Icon(Icons.Filled.KeyboardArrowUp, T("上へ", "Up"))
+                            Icon(Icons.Filled.KeyboardArrowUp, S(R.string.up))
                         }
                         IconButton({ if (i < list.lastIndex) list.add(i + 1, list.removeAt(i)) }, enabled = i < list.lastIndex) {
-                            Icon(Icons.Filled.KeyboardArrowDown, T("下へ", "Down"))
+                            Icon(Icons.Filled.KeyboardArrowDown, S(R.string.down))
                         }
                     }
                 }
             }
         },
-        confirmButton = { TextButton({ vm.set(Keys.libTiles, encodeTiles(list)); onDismiss() }) { Text(T("保存", "Save")) } },
+        confirmButton = { TextButton({ vm.set(Keys.libTiles, encodeTiles(list)); onDismiss() }) { Text(S(R.string.save)) } },
         dismissButton = {
             Row {
-                TextButton({ vm.set(Keys.libTiles, ""); onDismiss() }) { Text(T("初期設定に戻す", "Reset")) }
-                TextButton(onDismiss) { Text(T("キャンセル", "Cancel")) }
+                TextButton({ vm.set(Keys.libTiles, ""); onDismiss() }) { Text(S(R.string.reset_2)) }
+                TextButton(onDismiss) { Text(S(R.string.cancel)) }
             }
         },
     )
@@ -535,12 +532,12 @@ private fun AlbumCollectionPage(
         Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 8.dp)) {
             if (sortable) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(T("アーティスト", "Artist"), T("アルバム名", "Title"), T("追加日", "Date added"), T("発売年", "Year"))
+                    listOf(S(R.string.artist), S(R.string.title), S(R.string.date_added), S(R.string.year))
                         .forEachIndexed { i, l -> FilterChip(sort == i, { sort = i }, label = { Text(l) }) }
                 }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(qf < 0, { qf = -1 }, label = { Text(T("すべて", "All")) })
+                FilterChip(qf < 0, { qf = -1 }, label = { Text(S(R.string.all)) })
                 QualityClass.entries.forEach { q ->
                     FilterChip(qf == q.ordinal, { qf = q.ordinal }, label = { Text(Quality.label(q)) })
                 }
@@ -553,13 +550,13 @@ private fun AlbumCollectionPage(
         }
     }
     Column(Modifier.fillMaxSize()) {
-        PageTop(vm, title, subtitle ?: T("${shown.size}枚", "${shown.size} albums")) {
+        PageTop(vm, title, subtitle ?: S(R.string.albums_3, shown.size)) {
             IconButton({ vm.set(Keys.libraryList, !listView) }) {
-                Icon(if (listView) AppIcons.Grid else AppIcons.ListView, if (listView) T("グリッド表示", "Grid view") else T("リスト表示", "List view"))
+                Icon(if (listView) AppIcons.Grid else AppIcons.ListView, if (listView) S(R.string.grid_view) else S(R.string.list_view))
             }
         }
         if (shown.isEmpty() && qf < 0) {
-            EmptyState(AppIcons.Album, T("アルバムがありません", "No albums"), "")
+            EmptyState(AppIcons.Album, S(R.string.no_albums), "")
             return@Column
         }
         Box(Modifier.fillMaxSize()) {
@@ -601,14 +598,14 @@ private fun ArtistsPage(vm: MainViewModel) {
     }
     val labels = remember(artists) { artists.map { initialOf(it.name) } }
     Column(Modifier.fillMaxSize()) {
-        PageTop(vm, tileLabel("artists"), T("${artists.size}人", "${artists.size} artists"))
+        PageTop(vm, tileLabel("artists"), S(R.string.artists_2, artists.size))
         Box(Modifier.fillMaxSize()) {
             val st = rememberLazyListState()
             LazyColumn(state = st, contentPadding = PaddingValues(start = 12.dp, end = 24.dp, bottom = 24.dp)) {
                 items(artists, key = { it.name }) { e ->
                     val a = e.albums.first()
                     GroupRow(
-                        e.name, T("${e.albums.size}枚 ・ ${e.tracks}曲", "${e.albums.size} albums · ${e.tracks} songs"),
+                        e.name, S(R.string.albums_songs, e.albums.size, e.tracks),
                         { vm.libPush("artist:" + e.name) },
                     ) { ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(48.dp), 24.dp, 48.dp) }
                 }
@@ -641,7 +638,7 @@ private fun ArtistPage(vm: MainViewModel, name: String) {
                     Column(Modifier.weight(1f)) {
                         Text(name, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(
-                            T("${main.size + guest.size}枚 ・ ", "${main.size + guest.size} albums · ") + countText(tracks),
+                            S(R.string.albums_4, main.size + guest.size) + countText(tracks),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         PlayShuffleButtons(
@@ -653,7 +650,7 @@ private fun ArtistPage(vm: MainViewModel, name: String) {
             }
             items(main, key = { it.key }) { a -> AlbumTile(vm, a, sub = a.year.ifEmpty { a.artist }) }
             if (guest.isNotEmpty()) {
-                item(key = "guestHead", span = full) { ListHeading(T("参加しているアルバム", "Appears on")) }
+                item(key = "guestHead", span = full) { ListHeading(S(R.string.appears_on)) }
                 items(guest, key = { "g:" + it.key }) { a -> AlbumTile(vm, a) }
             }
         }
@@ -693,14 +690,14 @@ private fun SongsPage(vm: MainViewModel) {
                 item(key = "controls") {
                     Column(Modifier.padding(start = 8.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(T("曲名", "Title"), T("アーティスト", "Artist"), T("アルバム", "Album"), T("追加日", "Date added"))
+                            listOf(S(R.string.title_2), S(R.string.artist), S(R.string.album_2), S(R.string.date_added))
                                 .forEachIndexed { i, l -> FilterChip(sort == i, { sort = i }, label = { Text(l) }) }
                         }
                         PlayShuffleButtons({ vm.playTracks(all, 0) }, { vm.playTracks(all, 0, shuffle = true) })
                     }
                 }
                 itemsIndexed(all, key = { _, t -> t.uri }) { i, t ->
-                    TrackRow(vm, t, { vm.playTracks(all, i) }, sub = t.artist + " ・ " + t.album)
+                    TrackRow(vm, t, { vm.playTracks(all, i) }, sub = t.artist + S(R.string.separator) + t.album)
                 }
             }
             FastScroller(st) { labels.getOrElse(it) { "" } }
@@ -762,11 +759,11 @@ private fun GenresPage(vm: MainViewModel) {
             .sortedWith(compareBy({ it.first.isEmpty() }, { it.first.lowercase() }))
     }
     Column(Modifier.fillMaxSize()) {
-        PageTop(vm, tileLabel("genres"), T("${genres.count { it.first.isNotEmpty() }}種類", "${genres.count { it.first.isNotEmpty() }} genres"))
+        PageTop(vm, tileLabel("genres"), S(R.string.genres_2, genres.count { it.first.isNotEmpty() }))
         LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp)) {
             items(genres, key = { it.first }) { (g, n, al) ->
                 GroupRow(
-                    g.ifEmpty { T("ジャンル不明", "Unknown genre") }, T("${al}枚 ・ ${n}曲", "$al albums · $n songs"),
+                    g.ifEmpty { S(R.string.unknown_genre) }, S(R.string.albums_songs, al, n),
                     { vm.libPush("genre:$g") },
                 ) { RoundIcon(AppIcons.Genre) }
             }
@@ -779,7 +776,7 @@ private fun GenrePage(vm: MainViewModel, g: String) {
     val tracks = remember(vm.albums, g) {
         vm.albums.flatMap { a -> a.tracks.filter { it.genre == g } }
     }
-    GroupedTracks(vm, g.ifEmpty { T("ジャンル不明", "Unknown genre") }, tracks)
+    GroupedTracks(vm, g.ifEmpty { S(R.string.unknown_genre) }, tracks)
 }
 
 @Composable
@@ -793,7 +790,7 @@ private fun YearsPage(vm: MainViewModel) {
         LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp)) {
             items(years, key = { it.first }) { (y, n, t) ->
                 GroupRow(
-                    y.ifEmpty { T("発売年不明", "Unknown year") }, T("${n}枚 ・ ${t}曲", "$n albums · $t songs"),
+                    y.ifEmpty { S(R.string.unknown_year) }, S(R.string.albums_songs, n, t),
                     { vm.libPush("year:$y") },
                 ) { RoundIcon(Icons.Filled.DateRange) }
             }
@@ -863,9 +860,9 @@ private fun FolderBrowsePage(vm: MainViewModel, path: String) {
     }
     val parts = path.split('/').filter { it.isNotEmpty() }
     Column(Modifier.fillMaxSize()) {
-        PageTop(vm, parts.lastOrNull() ?: "/", node?.let { T("${it.albumCount}枚 ・ ${it.trackCount}曲", "${it.albumCount} albums · ${it.trackCount} songs") }) {
+        PageTop(vm, parts.lastOrNull() ?: "/", node?.let { S(R.string.albums_songs, it.albumCount, it.trackCount) }) {
             // この下のアルバムをまとめて一覧にする
-            IconButton({ vm.libPush("folder:$path") }) { Icon(AppIcons.ListView, T("このフォルダ内のアルバムをすべて表示", "Show all albums in this folder")) }
+            IconButton({ vm.libPush("folder:$path") }) { Icon(AppIcons.ListView, S(R.string.show_all_albums_in_this)) }
         }
         // 今いる場所(パンくず)。タップでその階層へ移る
         Row(
@@ -885,7 +882,7 @@ private fun FolderBrowsePage(vm: MainViewModel, path: String) {
             }
         }
         if (node == null) {
-            EmptyState(AppIcons.Folder, T("フォルダが見つかりません", "Folder not found"), "")
+            EmptyState(AppIcons.Folder, S(R.string.folder_not_found), "")
             return@Column
         }
         val children = remember(node) { node.children.values.toList() }
@@ -894,7 +891,7 @@ private fun FolderBrowsePage(vm: MainViewModel, path: String) {
             LazyColumn(state = st, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp)) {
                 items(children, key = { "f:" + it.path }) { c ->
                     GroupRow(
-                        c.name, T("${c.albumCount}枚 ・ ${c.trackCount}曲", "${c.albumCount} albums · ${c.trackCount} songs"),
+                        c.name, S(R.string.albums_songs, c.albumCount, c.trackCount),
                         { vm.libPush("dir:" + c.path) },
                     ) { RoundIcon(AppIcons.Folder) }
                 }
@@ -952,7 +949,7 @@ private fun FoldersPage(vm: MainViewModel) {
                         ) {
                             Icon(
                                 if (isOpen) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                if (isOpen) T("閉じる", "Collapse") else T("開く", "Expand"),
+                                if (isOpen) S(R.string.collapse) else S(R.string.expand),
                                 Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Spacer(Modifier.width(4.dp))
@@ -961,13 +958,13 @@ private fun FoldersPage(vm: MainViewModel) {
                             Column(Modifier.weight(1f)) {
                                 Text(f.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(
-                                    T("${f.albumCount}枚 ・ ${f.trackCount}曲", "${f.albumCount} albums · ${f.trackCount} songs"),
+                                    S(R.string.albums_songs, f.albumCount, f.trackCount),
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
                                 )
                             }
                             // このフォルダの中へ入る(エクスプローラーのように、階層を潜っていく)
                             IconButton({ vm.libPush("dir:" + f.path) }) {
-                                Icon(AppIcons.Grid, T("フォルダを開く", "Open folder"))
+                                Icon(AppIcons.Grid, S(R.string.open_folder))
                             }
                         }
                     } else {
@@ -989,14 +986,14 @@ private fun FavoritesPage(vm: MainViewModel) {
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, tileLabel("favorites"))
         Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(tab == 0, { tab = 0 }, label = { Text(T("曲 ${songs.size}", "Songs ${songs.size}")) })
-            FilterChip(tab == 1, { tab = 1 }, label = { Text(T("アルバム ${albums.size}", "Albums ${albums.size}")) })
+            FilterChip(tab == 0, { tab = 0 }, label = { Text(S(R.string.songs_2, songs.size)) })
+            FilterChip(tab == 1, { tab = 1 }, label = { Text(S(R.string.albums_2, albums.size)) })
         }
         if (tab == 0) {
             if (songs.isEmpty()) {
                 EmptyState(
-                    Icons.Filled.FavoriteBorder, T("お気に入りの曲はまだありません", "No favorite songs yet"),
-                    T("再生画面のハートボタンか、曲の長押しメニューから追加できます", "Add songs with the heart button in the player or from a song's menu"),
+                    Icons.Filled.FavoriteBorder, S(R.string.no_favorite_songs_yet),
+                    S(R.string.add_songs_with_heart_button),
                 )
                 return@Column
             }
@@ -1012,8 +1009,8 @@ private fun FavoritesPage(vm: MainViewModel) {
         } else {
             if (albums.isEmpty()) {
                 EmptyState(
-                    Icons.Filled.FavoriteBorder, T("お気に入りのアルバムはまだありません", "No favorite albums yet"),
-                    T("アルバム画面のハートボタンから追加できます", "Add albums with the heart button on the album screen"),
+                    Icons.Filled.FavoriteBorder, S(R.string.no_favorite_albums_yet),
+                    S(R.string.add_albums_with_heart_button),
                 )
                 return@Column
             }
@@ -1038,18 +1035,18 @@ private fun HistoryPage(vm: MainViewModel) {
     if (confirm) {
         AlertDialog(
             onDismissRequest = { confirm = false },
-            title = { Text(T("再生履歴を消去しますか？", "Clear play history?")) },
-            text = { Text(T("「最近再生」と「よく聴く曲」がリセットされます", "This resets \"Recently played\" and \"Most played\"")) },
-            confirmButton = { TextButton({ vm.store.clearHistory(); confirm = false }) { Text(T("消去", "Clear")) } },
-            dismissButton = { TextButton({ confirm = false }) { Text(T("キャンセル", "Cancel")) } },
+            title = { Text(S(R.string.clear_play_history)) },
+            text = { Text(S(R.string.this_resets_recently_played_and)) },
+            confirmButton = { TextButton({ vm.store.clearHistory(); confirm = false }) { Text(S(R.string.clear)) } },
+            dismissButton = { TextButton({ confirm = false }) { Text(S(R.string.cancel)) } },
         )
     }
     Column(Modifier.fillMaxSize()) {
-        PageTop(vm, tileLabel("history"), T("${list.size}曲", "${list.size} songs")) {
-            if (list.isNotEmpty()) IconButton({ confirm = true }) { Icon(Icons.Filled.Delete, T("履歴を消去", "Clear history")) }
+        PageTop(vm, tileLabel("history"), S(R.string.songs_4, list.size)) {
+            if (list.isNotEmpty()) IconButton({ confirm = true }) { Icon(Icons.Filled.Delete, S(R.string.clear_history)) }
         }
         if (list.isEmpty()) {
-            EmptyState(AppIcons.History, T("再生した曲はまだありません", "Nothing played yet"), "")
+            EmptyState(AppIcons.History, S(R.string.nothing_played_yet), "")
             return@Column
         }
         LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp)) {
@@ -1078,7 +1075,7 @@ private fun TopPage(vm: MainViewModel) {
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, tileLabel("top"))
         if (list.isEmpty()) {
-            EmptyState(AppIcons.Trending, T("再生した曲はまだありません", "Nothing played yet"), "")
+            EmptyState(AppIcons.Trending, S(R.string.nothing_played_yet), "")
             return@Column
         }
         LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp)) {
@@ -1089,7 +1086,7 @@ private fun TopPage(vm: MainViewModel) {
                 )
             }
             itemsIndexed(list, key = { _, p -> p.first.uri }) { i, (t, n) ->
-                TrackRow(vm, t, { vm.playTracks(tracks, i) }, number = "${i + 1}", showArt = true, trailingText = T("${n}回", "${n}×"))
+                TrackRow(vm, t, { vm.playTracks(tracks, i) }, number = "${i + 1}", showArt = true, trailingText = S(R.string.label, n))
             }
         }
     }
@@ -1103,26 +1100,26 @@ private fun PlaylistNameDialog(title: String, initial: String, onDismiss: () -> 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
-        text = { OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(T("名前", "Name")) }) },
-        confirmButton = { TextButton({ onDone(name); onDismiss() }, enabled = name.isNotBlank()) { Text(T("OK", "OK")) } },
-        dismissButton = { TextButton(onDismiss) { Text(T("キャンセル", "Cancel")) } },
+        text = { OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(S(R.string.name)) }) },
+        confirmButton = { TextButton({ onDone(name); onDismiss() }, enabled = name.isNotBlank()) { Text(S(R.string.ok)) } },
+        dismissButton = { TextButton(onDismiss) { Text(S(R.string.cancel)) } },
     )
 }
 
 @Composable
 private fun PlaylistsPage(vm: MainViewModel) {
     var creating by remember { mutableStateOf(false) }
-    if (creating) PlaylistNameDialog(T("新しいプレイリスト", "New playlist"), "", { creating = false }) { vm.createPlaylist(it, emptyList()) }
+    if (creating) PlaylistNameDialog(S(R.string.new_playlist), "", { creating = false }) { vm.createPlaylist(it, emptyList()) }
     val map = vm.trackMap
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, tileLabel("playlists")) {
-            IconButton({ creating = true }) { Icon(Icons.Filled.Add, T("新しいプレイリスト", "New playlist")) }
+            IconButton({ creating = true }) { Icon(Icons.Filled.Add, S(R.string.new_playlist)) }
         }
         if (vm.store.playlists.isEmpty()) {
             EmptyState(
-                AppIcons.Queue, T("プレイリストはまだありません", "No playlists yet"),
-                T("曲やアルバムの長押しメニュー、または再生リストの「保存」から作れます", "Create one from a song or album menu, or by saving the queue"),
-                T("新しいプレイリスト", "New playlist"),
+                AppIcons.Queue, S(R.string.no_playlists_yet),
+                S(R.string.create_one_from_song_or),
+                S(R.string.new_playlist),
             ) { creating = true }
             return@Column
         }
@@ -1157,14 +1154,14 @@ private fun PlaylistPage(vm: MainViewModel, id: String) {
     }
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
-    if (renaming) PlaylistNameDialog(T("名前を変更", "Rename"), p.name, { renaming = false }) { vm.store.renamePlaylist(p.id, it) }
+    if (renaming) PlaylistNameDialog(S(R.string.rename), p.name, { renaming = false }) { vm.store.renamePlaylist(p.id, it) }
     if (deleting) {
         AlertDialog(
             onDismissRequest = { deleting = false },
-            title = { Text(T("「${p.name}」を削除しますか？", "Delete \"${p.name}\"?")) },
-            text = { Text(T("曲のファイルは削除されません", "Song files won't be deleted")) },
-            confirmButton = { TextButton({ deleting = false; vm.store.deletePlaylist(p.id) }) { Text(T("削除", "Delete")) } },
-            dismissButton = { TextButton({ deleting = false }) { Text(T("キャンセル", "Cancel")) } },
+            title = { Text(S(R.string.delete_2, p.name)) },
+            text = { Text(S(R.string.song_files_wont_be_deleted)) },
+            confirmButton = { TextButton({ deleting = false; vm.store.deletePlaylist(p.id) }) { Text(S(R.string.delete)) } },
+            dismissButton = { TextButton({ deleting = false }) { Text(S(R.string.cancel)) } },
         )
     }
     val st = rememberLazyListState()
@@ -1179,14 +1176,14 @@ private fun PlaylistPage(vm: MainViewModel, id: String) {
     }
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, p.name, countText(tracks)) {
-            IconButton({ renaming = true }) { Icon(Icons.Filled.Edit, T("名前を変更", "Rename")) }
-            IconButton({ deleting = true }) { Icon(Icons.Filled.Delete, T("削除", "Delete")) }
+            IconButton({ renaming = true }) { Icon(Icons.Filled.Edit, S(R.string.rename)) }
+            IconButton({ deleting = true }) { Icon(Icons.Filled.Delete, S(R.string.delete)) }
         }
         LazyColumn(state = st, contentPadding = PaddingValues(start = 4.dp, end = 8.dp, bottom = 24.dp)) {
             item(key = "controls") {
                 if (tracks.isEmpty()) {
                     Text(
-                        T("曲の長押しメニューの「プレイリストに追加」から曲を追加できます", "Use \"Add to playlist\" in a song's menu to add songs"),
+                        S(R.string.use_add_to_playlist_in),
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp),
                     )
@@ -1239,12 +1236,12 @@ private fun SearchPage(vm: MainViewModel) {
     }
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton({ vm.libPop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, T("戻る", "Back")) }
+            IconButton({ vm.libPop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, S(R.string.back)) }
             OutlinedTextField(
                 q, { q = it }, Modifier.weight(1f).focusRequester(focus),
-                placeholder = { Text(T("曲名・アルバム・アーティスト", "Songs, albums, artists")) },
+                placeholder = { Text(S(R.string.songs_albums_artists)) },
                 leadingIcon = { Icon(Icons.Filled.Search, null) },
-                trailingIcon = { if (q.isNotEmpty()) IconButton({ q = "" }) { Icon(Icons.Filled.Clear, T("消去", "Clear")) } },
+                trailingIcon = { if (q.isNotEmpty()) IconButton({ q = "" }) { Icon(Icons.Filled.Clear, S(R.string.clear)) } },
                 singleLine = true,
                 shape = RoundedCornerShape(28.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -1254,7 +1251,7 @@ private fun SearchPage(vm: MainViewModel) {
         val r = result
         if (r == null) {
             Text(
-                T("ひらがなとカタカナ、全角と半角を区別せずに検索します", "Search ignores kana and character-width differences"),
+                S(R.string.search_ignores_kana_and_character),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(24.dp),
             )
@@ -1262,24 +1259,24 @@ private fun SearchPage(vm: MainViewModel) {
         }
         val (artists, al, songs) = r
         if (artists.isEmpty() && al.isEmpty() && songs.isEmpty()) {
-            EmptyState(Icons.Filled.Search, T("見つかりませんでした", "No results"), "")
+            EmptyState(Icons.Filled.Search, S(R.string.no_results), "")
             return@Column
         }
         LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp)) {
             if (artists.isNotEmpty()) {
-                item(key = "ah") { ListHeading(T("アーティスト", "Artists"), Modifier.padding(start = 8.dp)) }
+                item(key = "ah") { ListHeading(S(R.string.artists), Modifier.padding(start = 8.dp)) }
                 items(artists, key = { "a:$it" }) { name ->
                     GroupRow(name, "", { vm.libPush("artist:$name") }) { InitialAvatar(name) }
                 }
             }
             if (al.isNotEmpty()) {
-                item(key = "alh") { ListHeading(T("アルバム", "Albums"), Modifier.padding(start = 8.dp)) }
+                item(key = "alh") { ListHeading(S(R.string.albums), Modifier.padding(start = 8.dp)) }
                 items(al, key = { "al:" + it.key }) { a -> AlbumListRow(vm, a) }
             }
             if (songs.isNotEmpty()) {
-                item(key = "sh") { ListHeading(T("曲", "Songs"), Modifier.padding(start = 8.dp)) }
+                item(key = "sh") { ListHeading(S(R.string.songs_3), Modifier.padding(start = 8.dp)) }
                 itemsIndexed(songs, key = { _, t -> "s:" + t.uri }) { i, t ->
-                    TrackRow(vm, t, { vm.playTracks(songs, i) }, sub = t.artist + " ・ " + t.album)
+                    TrackRow(vm, t, { vm.playTracks(songs, i) }, sub = t.artist + S(R.string.separator) + t.album)
                 }
             }
         }
@@ -1302,23 +1299,23 @@ private fun AlbumDetail(vm: MainViewModel, a: LibAlbum) {
         IconButton({ vm.toggleFavAlbum(a.key) }) {
             Icon(
                 if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                if (fav) T("お気に入りから外す", "Remove from favorites") else T("お気に入りに追加", "Add to favorites"),
+                if (fav) S(R.string.remove_from_favorites) else S(R.string.add_to_favorites),
                 tint = if (fav) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
     val bar: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton({ vm.libPop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, T("戻る", "Back")) }
+            IconButton({ vm.libPop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, S(R.string.back)) }
             Spacer(Modifier.weight(1f))
             if (vm.tagSaving) {
-                Text(T("保存中…", "Saving…"), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(end = 12.dp))
+                Text(S(R.string.saving), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(end = 12.dp))
             } else {
                 // 横向きでは左の列が狭いので、お気に入りのボタンは上の帯に出す
                 if (land) favButton()
-                IconButton({ lookup = true; vm.libLookup(a) }) { Icon(Icons.Filled.Search, T("曲情報を取得", "Get track info")) }
-                IconButton({ editing = true }) { Icon(Icons.Filled.Edit, T("曲情報を編集", "Edit track info")) }
-                IconButton({ vm.menuAlbum = a }) { Icon(Icons.Filled.MoreVert, T("その他の操作", "More options")) }
+                IconButton({ lookup = true; vm.libLookup(a) }) { Icon(Icons.Filled.Search, S(R.string.get_track_info)) }
+                IconButton({ editing = true }) { Icon(Icons.Filled.Edit, S(R.string.edit_track_info)) }
+                IconButton({ vm.menuAlbum = a }) { Icon(Icons.Filled.MoreVert, S(R.string.more_options)) }
             }
         }
     }
@@ -1335,7 +1332,7 @@ private fun AlbumDetail(vm: MainViewModel, a: LibAlbum) {
                 QualityBadge(Quality.badge(a), Quality.classOf(a))
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    (if (a.year.isNotEmpty()) a.year + " ・ " else "") + countText(a.tracks),
+                    (if (a.year.isNotEmpty()) a.year + S(R.string.separator) else "") + countText(a.tracks),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -1408,10 +1405,10 @@ private fun EditTagsDialog(vm: MainViewModel, a: LibAlbum, onDismiss: () -> Unit
             TextButton({
                 vm.saveAlbumTags(a, album, albumArtist, year, titles.toList(), artists.toList(), cover)
                 onDismiss()
-            }) { Text(T("保存", "Save")) }
+            }) { Text(S(R.string.save)) }
         },
-        dismissButton = { TextButton(onDismiss) { Text(T("キャンセル", "Cancel")) } },
-        title = { Text(T("曲情報を編集", "Edit track info")) },
+        dismissButton = { TextButton(onDismiss) { Text(S(R.string.cancel)) } },
+        title = { Text(S(R.string.edit_track_info)) },
         text = {
             LazyColumn(Modifier.heightIn(max = 500.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
@@ -1420,18 +1417,18 @@ private fun EditTagsDialog(vm: MainViewModel, a: LibAlbum, onDismiss: () -> Unit
                         Spacer(Modifier.width(12.dp))
                         FilledTonalButton({
                             pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        }) { Text(if (cover == null) T("ジャケットを変更", "Change cover") else T("新しい画像を選択済み", "New image selected")) }
+                        }) { Text(if (cover == null) S(R.string.change_cover) else S(R.string.new_image_selected)) }
                     }
                 }
-                item { OutlinedTextField(album, { album = it }, Modifier.fillMaxWidth(), label = { Text(T("アルバム名", "Album")) }, singleLine = true) }
+                item { OutlinedTextField(album, { album = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.album)) }, singleLine = true) }
                 item {
-                    OutlinedTextField(albumArtist, { albumArtist = it }, Modifier.fillMaxWidth(), label = { Text(T("アルバムアーティスト", "Album artist")) }, singleLine = true)
+                    OutlinedTextField(albumArtist, { albumArtist = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.album_artist)) }, singleLine = true)
                 }
-                item { OutlinedTextField(year, { year = it }, Modifier.fillMaxWidth(), label = { Text(T("発売年", "Year")) }, singleLine = true) }
+                item { OutlinedTextField(year, { year = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.year)) }, singleLine = true) }
                 if (unsupported > 0) {
                     item {
                         Text(
-                            T("${unsupported}曲は曲情報を書き換えられない形式（CUEシートで分割した曲など）のため、変更されません", "${unsupported} songs can't be edited because of their format (such as songs split by a CUE sheet) and will be left unchanged"),
+                            S(R.string.songs_cant_be_edited_because, unsupported),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
                         )
                     }
@@ -1442,11 +1439,11 @@ private fun EditTagsDialog(vm: MainViewModel, a: LibAlbum, onDismiss: () -> Unit
                         val n = a.tracks.getOrNull(i)?.track ?: 0
                         OutlinedTextField(
                             titles[i], { titles[i] = it }, Modifier.fillMaxWidth(),
-                            label = { Text(if (n > 0) T("${n}曲目の曲名", "Track ${n} title") else T("曲名", "Title")) }, singleLine = true,
+                            label = { Text(if (n > 0) S(R.string.track_title, n) else S(R.string.title_2)) }, singleLine = true,
                         )
                         OutlinedTextField(
                             artists[i], { artists[i] = it }, Modifier.fillMaxWidth(),
-                            label = { Text(T("アーティスト", "Artist")) }, singleLine = true,
+                            label = { Text(S(R.string.artist)) }, singleLine = true,
                         )
                     }
                 }
@@ -1471,21 +1468,18 @@ private fun LookupSheet(vm: MainViewModel, a: LibAlbum, onDismiss: () -> Unit) {
         ) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(T("曲情報を取得", "Get track info"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                    TextButton(onDismiss) { Text(T("閉じる", "Close")) }
+                    Text(S(R.string.get_track_info), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                    TextButton(onDismiss) { Text(S(R.string.close)) }
                 }
                 Text(
-                    T(
-                        "曲の長さからCDを推定して検索します。選んだ情報は、このアルバムの${n}曲のファイルに書き込まれます。",
-                        "Finds matching CDs by song length. The selected details are written to all $n files in this album.",
-                    ),
+                    S(R.string.finds_matching_cds_by_song, n),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             item {
                 OutlinedTextField(
                     album, { album = it }, Modifier.fillMaxWidth().padding(top = 8.dp),
-                    label = { Text(T("アルバム名", "Album")) }, singleLine = true,
+                    label = { Text(S(R.string.album)) }, singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { search() }),
                 )
@@ -1493,7 +1487,7 @@ private fun LookupSheet(vm: MainViewModel, a: LibAlbum, onDismiss: () -> Unit) {
             item {
                 OutlinedTextField(
                     artist, { artist = it }, Modifier.fillMaxWidth(),
-                    label = { Text(T("アーティスト", "Artist")) }, singleLine = true,
+                    label = { Text(S(R.string.artist)) }, singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { search() }),
                 )
@@ -1503,9 +1497,9 @@ private fun LookupSheet(vm: MainViewModel, a: LibAlbum, onDismiss: () -> Unit) {
                     FilledTonalButton(search, enabled = !vm.libSearching && (album.isNotBlank() || artist.isNotBlank())) {
                         Icon(Icons.Filled.Search, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(T("名前で検索", "Search by name"))
+                        Text(S(R.string.search_by_name))
                     }
-                    TextButton({ vm.libLookup(a) }, enabled = !vm.libSearching) { Text(T("曲の長さで探す", "Match by length")) }
+                    TextButton({ vm.libLookup(a) }, enabled = !vm.libSearching) { Text(S(R.string.match_by_length)) }
                 }
                 if (vm.libSearching || vm.libApplying) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 8.dp))
                 if (vm.libMessage.isNotEmpty()) {
@@ -1521,22 +1515,19 @@ private fun LookupSheet(vm: MainViewModel, a: LibAlbum, onDismiss: () -> Unit) {
     if (c != null) {
         AlertDialog(
             onDismissRequest = { pick = null },
-            title = { Text(T("この曲情報で上書きしますか？", "Overwrite with these details?")) },
+            title = { Text(S(R.string.overwrite_with_these_details)) },
             text = {
                 Text(
-                    "${c.meta.title}\n${c.meta.artist}\n\n" + T(
-                        "${n}曲のファイルの曲名・アーティスト・アルバム名・発売年を書き換えます。ジャケット画像が見つかれば差し替えます。WAVファイルは対象外です。",
-                        "This rewrites the title, artist, album, and year in $n files. Cover art is replaced if found. WAV files are skipped.",
-                    ),
+                    "${c.meta.title}\n${c.meta.artist}\n\n" + S(R.string.this_rewrites_title_artist_album, n),
                 )
             },
             confirmButton = {
                 TextButton({
                     pick = null
                     vm.libApply(a, c) { onDismiss() }
-                }) { Text(T("上書き", "Overwrite")) }
+                }) { Text(S(R.string.overwrite)) }
             },
-            dismissButton = { TextButton({ pick = null }) { Text(T("キャンセル", "Cancel")) } },
+            dismissButton = { TextButton({ pick = null }) { Text(S(R.string.cancel)) } },
         )
     }
 }

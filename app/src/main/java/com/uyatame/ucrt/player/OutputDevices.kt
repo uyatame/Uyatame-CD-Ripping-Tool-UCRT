@@ -5,7 +5,8 @@ import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 import com.uyatame.ucrt.player.usb.UsbDac
 import android.media.AudioFormat as AFormat
 
@@ -67,12 +68,12 @@ object OutputDevices {
                     Triple(r, if (p.format == AFormat.ENCODING_PCM_FLOAT) 33 else b, name)
                 }.maxWithOrNull(compareBy({ it.first }, { it.second }))
             }.getOrNull()
-            if (best != null) return T("最大 ", "Up to ") + "${best.third} / " + khz(best.first)
+            if (best != null) return S(R.string.up_to) + "${best.third} / " + khz(best.first)
         }
         val rate = d.sampleRates.maxOrNull() ?: 0
         val bits = encodingsOf(d).maxOfOrNull { bitsOf(it) } ?: 0
         if (rate <= 0) return ""
-        return T("最大 ", "Up to ") + (if (bits > 0) "${bits}bit / " else "") + khz(rate)
+        return S(R.string.up_to) + (if (bits > 0) "${bits}bit / " else "") + khz(rate)
     }
 
     /**
@@ -111,11 +112,11 @@ object OutputDevices {
         val kind = kindOf(d.type)
         val product = d.productName?.toString()?.trim().orEmpty()
         val (name, detail) = when (kind) {
-            OutputKind.Speaker -> Build.MODEL to T("本体スピーカー", "Built-in speaker")
-            OutputKind.Wired -> T("有線イヤホン", "Wired headphones") to T("イヤホンジャック", "Headphone jack")
-            OutputKind.Usb -> product.ifEmpty { "USB" } to T("USBオーディオ（Android経由）", "USB audio (via Android)")
+            OutputKind.Speaker -> Build.MODEL to S(R.string.built_in_speaker)
+            OutputKind.Wired -> S(R.string.wired_headphones) to S(R.string.headphone_jack)
+            OutputKind.Usb -> product.ifEmpty { "USB" } to S(R.string.usb_audio_via_android)
             OutputKind.Bluetooth -> product.ifEmpty { "Bluetooth" } to "Bluetooth"
-            else -> product.ifEmpty { T("その他の出力", "Other output") } to (if (d.type == AudioDeviceInfo.TYPE_HDMI) "HDMI" else "")
+            else -> product.ifEmpty { S(R.string.other_output) } to (if (d.type == AudioDeviceInfo.TYPE_HDMI) "HDMI" else "")
         }
         return OutputDevice(keyOf(d), kind, name, detail, specOf(d))
     }
@@ -128,7 +129,7 @@ object OutputDevices {
         if (dac != null) {
             out += OutputDevice(
                 KEY_USB_DIRECT, OutputKind.UsbDirect, dac.productName?.trim()?.ifEmpty { null } ?: "USB DAC",
-                T("USB DAC · ビットパーフェクト", "USB DAC · Bit-perfect"), UsbDac.maxSpec(),
+                S(R.string.usb_dac_bit_perfect), UsbDac.maxSpec(),
             )
         }
         val seen = HashSet<String>()

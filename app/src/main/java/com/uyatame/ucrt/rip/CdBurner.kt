@@ -1,6 +1,7 @@
 package com.uyatame.ucrt.rip
 
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 import com.uyatame.ucrt.usb.ScsiException
 import com.uyatame.ucrt.usb.UsbScsiDrive
 import java.io.File
@@ -40,17 +41,14 @@ class CdBurner(private val drive: UsbScsiDrive, private val opt: BurnOptions, pr
         val info = drive.readDiscInfo()
         if (info.status != 0) {
             throw IOException(
-                if (info.erasable) T("このCD-RWは空ではありません。消去してから書き込んでください。", "This CD-RW is not blank. Erase it before writing.")
-                else T("空のCD-Rを入れてください（このディスクは書き込み済みです）", "Insert a blank CD-R (this disc has already been written)"),
+                if (info.erasable) S(R.string.this_cd_rw_is_not)
+                else S(R.string.insert_blank_cd_r_this),
             )
         }
         // 1 曲目の前の 2 秒を含めて入るか
         if (info.lastLeadOut > 0 && img.totalSectors > info.lastLeadOut) {
             throw IOException(
-                T(
-                    "ディスクの容量が足りません(%d 分 %d 秒 / このディスクは %d 分 %d 秒まで)",
-                    "Not enough space on the disc (%d:%02d needed / the disc holds %d:%02d)",
-                ).format(img.totalSectors / 75 / 60, img.totalSectors / 75 % 60, info.lastLeadOut / 75 / 60, info.lastLeadOut / 75 % 60),
+                S(R.string.not_enough_space_on_disc).format(img.totalSectors / 75 / 60, img.totalSectors / 75 % 60, info.lastLeadOut / 75 / 60, info.lastLeadOut / 75 % 60),
             )
         }
         return info
@@ -194,7 +192,7 @@ class CdBurner(private val drive: UsbScsiDrive, private val opt: BurnOptions, pr
                     Thread.sleep(25)
                     continue
                 }
-                throw IOException(T("書き込みに失敗しました（LBA %d: %s）", "Write failed (LBA %d: %s)").format(lba, e.message), e)
+                throw IOException(S(R.string.write_failed_lba).format(lba, e.message), e)
             }
         }
     }

@@ -1,6 +1,7 @@
 package com.uyatame.ucrt.rip
 
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 
 import com.uyatame.ucrt.meta.Cover
 import java.io.ByteArrayOutputStream
@@ -118,7 +119,7 @@ class Mp3Sink(
             pcm = ByteArray(size - size % 4)
             outBuf = ByteArray(size * 2 + 8192)
         } catch (e: Throwable) {
-            throw IOException(T("MP3エンコーダーを初期化できません: ", "Cannot initialize MP3 encoder: ") + "${e.javaClass.simpleName} ${e.message ?: ""}")
+            throw IOException(S(R.string.cannot_initialize_mp3_encoder) + "${e.javaClass.simpleName} ${e.message ?: ""}")
         }
     }
 
@@ -129,7 +130,7 @@ class Mp3Sink(
         val n = try {
             encodeBuffer.invoke(enc, pcm, 0, fill, outBuf) as Int
         } catch (e: Throwable) {
-            throw IOException(T("MP3のエンコード中にエラーが発生しました: ${e.cause?.message ?: e.message}", "MP3 encoding error: ${e.cause?.message ?: e.message}"))
+            throw IOException(S(R.string.mp3_encoding_error, e.cause?.message ?: e.message))
         }
         if (n > 0) out.write(outBuf, 0, n)
         fill = 0

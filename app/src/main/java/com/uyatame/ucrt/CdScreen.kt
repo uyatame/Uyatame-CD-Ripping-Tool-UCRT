@@ -87,7 +87,7 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
     }
     val requestRip: () -> Unit = {
         when {
-            vm.audioTracks.none { vm.selected[it.number] == true } -> vm.snack = T("取り込む曲を選んでください", "Select tracks to rip")
+            vm.audioTracks.none { vm.selected[it.number] == true } -> vm.snack = S(R.string.select_tracks_to_rip)
             vm.meta?.title == null || vm.meta?.title == UNKNOWN_ALBUM -> confirmUnknown = true
             s.outputUri == null -> folderPicker.launch(null)
             else -> vm.prepareRip()
@@ -100,19 +100,19 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
-            ScreenHeader(T("ディスク", "Disc")) {
+            ScreenHeader(S(R.string.disc)) {
                 IconButton({ vm.refreshDisc() }, enabled = vm.connected && !vm.busy && !vm.discBusy) {
-                    Icon(Icons.Filled.Refresh, T("ディスクを読み直す", "Reload disc"))
+                    Icon(Icons.Filled.Refresh, S(R.string.reload_disc))
                 }
-                IconButton({ vm.eject() }, enabled = vm.connected && !vm.busy) { Icon(AppIcons.Eject, T("取り出す", "Eject")) }
+                IconButton({ vm.eject() }, enabled = vm.connected && !vm.busy) { Icon(AppIcons.Eject, S(R.string.eject)) }
             }
         }
         when {
             !vm.connected -> item {
                 EmptyState(
-                    AppIcons.Album, T("ドライブが接続されていません", "No drive connected"),
-                    T("${vm.status}\n外付けドライブをUSBで接続してください。電力が不足する場合は、セルフパワーのUSBハブを使用してください。", "${vm.status}\nConnect an external drive over USB. If it doesn't get enough power, use a self-powered USB hub."),
-                    T("もう一度探す", "Search again"),
+                    AppIcons.Album, S(R.string.no_drive_connected),
+                    S(R.string.connect_external_drive_over_usb, vm.status),
+                    S(R.string.search_again),
                 ) { vm.scan() }
             }
             audio.isEmpty() -> item {
@@ -120,17 +120,17 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
                     Column(Modifier.fillMaxWidth().padding(vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         LinearProgressIndicator(Modifier.width(160.dp))
                         Spacer(Modifier.size(16.dp))
-                        Text(T("ディスクを読み込んでいます…", "Reading disc…"), style = MaterialTheme.typography.bodyLarge)
+                        Text(S(R.string.reading_disc), style = MaterialTheme.typography.bodyLarge)
                     }
                 } else {
-                    val loading = vm.discText == T("ディスクを読み込み中…", "Loading disc…")
+                    val loading = vm.discText == S(R.string.loading_disc)
                     EmptyState(
                         AppIcons.Album,
-                        vm.discText.ifEmpty { T("ディスクを入れてください", "Insert a disc") },
-                        if (loading) T("回転が安定するまで、数秒お待ちください", "Wait a few seconds while the disc spins up")
-                        else T("音楽CDを入れると自動で読み込みます", "Audio CDs are read automatically when inserted") +
-                            "\n" + T("表示されない場合は「読み直す」をタップしてください", "If nothing appears, tap \"Reload\""),
-                        T("読み直す", "Reload"),
+                        vm.discText.ifEmpty { S(R.string.insert_disc) },
+                        if (loading) S(R.string.wait_few_seconds_while_disc)
+                        else S(R.string.audio_cds_are_read_automatically) +
+                            "\n" + S(R.string.if_nothing_appears_tap_reload),
+                        S(R.string.reload),
                     ) { vm.refreshDisc() }
                 }
             }
@@ -138,9 +138,9 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
                 item { AlbumHeader(vm, s, { showEdit = true }, { showQuality = true }, onOpenSettings, requestRip) }
                 item {
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(T("曲目", "Tracks"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        Text(S(R.string.tracks_4), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                         val all = audio.all { vm.selected[it.number] == true }
-                        TextButton({ vm.selectAll(!all) }, enabled = !vm.busy) { Text(if (all) T("選択を解除", "Deselect all") else T("すべて選択", "Select all")) }
+                        TextButton({ vm.selectAll(!all) }, enabled = !vm.busy) { Text(if (all) S(R.string.deselect_all) else S(R.string.select_all)) }
                     }
                 }
                 items(audio, key = { it.number }) { t ->
@@ -190,23 +190,20 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
     if (confirmUnknown) {
         AlertDialog(
             onDismissRequest = { confirmUnknown = false },
-            title = { Text(T("曲情報が設定されていません", "No track info")) },
+            title = { Text(S(R.string.no_track_info)) },
             text = {
                 Text(
-                    T(
-                        "このまま取り込むと、曲名は「トラック 01」などになります。取り込み後もライブラリで曲情報を編集できます。",
-                        "Tracks will be named \"Track 01\", \"Track 02\", and so on. You can edit the track info later in Library.",
-                    ),
+                    S(R.string.tracks_will_be_named_track),
                 )
             },
             confirmButton = {
                 TextButton({
                     confirmUnknown = false
                     if (s.outputUri == null) folderPicker.launch(null) else vm.prepareRip()
-                }) { Text(T("このまま取り込む", "Rip anyway")) }
+                }) { Text(S(R.string.rip_anyway)) }
             },
             dismissButton = {
-                TextButton({ confirmUnknown = false; vm.openChooser() }) { Text(T("曲情報を選ぶ", "Choose track info")) }
+                TextButton({ confirmUnknown = false; vm.openChooser() }) { Text(S(R.string.choose_track_info)) }
             },
         )
     }
@@ -215,8 +212,8 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
     if (showQuality) {
         AlertDialog(
             onDismissRequest = { showQuality = false },
-            confirmButton = { TextButton({ showQuality = false }) { Text(T("閉じる", "Close")) } },
-            title = { Text(T("取り込みの音質", "Rip quality")) },
+            confirmButton = { TextButton({ showQuality = false }) { Text(S(R.string.close)) } },
+            title = { Text(S(R.string.rip_quality)) },
             text = { Column(Modifier.verticalScroll(rememberScrollState())) { QualityOptions(vm, s) } },
         )
     }
@@ -258,7 +255,7 @@ private fun AlbumHeader(
                         overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        listOf(year, T("${audio.size}曲", "${audio.size} tracks"), fmtTime(totalSec)).filter { it.isNotEmpty() }.joinToString(T(" ・ ", " · ")),
+                        listOf(year, S(R.string.tracks, audio.size), fmtTime(totalSec)).filter { it.isNotEmpty() }.joinToString(S(R.string.label_5)),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (vm.metaSearching) LinearProgressIndicator(Modifier.width(120.dp).padding(top = 4.dp))
@@ -270,7 +267,7 @@ private fun AlbumHeader(
                     }
                     if (!vm.metaSearching && !vm.busy) {
                         Text(
-                            T("タップして曲情報を選び直す", "Tap to choose different track info"),
+                            S(R.string.tap_to_choose_different_track),
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.clickable { vm.openChooser() },
                         )
@@ -281,12 +278,12 @@ private fun AlbumHeader(
                 Button(onRip, Modifier.weight(1f), enabled = !vm.busy && !vm.discBusy) {
                     Icon(AppIcons.Download, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(T("取り込む", "Rip"))
+                    Text(S(R.string.rip))
                 }
                 FilledTonalButton({ vm.playCd() }, Modifier.weight(1f), enabled = !vm.busy) {
                     Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(T("再生", "Play"))
+                    Text(S(R.string.play))
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -301,20 +298,20 @@ private fun AlbumHeader(
                 AssistChip(
                     onClick = { vm.startCopy() },
                     enabled = !vm.busy && !vm.discBusy,
-                    label = { Text(T("CDをコピー", "Copy CD")) },
+                    label = { Text(S(R.string.copy_cd)) },
                     leadingIcon = { Icon(AppIcons.Album, null, Modifier.size(18.dp)) },
                 )
                 Spacer(Modifier.weight(1f))
-                IconButton(onEdit, enabled = !vm.busy) { Icon(Icons.Filled.Edit, T("曲情報を編集", "Edit track info")) }
-                IconButton({ vm.openChooser() }, enabled = !vm.busy) { Icon(Icons.Filled.Search, T("曲情報の候補・検索", "Matches and search")) }
+                IconButton(onEdit, enabled = !vm.busy) { Icon(Icons.Filled.Edit, S(R.string.edit_track_info)) }
+                IconButton({ vm.openChooser() }, enabled = !vm.busy) { Icon(Icons.Filled.Search, S(R.string.matches_and_search)) }
             }
             if (s.outputUri == null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        T("保存先フォルダが設定されていません", "No save folder set"), style = MaterialTheme.typography.bodySmall,
+                        S(R.string.no_save_folder_set), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f),
                     )
-                    TextButton(onOpenSettings) { Text(T("設定する", "Set up")) }
+                    TextButton(onOpenSettings) { Text(S(R.string.set_up)) }
                 }
             }
         }
@@ -334,13 +331,13 @@ internal fun CandidateRow(c: ReleaseCandidate, cdTracks: Int, enabled: Boolean, 
                 Text("MusicBrainz", style = MaterialTheme.typography.labelSmall)
                 if (inUse) {
                     Text(
-                        T("使用中", "In use"), style = MaterialTheme.typography.labelSmall,
+                        S(R.string.in_use), style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold,
                     )
                 }
                 if (c.exact) {
                     Text(
-                        T("ディスク一致", "Disc match"), style = MaterialTheme.typography.labelSmall,
+                        S(R.string.disc_match), style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold,
                     )
                 }
@@ -353,7 +350,7 @@ internal fun CandidateRow(c: ReleaseCandidate, cdTracks: Int, enabled: Boolean, 
                 Text(c.summary, style = MaterialTheme.typography.bodySmall)
                 if (!countOk && c.trackCount > 0) {
                     Text(
-                        T("曲数が異なります（CDは${cdTracks}曲）", "Track count differs (CD has $cdTracks)"),
+                        S(R.string.track_count_differs_cd_has, cdTracks),
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error,
                     )
                 }
@@ -384,18 +381,18 @@ private fun MetaChooserDialog(vm: MainViewModel) {
             ) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(T("曲情報を選ぶ", "Choose track info"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                        TextButton({ vm.closeChooser() }) { Text(T("閉じる", "Close")) }
+                        Text(S(R.string.choose_track_info), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                        TextButton({ vm.closeChooser() }) { Text(S(R.string.close)) }
                     }
                 }
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            T("このディスクの候補", "Matches for this disc"), style = MaterialTheme.typography.titleSmall,
+                            S(R.string.matches_for_this_disc), style = MaterialTheme.typography.titleSmall,
                             modifier = Modifier.weight(1f),
                         )
                         TextButton({ vm.fetchMeta(openChooserAlways = true) }, enabled = !vm.metaSearching && !busy) {
-                            Text(T("再検索", "Retry"))
+                            Text(S(R.string.retry))
                         }
                     }
                 }
@@ -404,7 +401,7 @@ private fun MetaChooserDialog(vm: MainViewModel) {
                 } else if (vm.metaError.isNotEmpty()) {
                     item {
                         Text(
-                            T("通信エラーのため検索できませんでした", "Couldn't search due to a network error"),
+                            S(R.string.couldnt_search_due_to_network),
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error,
                         )
                         Text(vm.metaError, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
@@ -412,7 +409,7 @@ private fun MetaChooserDialog(vm: MainViewModel) {
                 } else if (vm.candidates.isEmpty()) {
                     item {
                         Text(
-                            T("見つかりませんでした。下の欄から名前で検索できます。", "No matches found. You can search by name below."),
+                            S(R.string.no_matches_found_you_can),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -420,12 +417,12 @@ private fun MetaChooserDialog(vm: MainViewModel) {
                 items(vm.candidates) { c -> CandidateRow(c, cdTracks, !busy, inUse(c)) { vm.applyCandidate(c) } }
                 item {
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    Text(T("名前で検索", "Search by name"), style = MaterialTheme.typography.titleSmall)
+                    Text(S(R.string.search_by_name), style = MaterialTheme.typography.titleSmall)
                 }
                 item {
                     OutlinedTextField(
                         album, { album = it }, Modifier.fillMaxWidth(),
-                        label = { Text(T("アルバム名", "Album")) }, singleLine = true,
+                        label = { Text(S(R.string.album)) }, singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { doSearch() }),
                     )
@@ -433,7 +430,7 @@ private fun MetaChooserDialog(vm: MainViewModel) {
                 item {
                     OutlinedTextField(
                         artist, { artist = it }, Modifier.fillMaxWidth(),
-                        label = { Text(T("アーティスト", "Artist")) }, singleLine = true,
+                        label = { Text(S(R.string.artist)) }, singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { doSearch() }),
                     )
@@ -446,7 +443,7 @@ private fun MetaChooserDialog(vm: MainViewModel) {
                         ) {
                             Icon(Icons.Filled.Search, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text(T("検索", "Search"))
+                            Text(S(R.string.search))
                         }
                         if (vm.searchBusy || busy) {
                             Spacer(Modifier.width(12.dp))
@@ -485,25 +482,25 @@ private fun EditMetaDialog(vm: MainViewModel, onDismiss: () -> Unit) {
                     ),
                 )
                 onDismiss()
-            }) { Text(T("保存", "Save")) }
+            }) { Text(S(R.string.save)) }
         },
-        dismissButton = { TextButton(onDismiss) { Text(T("キャンセル", "Cancel")) } },
-        title = { Text(T("曲情報を編集", "Edit track info")) },
+        dismissButton = { TextButton(onDismiss) { Text(S(R.string.cancel)) } },
+        title = { Text(S(R.string.edit_track_info)) },
         text = {
             LazyColumn(Modifier.heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
-                    OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text(T("アルバム名", "Album")) }, singleLine = true)
+                    OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.album)) }, singleLine = true)
                 }
                 item {
-                    OutlinedTextField(artist, { artist = it }, Modifier.fillMaxWidth(), label = { Text(T("アーティスト", "Artist")) }, singleLine = true)
+                    OutlinedTextField(artist, { artist = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.artist)) }, singleLine = true)
                 }
                 item {
-                    OutlinedTextField(date, { date = it }, Modifier.fillMaxWidth(), label = { Text(T("発売日（例：2024、2024-05-01）", "Release date (e.g., 2024 or 2024-05-01)")) }, singleLine = true)
+                    OutlinedTextField(date, { date = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.release_date_e_g_2024)) }, singleLine = true)
                 }
                 items(titles.size) { i ->
                     OutlinedTextField(
                         titles[i], { titles[i] = it }, Modifier.fillMaxWidth(),
-                        label = { Text(T("${i + 1}曲目", "Track ${i + 1}")) }, singleLine = true,
+                        label = { Text(S(R.string.track_3, i + 1)) }, singleLine = true,
                     )
                 }
             }
@@ -517,25 +514,22 @@ private fun RipConfirmDialog(vm: MainViewModel, s: AppSettings, plan: MainViewMo
     var skip by remember(plan) { mutableStateOf(true) }
     AlertDialog(
         onDismissRequest = { vm.dismissRipPlan() },
-        title = { Text(T("取り込みの確認", "Confirm ripping")) },
+        title = { Text(S(R.string.confirm_ripping)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(T("${plan.count}曲 ・ ${s.qualityLabel()}", "${plan.count} tracks · ${s.qualityLabel()}"))
+                Text(S(R.string.tracks_2, plan.count, s.qualityLabel()))
                 Text(
-                    T("保存先：", "Save to: ") + plan.dest,
+                    S(R.string.save_to) + plan.dest,
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    T("容量：約", "Size: about ") + String.format(java.util.Locale.US, "%.0f MB", plan.sizeBytes / 1048576.0) +
-                        T("（空き容量を確認してください）", " (make sure you have enough free space)"),
+                    S(R.string.size_about) + String.format(java.util.Locale.US, "%.0f MB", plan.sizeBytes / 1048576.0) +
+                        S(R.string.make_sure_you_have_enough),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (plan.existing.isNotEmpty()) {
                     Text(
-                        T(
-                            "保存先に同名のファイルが${plan.existing.size}個あります",
-                            "${plan.existing.size} files with the same name already exist",
-                        ),
+                        S(R.string.files_with_same_name_already, plan.existing.size),
                         color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
@@ -547,21 +541,21 @@ private fun RipConfirmDialog(vm: MainViewModel, s: AppSettings, plan: MainViewMo
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(skip, { skip = true })
-                        Text(T("既存の曲はスキップ", "Skip existing tracks"))
+                        Text(S(R.string.skip_existing_tracks))
                     }
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { skip = false },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(!skip, { skip = false })
-                        Text(T("上書き（取り込みが成功してから置き換えます）", "Overwrite (replaced only after a successful rip)"))
+                        Text(S(R.string.overwrite_replaced_only_after_successful))
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton({ vm.confirmRip(plan.existing.isNotEmpty() && skip) }) { Text(T("取り込む", "Rip")) }
+            TextButton({ vm.confirmRip(plan.existing.isNotEmpty() && skip) }) { Text(S(R.string.rip)) }
         },
-        dismissButton = { TextButton({ vm.dismissRipPlan() }) { Text(T("キャンセル", "Cancel")) } },
+        dismissButton = { TextButton({ vm.dismissRipPlan() }) { Text(S(R.string.cancel)) } },
     )
 }

@@ -39,7 +39,7 @@ class KeepAliveService : Service() {
             ACTION_NEXT -> MediaBridge.player?.next()
             ACTION_PREV -> MediaBridge.player?.prev()
         }
-        val info = MediaBridge.info ?: NotifInfo(false, T("処理中", "Working"), "")
+        val info = MediaBridge.info ?: NotifInfo(false, S(R.string.working), "")
         val n = build(this, info)
         if (android.os.Build.VERSION.SDK_INT >= 29) {
             try {
@@ -82,7 +82,7 @@ class KeepAliveService : Service() {
         fun build(ctx: Context, info: NotifInfo): Notification {
             if (!channelReady) {
                 ctx.getSystemService(NotificationManager::class.java).createNotificationChannel(
-                    NotificationChannel("work", T("再生・取り込み", "Playback and ripping"), NotificationManager.IMPORTANCE_LOW),
+                    NotificationChannel("work", S(R.string.playback_and_ripping), NotificationManager.IMPORTANCE_LOW),
                 )
                 channelReady = true
             }
@@ -103,12 +103,12 @@ class KeepAliveService : Service() {
             if (info.media && p != null) {
                 fun act(icon: Int, label: String, a: String, req: Int) =
                     Notification.Action.Builder(Icon.createWithResource(ctx, icon), label, action(ctx, a, req)).build()
-                b.addAction(act(android.R.drawable.ic_media_previous, T("前の曲", "Previous"), ACTION_PREV, 1))
+                b.addAction(act(android.R.drawable.ic_media_previous, S(R.string.previous), ACTION_PREV, 1))
                 b.addAction(
-                    if (info.playing) act(android.R.drawable.ic_media_pause, T("一時停止", "Pause"), ACTION_TOGGLE, 2)
-                    else act(android.R.drawable.ic_media_play, T("再生", "Play"), ACTION_TOGGLE, 2),
+                    if (info.playing) act(android.R.drawable.ic_media_pause, S(R.string.pause), ACTION_TOGGLE, 2)
+                    else act(android.R.drawable.ic_media_play, S(R.string.play), ACTION_TOGGLE, 2),
                 )
-                b.addAction(act(android.R.drawable.ic_media_next, T("次の曲", "Next"), ACTION_NEXT, 3))
+                b.addAction(act(android.R.drawable.ic_media_next, S(R.string.next), ACTION_NEXT, 3))
                 b.setStyle(
                     Notification.MediaStyle()
                         .setMediaSession(p.session.sessionToken)

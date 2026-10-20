@@ -7,7 +7,8 @@ import android.media.AudioTrack
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.PI
@@ -18,8 +19,8 @@ import kotlin.math.roundToLong
 import kotlin.math.sin
 import android.media.AudioFormat as AFormat
 
-/** イコライザーのプリセット(10バンド、dB) */
-class EqPreset(val ja: String, val en: String, val gains: FloatArray)
+/** イコライザーのプリセット(10バンド、dB)。label は表示名(表示言語に合わせて読む) */
+class EqPreset(val label: () -> String, val gains: FloatArray)
 
 object EqBands {
     val FREQS = floatArrayOf(31f, 62f, 125f, 250f, 500f, 1000f, 2000f, 4000f, 8000f, 16000f)
@@ -27,15 +28,15 @@ object EqBands {
     const val MAX_DB = 12f
 
     val PRESETS = listOf(
-        EqPreset("フラット", "Flat", floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)),
-        EqPreset("低音強調", "Bass boost", floatArrayOf(6f, 5f, 4f, 2f, 0f, 0f, 0f, 0f, 0f, 0f)),
-        EqPreset("高音強調", "Treble boost", floatArrayOf(0f, 0f, 0f, 0f, 0f, 1f, 2f, 4f, 5f, 6f)),
-        EqPreset("ボーカル", "Vocal", floatArrayOf(-2f, -2f, -1f, 1f, 3f, 4f, 3f, 1f, 0f, -1f)),
-        EqPreset("ロック", "Rock", floatArrayOf(5f, 4f, 2f, -1f, -2f, -1f, 2f, 4f, 5f, 5f)),
-        EqPreset("ポップ", "Pop", floatArrayOf(-1f, 1f, 3f, 4f, 3f, 0f, -1f, -1f, 1f, 2f)),
-        EqPreset("ジャズ", "Jazz", floatArrayOf(3f, 2f, 1f, 2f, -1f, -1f, 0f, 1f, 2f, 3f)),
-        EqPreset("クラシック", "Classical", floatArrayOf(4f, 3f, 2f, 1f, -1f, -1f, 0f, 2f, 3f, 4f)),
-        EqPreset("小音量向け", "Loudness", floatArrayOf(5f, 4f, 1f, 0f, -1f, 0f, 0f, 1f, 4f, 5f)),
+        EqPreset({ S(R.string.flat) }, floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)),
+        EqPreset({ S(R.string.bass_boost) }, floatArrayOf(6f, 5f, 4f, 2f, 0f, 0f, 0f, 0f, 0f, 0f)),
+        EqPreset({ S(R.string.treble_boost) }, floatArrayOf(0f, 0f, 0f, 0f, 0f, 1f, 2f, 4f, 5f, 6f)),
+        EqPreset({ S(R.string.vocal) }, floatArrayOf(-2f, -2f, -1f, 1f, 3f, 4f, 3f, 1f, 0f, -1f)),
+        EqPreset({ S(R.string.rock) }, floatArrayOf(5f, 4f, 2f, -1f, -2f, -1f, 2f, 4f, 5f, 5f)),
+        EqPreset({ S(R.string.pop) }, floatArrayOf(-1f, 1f, 3f, 4f, 3f, 0f, -1f, -1f, 1f, 2f)),
+        EqPreset({ S(R.string.jazz) }, floatArrayOf(3f, 2f, 1f, 2f, -1f, -1f, 0f, 1f, 2f, 3f)),
+        EqPreset({ S(R.string.classical) }, floatArrayOf(4f, 3f, 2f, 1f, -1f, -1f, 0f, 2f, 3f, 4f)),
+        EqPreset({ S(R.string.loudness) }, floatArrayOf(5f, 4f, 1f, 0f, -1f, 0f, 0f, 1f, 4f, 5f)),
     )
 
     fun encode(g: FloatArray): String = g.joinToString(",") { "%.1f".format(java.util.Locale.US, it) }
@@ -441,11 +442,11 @@ class AudioOutput(
             val eqOn = !exact && AudioEngine.eqEnabled
             val perfect = up == null && !softVol && !eqOn
             val title = when {
-                perfect -> T("ビットパーフェクト", "Bit-perfect")
-                eqOn && up == null -> T("USB DAC直接出力（イコライザー使用中）", "USB DAC direct output (equalizer on)")
-                up != null && darMax > 0 -> T("DAR: PCMアップサンプリング", "DAR: PCM upsampling")
-                up != null -> T("USB DAC直接出力（DAC非対応の周波数のためアップサンプリング）", "USB DAC direct output (upsampled to a rate the DAC supports)")
-                else -> T("USB DAC直接出力（ソフトウェア音量を使用中。音量100でビットパーフェクト）", "USB DAC direct output (software volume; bit-perfect at 100)")
+                perfect -> S(R.string.bit_perfect)
+                eqOn && up == null -> S(R.string.usb_dac_direct_output_equalizer)
+                up != null && darMax > 0 -> S(R.string.dar_pcm_upsampling)
+                up != null -> S(R.string.usb_dac_direct_output_upsampled)
+                else -> S(R.string.usb_dac_direct_output_software)
             }
             val darText = if (up != null && darMax > 0) {
                 "DAR · PCM ×$upFactor · ${khz(sampleRate)} → ${khz(d.rate)} / ${d.bits} bit · " +
@@ -459,7 +460,7 @@ class AudioOutput(
             AudioEngine.setOutput(
                 OutputDevice(
                     OutputDevices.KEY_USB_DIRECT, OutputKind.UsbDirect, usbDac.deviceName() ?: "USB DAC",
-                    T("USB DAC · ビットパーフェクト", "USB DAC · Bit-perfect"), usbDac.maxSpec(),
+                    S(R.string.usb_dac_bit_perfect), usbDac.maxSpec(),
                 ),
             )
         } else {
@@ -481,21 +482,18 @@ class AudioOutput(
                     .also { AudioEngine.log("upsample: ${it.threadCount} threads on $cores cores") }
             } else null
             if (AudioEngine.wantUsbDirect && channels > 2) {
-                AudioEngine.report(false, T("多チャンネル音源のため、通常の出力で再生しています", "Multichannel source. Using standard output"))
+                AudioEngine.report(false, S(R.string.multichannel_source_using_standard_output))
                 runCatching { usbDac.close(reattach = true) }
             }
             if (outRate != sampleRate) {
                 val how = if (frac != null) "×%.3f".format(java.util.Locale.US, outRate.toDouble() / sampleRate) else "×$nf"
                 AudioEngine.report(
                     false,
-                    T("DAR: PCMアップサンプリング", "DAR: PCM upsampling") + " · ${khz(sampleRate)} → ${khz(outRate)}",
+                    S(R.string.dar_pcm_upsampling) + " · ${khz(sampleRate)} → ${khz(outRate)}",
                     "DAR · PCM $how · ${khz(sampleRate)} → ${khz(outRate)} / 32 bit float · " +
                         AudioEngine.bitrateText(outRate.toLong() * 32 * channels),
                     if (forcedFrac) {
-                        T(
-                            "この出力先は ${khz(sampleRate)} の整数倍の周波数を受け付けないため、整数倍でない変換で ${khz(outRate)} に合わせています",
-                            "This output doesn't accept integer multiples of ${khz(sampleRate)}, so it is converted to ${khz(outRate)} (non-integer)",
-                        )
+                        S(R.string.this_output_doesnt_accept_integer, khz(sampleRate), khz(outRate))
                     } else "",
                 )
                 AudioEngine.log(
@@ -515,10 +513,7 @@ class AudioOutput(
                 if (outRate > 192000 && android.os.Build.VERSION.SDK_INT < 31) {
                     AudioEngine.report(
                         false,
-                        T(
-                            "この Android では ${khz(outRate)} を通常の出力で再生できません。USB DAC 直接出力を使ってください",
-                            "This Android version can't play ${khz(outRate)} through the normal output. Use USB DAC direct output",
-                        ),
+                        S(R.string.this_android_version_cant_play, khz(outRate)),
                     )
                 }
                 throw e

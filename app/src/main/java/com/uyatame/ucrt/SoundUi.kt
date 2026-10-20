@@ -49,11 +49,11 @@ object SoundPage {
     const val DSD = 4
 
     fun title(p: Int): String = when (p) {
-        EQ -> T("イコライザー", "Equalizer")
+        EQ -> S(R.string.equalizer)
         DAR -> "DAR"
-        OUTPUT -> T("USB DAC直接出力", "USB DAC direct output")
-        DSD -> T("DSDの再生", "DSD playback")
-        else -> T("音質設定", "Sound settings")
+        OUTPUT -> S(R.string.usb_dac_direct_output)
+        DSD -> S(R.string.dsd_playback)
+        else -> S(R.string.sound_settings)
     }
 }
 
@@ -69,22 +69,22 @@ fun SoundSubPage(vm: MainViewModel, s: AppSettings, page: Int) {
 }
 
 private fun eqSummary(s: AppSettings): String = when {
-    !s.eqEnabled -> T("オフ", "Off")
-    else -> EqBands.PRESETS.getOrNull(s.eqPreset)?.let { T(it.ja, it.en) }
-        ?: T("カスタム（${s.eqBandList.size}バンド）", "Custom (${s.eqBandList.size} bands)")
+    !s.eqEnabled -> S(R.string.off)
+    else -> EqBands.PRESETS.getOrNull(s.eqPreset)?.let { it.label() }
+        ?: S(R.string.custom_bands, s.eqBandList.size)
 }
 
 private fun darSummary(s: AppSettings): String = when (s.darMode) {
-    1 -> T("PCMアップサンプリング", "PCM upsampling") + " · " +
-        listOf(T("DACの最大値", "DAC max"), "×2", "×4", "×8", "×16").getOrElse(s.darPcm) { "" }
-    2 -> T("DSDに変換", "Convert to DSD") + " · " + listOf("DSD64", "DSD128", "DSD256").getOrElse(s.darDsd) { "" }
-    else -> T("オフ", "Off")
+    1 -> S(R.string.pcm_upsampling) + " · " +
+        listOf(S(R.string.dac_max), "×2", "×4", "×8", "×16").getOrElse(s.darPcm) { "" }
+    2 -> S(R.string.convert_to_dsd) + " · " + listOf("DSD64", "DSD128", "DSD256").getOrElse(s.darDsd) { "" }
+    else -> S(R.string.off)
 }
 
 private fun dsdSummary(s: AppSettings): String = when (s.dsdMode) {
     1 -> "DoP"
-    2 -> T("PCMに変換", "Convert to PCM")
-    else -> T("自動（ネイティブDSD → DoP → PCM）", "Auto (native DSD → DoP → PCM)")
+    2 -> S(R.string.convert_to_pcm)
+    else -> S(R.string.auto_native_dsd_dop_pcm_2)
 }
 
 /**
@@ -96,54 +96,54 @@ private fun dsdSummary(s: AppSettings): String = when (s.dsdMode) {
 fun SoundMain(vm: MainViewModel, s: AppSettings, onOpen: (Int) -> Unit) {
     val direct = s.sourceDirect
     NowOutputCard(s)
-    SoundGroup(T("音質", "Sound quality")) {
+    SoundGroup(S(R.string.sound_quality)) {
         SoundRow(
-            T("ソースダイレクト", "Source direct"),
-            T("イコライザーとDARを通さず、音源をそのまま再生します", "Plays the source as is, bypassing the equalizer and DAR"),
+            S(R.string.source_direct),
+            S(R.string.plays_source_as_is_bypassing),
             checked = direct, enabled = true,
             onToggle = { vm.set(Keys.sourceDirect, it) },
             highlight = true,
         )
         HorizontalDivider()
         SoundRow(
-            T("イコライザー", "Equalizer"), eqSummary(s),
+            S(R.string.equalizer), eqSummary(s),
             checked = s.eqEnabled, enabled = !direct,
             onToggle = { vm.set(Keys.eqEnabled, it) },
             onOpen = { onOpen(SoundPage.EQ) },
         )
         HorizontalDivider()
         SoundRow(
-            "DAR", T("アップサンプリング・DSD変換", "Upsampling / DSD conversion") + " · " + darSummary(s),
+            "DAR", S(R.string.upsampling_dsd_conversion) + " · " + darSummary(s),
             checked = s.darMode != 0, enabled = !direct,
             onToggle = { vm.set(Keys.darMode, if (it) 1 else 0) },
             onOpen = { onOpen(SoundPage.DAR) },
         )
         if (direct) {
             Text(
-                T("ソースダイレクトがオンのため、イコライザーとDARは無効です", "The equalizer and DAR are bypassed while source direct is on"),
+                S(R.string.equalizer_and_dar_are_bypassed),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
     }
-    SoundGroup(T("出力", "Output")) {
+    SoundGroup(S(R.string.output_2)) {
         SoundRow(
-            T("USB DAC直接出力", "USB DAC direct output"),
-            T("独自ドライバーでUSB DACを直接駆動します（ビットパーフェクト・ネイティブDSD再生）", "Drives the USB DAC with the app's own driver (bit-perfect, native DSD)"),
+            S(R.string.usb_dac_direct_output),
+            S(R.string.drives_usb_dac_with_apps),
             checked = s.outputMode == 2, enabled = true,
             onToggle = { vm.setOutputMode(if (it) 2 else 0) },
             onOpen = { onOpen(SoundPage.OUTPUT) },
         )
         HorizontalDivider()
         SoundRow(
-            T("DSDの再生", "DSD playback"), dsdSummary(s),
+            S(R.string.dsd_playback), dsdSummary(s),
             checked = null, enabled = true,
             onOpen = { onOpen(SoundPage.DSD) },
         )
         HorizontalDivider()
         SoundRow(
-            T("ギャップレス再生", "Gapless playback"),
-            T("同じ形式の曲が続くとき、曲間に無音を入れずに再生します", "Plays tracks of the same format without silence between them"),
+            S(R.string.gapless_playback),
+            S(R.string.plays_tracks_of_same_format),
             checked = s.gapless, enabled = true,
             onToggle = { vm.set(Keys.gapless, it) },
         )
@@ -172,15 +172,15 @@ private fun NowOutputCard(s: AppSettings) {
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    dev?.name ?: T("出力先", "Output"),
+                    dev?.name ?: S(R.string.output),
                     style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     st.ifEmpty {
                         when {
-                            s.sourceDirect -> T("ソースダイレクト", "Source direct")
-                            s.eqEnabled -> T("イコライザー使用中", "Equalizer on")
-                            else -> T("再生中はここに出力の状態が表示されます", "Output status appears here during playback")
+                            s.sourceDirect -> S(R.string.source_direct)
+                            s.eqEnabled -> S(R.string.equalizer_on)
+                            else -> S(R.string.output_status_appears_here_during)
                         }
                     },
                     style = MaterialTheme.typography.bodySmall,

@@ -196,7 +196,7 @@ fun BoxScope.ScrollTopButton(show: Boolean, scrollTop: suspend () -> Unit) {
         ) {
             androidx.compose.material3.Icon(
                 androidx.compose.material.icons.Icons.Filled.KeyboardArrowUp,
-                com.uyatame.ucrt.T("一番上へ", "Back to top"),
+                com.uyatame.ucrt.S(com.uyatame.ucrt.R.string.back_to_top),
             )
         }
     }

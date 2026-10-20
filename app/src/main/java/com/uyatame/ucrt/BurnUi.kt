@@ -42,10 +42,10 @@ fun BurnDialog(vm: MainViewModel) {
     if (confirmClose) {
         AlertDialog(
             onDismissRequest = { confirmClose = false },
-            title = { Text(T("書き込みを中止しますか？", "Cancel writing?")) },
-            text = { Text(T("準備したデータは削除されます（もう一度書き込むには、読み取りと準備からやり直す必要があります）", "The prepared data will be deleted (to write again, you'll need to read and prepare it from the start)")) },
-            confirmButton = { TextButton({ confirmClose = false; vm.closeBurn() }) { Text(T("中止する", "Cancel writing")) } },
-            dismissButton = { TextButton({ confirmClose = false }) { Text(T("戻る", "Back")) } },
+            title = { Text(S(R.string.cancel_writing)) },
+            text = { Text(S(R.string.prepared_data_will_be_deleted)) },
+            confirmButton = { TextButton({ confirmClose = false; vm.closeBurn() }) { Text(S(R.string.cancel_writing_2)) } },
+            dismissButton = { TextButton({ confirmClose = false }) { Text(S(R.string.back)) } },
         )
     }
     val img = b.image
@@ -53,42 +53,42 @@ fun BurnDialog(vm: MainViewModel) {
     val sec = (img.seconds % 60).toInt()
     AlertDialog(
         onDismissRequest = { if (!writing) confirmClose = true },
-        title = { Text(if (b.stage == 1) T("書き込み完了", "Write complete") else T("CDに書き込む", "Write to CD")) },
+        title = { Text(if (b.stage == 1) S(R.string.write_complete) else S(R.string.write_to_cd)) },
         text = {
             Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(b.title, style = MaterialTheme.typography.titleSmall)
                 Text(
-                    T("${img.tracks.size}曲・%d分%02d秒", "${img.tracks.size} tracks · %d:%02d").format(min, sec),
+                    S(R.string.tracks_3, img.tracks.size, min, "%02d".format(sec)),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (writing) {
                     Text(
-                        if (vm.busyKind == 4) T("消去中…", "Erasing…") else T("書き込み中… ${(vm.ripOverall * 100).toInt()}%", "Writing… ${(vm.ripOverall * 100).toInt()}%"),
+                        if (vm.busyKind == 4) S(R.string.erasing) else S(R.string.writing, (vm.ripOverall * 100).toInt()),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     androidx.compose.material3.LinearProgressIndicator({ vm.ripOverall }, Modifier.fillMaxWidth())
                     Text(
-                        T("書き込み中はドライブを外したり、端末をスリープさせたりしないでください", "Don't disconnect the drive or let the device sleep while writing"),
+                        S(R.string.dont_disconnect_drive_or_let),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
                     )
                 } else if (b.stage == 0) {
-                    Text(T("空のCD-R（またはCD-RW）を入れて「書き込む」をタップしてください", "Insert a blank CD-R (or CD-RW) and tap Write"), style = MaterialTheme.typography.bodyMedium)
-                    Text(T("書き込み速度", "Write speed"), style = MaterialTheme.typography.labelLarge)
+                    Text(S(R.string.insert_blank_cd_r_or), style = MaterialTheme.typography.bodyMedium)
+                    Text(S(R.string.write_speed), style = MaterialTheme.typography.labelLarge)
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(4, 8, 16, 0).forEach { x ->
-                            FilterChip(speed == x, { speed = x }, label = { Text(if (x == 0) T("最大", "Max") else "${x}x") })
+                            FilterChip(speed == x, { speed = x }, label = { Text(if (x == 0) S(R.string.max) else "${x}x") })
                         }
                     }
                     Text(
-                        T("速度が遅いほど失敗しにくく、古いCDプレーヤーでも読み取りやすくなります", "Slower speeds are more reliable and play better on older CD players"),
+                        S(R.string.slower_speeds_are_more_reliable),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Row(Modifier.fillMaxWidth().clickable { test = !test }, verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(test, { test = it })
                         Column {
-                            Text(T("テスト書き込み", "Test write"), style = MaterialTheme.typography.bodyLarge)
+                            Text(S(R.string.test_write), style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                T("実際には書き込まず、最後まで書き込めるかどうかだけを確認します（ディスクはそのまま使えます）", "Simulates the entire write without burning anything (the disc stays blank)"),
+                                S(R.string.simulates_entire_write_without_burning),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -105,16 +105,16 @@ fun BurnDialog(vm: MainViewModel) {
         },
         confirmButton = {
             when {
-                writing -> TextButton({ vm.cancelRip() }) { Text(T("中止", "Stop")) }
-                b.stage == 1 -> TextButton({ vm.burnAgain() }) { Text(T("もう1枚書き込む", "Write another")) }
+                writing -> TextButton({ vm.cancelRip() }) { Text(S(R.string.stop)) }
+                b.stage == 1 -> TextButton({ vm.burnAgain() }) { Text(S(R.string.write_another)) }
                 else -> Row {
-                    if (b.canErase) TextButton({ vm.eraseDisc() }) { Text(T("消去", "Erase")) }
-                    TextButton({ vm.writeDisc(speed, test) }) { Text(T("書き込む", "Write")) }
+                    if (b.canErase) TextButton({ vm.eraseDisc() }) { Text(S(R.string.erase)) }
+                    TextButton({ vm.writeDisc(speed, test) }) { Text(S(R.string.write)) }
                 }
             }
         },
         dismissButton = {
-            if (!writing) TextButton({ if (b.stage == 1) vm.closeBurn() else confirmClose = true }) { Text(T("閉じる", "Close")) }
+            if (!writing) TextButton({ if (b.stage == 1) vm.closeBurn() else confirmClose = true }) { Text(S(R.string.close)) }
         },
     )
 }
@@ -127,29 +127,26 @@ fun BurnTracksDialog(vm: MainViewModel) {
     val totalSec = req.second.sumOf { (if (it.endMs > 0) it.endMs - it.startMs else it.durationMs) } / 1000
     AlertDialog(
         onDismissRequest = { vm.burnRequest = null },
-        title = { Text(T("CDに書き込む", "Write to CD")) },
+        title = { Text(S(R.string.write_to_cd)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(req.first, style = MaterialTheme.typography.titleSmall)
                 Text(
-                    T("${req.second.size}曲・約%d分", "${req.second.size} tracks · about %d min").format((totalSec + 59) / 60),
+                    S(R.string.tracks_about_min, req.second.size, (totalSec + 59) / 60),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (totalSec > 80 * 60) {
-                    Text(T("80分を超えるため、CD1枚に収まりません", "Too long for one CD (over 80 minutes)"), color = MaterialTheme.colorScheme.error)
+                    Text(S(R.string.too_long_for_one_cd), color = MaterialTheme.colorScheme.error)
                 }
-                Text(T("曲間", "Gap between tracks"), style = MaterialTheme.typography.labelLarge)
-                listOf(2 to T("2秒（一般的なCDと同じ）", "2 seconds (standard for CDs)"), 0 to T("なし（ライブ盤など、曲がつながっている場合）", "None (for continuous tracks, e.g. live albums)")).forEach { (v, label) ->
+                Text(S(R.string.gap_between_tracks), style = MaterialTheme.typography.labelLarge)
+                listOf(2 to S(R.string.n2_seconds_standard_for_cds), 0 to S(R.string.none_for_continuous_tracks_e)).forEach { (v, label) ->
                     Row(Modifier.fillMaxWidth().clickable { gap = v }, verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(gap == v, { gap = v })
                         Text(label, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
                 Text(
-                    T(
-                        "曲はCDの形式（44.1 kHz / 16bit）に変換してから書き込みます（ハイレゾの曲はサンプリング周波数も変換されます）。DSDの曲は書き込めません",
-                        "Tracks are converted to CD format (44.1 kHz / 16-bit) before writing, and hi-res tracks are resampled. DSD tracks can't be written",
-                    ),
+                    S(R.string.tracks_are_converted_to_cd),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -158,8 +155,8 @@ fun BurnTracksDialog(vm: MainViewModel) {
             TextButton({
                 vm.burnRequest = null
                 vm.startBurnFromTracks(req.first, req.second, gap)
-            }, enabled = totalSec <= 80 * 60 && !vm.busy) { Text(T("準備する", "Prepare")) }
+            }, enabled = totalSec <= 80 * 60 && !vm.busy) { Text(S(R.string.prepare)) }
         },
-        dismissButton = { TextButton({ vm.burnRequest = null }) { Text(T("キャンセル", "Cancel")) } },
+        dismissButton = { TextButton({ vm.burnRequest = null }) { Text(S(R.string.cancel)) } },
     )
 }

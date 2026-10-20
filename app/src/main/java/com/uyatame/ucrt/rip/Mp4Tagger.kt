@@ -1,6 +1,5 @@
 package com.uyatame.ucrt.rip
 
-import com.uyatame.ucrt.T
 
 import com.uyatame.ucrt.meta.Cover
 import java.io.ByteArrayOutputStream

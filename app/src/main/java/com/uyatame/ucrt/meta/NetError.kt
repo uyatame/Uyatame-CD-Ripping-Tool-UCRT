@@ -1,6 +1,7 @@
 package com.uyatame.ucrt.meta
 
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -10,17 +11,11 @@ import javax.net.ssl.SSLException
 fun describeNetError(e: Throwable): String {
     val raw = "${e.javaClass.simpleName}: ${e.message ?: ""}".trim()
     val hint = when {
-        e is UnknownHostException -> T(
-            "サーバーに接続できません。インターネット接続と、このアプリの通信許可（Wi-Fi・モバイルデータ）を確認してください。",
-            "Can't reach the server. Check your internet connection and this app's network access (Wi-Fi and mobile data).",
-        )
-        e is SecurityException || (e.message ?: "").contains("EPERM") || (e.message ?: "").contains("EACCES") -> T(
-            "このアプリの通信がAndroidにより制限されています。「アプリ情報」で通信を許可してください。",
-            "Android is blocking network access for this app. Allow it in App info.",
-        )
-        e is SocketTimeoutException -> T("応答がありません（タイムアウト）", "No response (timeout)")
-        e is ConnectException -> T("接続を拒否されました", "Connection refused")
-        e is SSLException -> T("安全な接続を確立できませんでした。端末の日時が正しいか確認してください。", "Secure connection failed. Check the device's date and time.")
+        e is UnknownHostException -> S(R.string.cant_reach_server_check_your)
+        e is SecurityException || (e.message ?: "").contains("EPERM") || (e.message ?: "").contains("EACCES") -> S(R.string.android_is_blocking_network_access)
+        e is SocketTimeoutException -> S(R.string.no_response_timeout)
+        e is ConnectException -> S(R.string.connection_refused)
+        e is SSLException -> S(R.string.secure_connection_failed_check_devices)
         else -> ""
     }
     return if (hint.isEmpty()) raw else "$hint\n($raw)"

@@ -1,6 +1,7 @@
 package com.uyatame.ucrt.data
 
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
@@ -41,12 +42,12 @@ class QualityPreset(
 )
 
 val QUALITY_PRESETS: List<QualityPreset> get() = listOf(
-    QualityPreset(T("ロスレス（FLAC）", "Lossless (FLAC)"), T("CDと同じ音質で、容量は約半分。迷ったらこちら", "CD quality at about half the size. Recommended"), AudioFormat.FLAC, 5, 256),
-    QualityPreset(T("高音質（AAC 320kbps）", "High quality (AAC 320 kbps)"), T("CDとほとんど聴き分けられない音質。1曲あたり約10MB", "Nearly indistinguishable from the CD. About 10 MB per song"), AudioFormat.AAC, 5, 320),
-    QualityPreset(T("標準（AAC 256kbps）", "Standard (AAC 256 kbps)"), T("音質と容量のバランスが良い形式。1曲あたり約8MB", "Balanced quality and size. About 8 MB per song"), AudioFormat.AAC, 5, 256),
-    QualityPreset(T("互換性重視（MP3 320kbps）", "Most compatible (MP3 320 kbps)"), T("古いプレーヤーやカーオーディオでも再生しやすい形式。1曲あたり約10MB", "Plays on older players and car stereos. About 10 MB per song"), AudioFormat.MP3, 5, 256, 320),
-    QualityPreset(T("省容量（AAC 128kbps）", "Space saver (AAC 128 kbps)"), T("容量を優先した形式。1曲あたり約4MB", "Smallest files. About 4 MB per song"), AudioFormat.AAC, 5, 128),
-    QualityPreset(T("無圧縮（WAV）", "Uncompressed (WAV)"), T("CDのデータをそのまま保存。容量はFLACの約2倍（曲情報とジャケットも保存）", "Saves the CD data as is. About twice the size of FLAC (track info and artwork included)"), AudioFormat.WAV, 5, 256),
+    QualityPreset(S(R.string.lossless_flac), S(R.string.cd_quality_at_about_half), AudioFormat.FLAC, 5, 256),
+    QualityPreset(S(R.string.high_quality_aac_320_kbps), S(R.string.nearly_indistinguishable_from_cd_about), AudioFormat.AAC, 5, 320),
+    QualityPreset(S(R.string.standard_aac_256_kbps), S(R.string.balanced_quality_and_size_about), AudioFormat.AAC, 5, 256),
+    QualityPreset(S(R.string.most_compatible_mp3_320_kbps), S(R.string.plays_on_older_players_and), AudioFormat.MP3, 5, 256, 320),
+    QualityPreset(S(R.string.space_saver_aac_128_kbps), S(R.string.smallest_files_about_4_mb), AudioFormat.AAC, 5, 128),
+    QualityPreset(S(R.string.uncompressed_wav), S(R.string.saves_cd_data_as_is), AudioFormat.WAV, 5, 256),
 )
 
 data class AppSettings(
@@ -146,10 +147,10 @@ fun AppSettings.presetIndex(): Int = QUALITY_PRESETS.indexOfFirst { p ->
 }
 
 fun AppSettings.qualityLabel(): String = when (format) {
-    AudioFormat.FLAC -> T("FLAC（ロスレス）", "FLAC (lossless)")
+    AudioFormat.FLAC -> S(R.string.flac_lossless)
     AudioFormat.AAC -> "AAC ${aacKbps}kbps"
     AudioFormat.MP3 -> "MP3 ${mp3Kbps}kbps"
-    AudioFormat.WAV -> T("WAV（無圧縮）", "WAV (uncompressed)")
+    AudioFormat.WAV -> S(R.string.wav_uncompressed)
 }
 
 object Keys {

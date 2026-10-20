@@ -1,6 +1,7 @@
 package com.uyatame.ucrt.rip
 
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 
 import com.uyatame.ucrt.usb.ScsiException
 import com.uyatame.ucrt.usb.UsbScsiDrive
@@ -89,7 +90,7 @@ class CdRipper(private val drive: UsbScsiDrive, private val opt: RipOptions) {
             return out
         }
         errors++
-        if (opt.abortOnError) throw IOException(T("読み取りエラー（LBA ${lba}）", "Read error at LBA $lba"))
+        if (opt.abortOnError) throw IOException(S(R.string.read_error_at_lba, lba))
         return r.data ?: ByteArray(sector)
     }
 

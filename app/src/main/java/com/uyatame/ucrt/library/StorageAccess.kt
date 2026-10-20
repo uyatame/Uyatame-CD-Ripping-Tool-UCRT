@@ -7,7 +7,8 @@ import android.os.Environment
 import android.os.storage.StorageManager
 import android.provider.DocumentsContract
 import android.provider.Settings
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 import java.io.File
 import java.io.InputStream
 
@@ -37,8 +38,8 @@ object StorageAccess {
 
     /** ドキュメント ID("primary:Music" や "1234-ABCD:Music")の保存場所の名前 */
     fun volumeName(volId: String): String {
-        if (volId == "primary") return T("内部ストレージ", "Internal storage")
-        if (volId == "home") return T("ドキュメント", "Documents")
+        if (volId == "primary") return S(R.string.internal_storage)
+        if (volId == "home") return S(R.string.documents)
         val ctx = app
         if (ctx != null) {
             val sm = ctx.getSystemService(StorageManager::class.java)
@@ -46,10 +47,10 @@ object StorageAccess {
             if (v != null) {
                 val desc = runCatching { v.getDescription(ctx) }.getOrNull()?.trim().orEmpty()
                 if (desc.isNotEmpty()) return desc
-                return if (v.isRemovable) T("SDカード", "SD card") else T("外部ストレージ", "External storage")
+                return if (v.isRemovable) S(R.string.sd_card) else S(R.string.external_storage)
             }
         }
-        return T("SDカード", "SD card") + " ($volId)"
+        return S(R.string.sd_card) + " ($volId)"
     }
 
     /** フォルダの URI を「SDカード / Music」のような表示にする */
@@ -57,11 +58,11 @@ object StorageAccess {
         val u = Uri.parse(uri)
         val id = runCatching {
             if (DocumentsContract.isTreeUri(u)) DocumentsContract.getTreeDocumentId(u) else DocumentsContract.getDocumentId(u)
-        }.getOrNull() ?: u.lastPathSegment ?: return T("設定済み", "Selected")
+        }.getOrNull() ?: u.lastPathSegment ?: return S(R.string.selected)
         val vol = id.substringBefore(':')
         val path = id.substringAfter(':', "")
         val name = volumeName(vol)
-        return if (path.isEmpty()) T("${name}（ルート）", "$name (root)") else "$name / $path"
+        return if (path.isEmpty()) S(R.string.root, name) else "$name / $path"
     }
 
     /** ドキュメント ID から実際のファイル(許可が無い・分からなければ null) */

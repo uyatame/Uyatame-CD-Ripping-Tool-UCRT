@@ -87,11 +87,11 @@ private fun dbLabel(v: Float): String {
 }
 
 fun eqTypeName(t: EqType): String = when (t) {
-    EqType.Peak -> T("ピーク", "Peak")
-    EqType.LowShelf -> T("ローシェルフ", "Low shelf")
-    EqType.HighShelf -> T("ハイシェルフ", "High shelf")
-    EqType.LowCut -> T("ローカット", "Low cut")
-    EqType.HighCut -> T("ハイカット", "High cut")
+    EqType.Peak -> S(R.string.peak)
+    EqType.LowShelf -> S(R.string.low_shelf)
+    EqType.HighShelf -> S(R.string.high_shelf)
+    EqType.LowCut -> S(R.string.low_cut)
+    EqType.HighCut -> S(R.string.high_cut)
 }
 
 private fun sameBands(a: List<EqBand>, b: List<EqBand>): Boolean =
@@ -134,11 +134,11 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
         vm.saveEq(bands.toList(), preamp, preset)
     }
 
-    Section(T("イコライザー", "Equalizer")) {
-        SwitchRow(T("イコライザーを使う", "Use equalizer"), null, s.eqEnabled) { vm.set(Keys.eqEnabled, it) }
+    Section(S(R.string.equalizer)) {
+        SwitchRow(S(R.string.use_equalizer), null, s.eqEnabled) { vm.set(Keys.eqEnabled, it) }
         if (s.sourceDirect) {
             Text(
-                T("ソースダイレクトがオンのため、イコライザーは無効です", "The equalizer is bypassed while source direct is on"),
+                S(R.string.equalizer_is_bypassed_while_source),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
             )
         }
@@ -153,11 +153,11 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
                         preview()
                         save()
                     },
-                    label = { Text(T(p.ja, p.en)) },
+                    label = { Text(p.label()) },
                     enabled = on,
                 )
             }
-            if (preset < 0) FilterChip(true, {}, label = { Text(T("カスタム", "Custom")) }, enabled = on)
+            if (preset < 0) FilterChip(true, {}, label = { Text(S(R.string.custom)) }, enabled = on)
         }
         // 横向き: 左に曲線、右に帯域の一覧と選んだ帯域の設定を並べ、点を動かしながら値も見えるようにする
         val land = isLandscape()
@@ -188,17 +188,14 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
         }
         val hint: @Composable () -> Unit = {
             Text(
-                T(
-                    "点をドラッグすると周波数とゲインを変更できます。点をタップすると種類や幅を変更できます。何もない場所をダブルタップするとバンドを追加します",
-                    "Drag a point to change its frequency and gain. Tap a point to change its type and width. Double-tap an empty area to add a band",
-                ),
+                S(R.string.drag_point_to_change_its),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         val bandList: @Composable () -> Unit = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    T("バンド数: ${bands.size} / ${ParamEq.MAX_BANDS}", "Bands: ${bands.size} / ${ParamEq.MAX_BANDS}"),
+                    S(R.string.bands, bands.size, ParamEq.MAX_BANDS),
                     style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f),
                 )
                 OutlinedButton(
@@ -212,7 +209,7 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
                 ) {
                     Icon(Icons.Filled.Add, null)
                     Spacer(Modifier.width(4.dp))
-                    Text(T("追加", "Add"))
+                    Text(S(R.string.add))
                 }
             }
             // 帯域の一覧(番号をタップして選ぶ)
@@ -258,7 +255,7 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
             bandList()
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(T("プリアンプ", "Preamp"), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+            Text(S(R.string.preamp), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
             Slider(
                 value = preamp,
                 onValueChange = {
@@ -273,8 +270,8 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
             Text(dbLabel(preamp), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp), textAlign = TextAlign.End)
         }
         SwitchRow(
-            T("音割れを自動で防ぐ", "Prevent clipping automatically"),
-            T("カーブの最大ブースト量に合わせて、全体の音量を下げます", "Lowers the overall level by the curve's highest boost"),
+            S(R.string.prevent_clipping_automatically),
+            S(R.string.lowers_overall_level_by_curves),
             s.eqAutoPreamp,
         ) { vm.set(Keys.eqAutoPreamp, it) }
         TextButton({
@@ -284,7 +281,7 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
             preamp = 0f
             preview()
             save()
-        }, enabled = on) { Text(T("リセット", "Reset")) }
+        }, enabled = on) { Text(S(R.string.reset)) }
     }
 }
 
@@ -303,11 +300,11 @@ private fun BandEditor(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(T("バンド${index + 1}", "Band ${index + 1}"), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+            Text(S(R.string.band, index + 1), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
             TextButton(onDelete, enabled = enabled) {
                 Icon(Icons.Filled.Delete, null)
                 Spacer(Modifier.width(4.dp))
-                Text(T("削除", "Delete"))
+                Text(S(R.string.delete))
             }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -325,13 +322,13 @@ private fun BandEditor(
                 )
             }
         }
-        ParamSlider(T("周波数", "Frequency"), freqLabel(b.freq), freqToPos(b.freq), enabled, { onChange(b.copy(freq = posToFreq(it))) }, onDone)
+        ParamSlider(S(R.string.frequency), freqLabel(b.freq), freqToPos(b.freq), enabled, { onChange(b.copy(freq = posToFreq(it))) }, onDone)
         ParamSlider(
-            T("ゲイン", "Gain"), dbLabel(b.gain), (b.gain + ParamEq.MAX_DB) / (2 * ParamEq.MAX_DB), enabled && b.type.hasGain,
+            S(R.string.gain), dbLabel(b.gain), (b.gain + ParamEq.MAX_DB) / (2 * ParamEq.MAX_DB), enabled && b.type.hasGain,
             { onChange(b.copy(gain = ((it * 2 * ParamEq.MAX_DB - ParamEq.MAX_DB) * 2).roundToInt() / 2f)) }, onDone,
         )
         ParamSlider(
-            T("幅（Q）", "Width (Q)"), "Q " + "%.2f".format(java.util.Locale.US, b.q), qToPos(b.q), enabled,
+            S(R.string.width_q), "Q " + "%.2f".format(java.util.Locale.US, b.q), qToPos(b.q), enabled,
             { onChange(b.copy(q = (posToQ(it) * 100).roundToInt() / 100f)) }, onDone,
         )
     }

@@ -1,7 +1,8 @@
 package com.uyatame.ucrt.library
 
 import android.net.Uri
-import com.uyatame.ucrt.T
+import com.uyatame.ucrt.R
+import com.uyatame.ucrt.S
 import java.util.Locale
 
 /** 音源の品質の区分(ライブラリの絞り込みとバッジの色に使う) */
@@ -75,8 +76,8 @@ object Quality {
     }
 
     fun label(q: QualityClass): String = when (q) {
-        QualityClass.HiRes -> T("ハイレゾ", "Hi-Res")
-        QualityClass.Cd -> T("CD音質", "CD quality")
-        QualityClass.Lossy -> T("圧縮音源", "Compressed")
+        QualityClass.HiRes -> S(R.string.hi_res)
+        QualityClass.Cd -> S(R.string.cd_quality)
+        QualityClass.Lossy -> S(R.string.compressed)
     }
 }
