@@ -17,9 +17,9 @@ android {
         applicationId = "com.uyatame.cdripper"
         minSdk = 26
         targetSdk = 36
-        versionCode = 42
+        versionCode = 43
         // 次にリリースする版。テスト用のビルド(tools/termux-build.sh)では、後ろに ".test<テスト版>" が付く
-        versionName = "0.5.1" + (findProperty("testVersion")?.let { ".test$it" } ?: "")
+        versionName = "0.5.2" + (findProperty("testVersion")?.let { ".test$it" } ?: "")
     }
 
     // 公開用の署名鍵。keystore.properties(Git には含めない)があればそれで署名し、無ければデバッグ鍵で署名する
