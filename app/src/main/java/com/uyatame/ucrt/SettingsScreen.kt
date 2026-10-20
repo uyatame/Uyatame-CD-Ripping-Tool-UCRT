@@ -452,6 +452,12 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
                 S(R.string.turn_off_to_show_album),
                 s.ambientBlur,
             ) { vm.set(Keys.ambientBlur, it) }
+            if (s.ambientBlur) {
+                IntSlider(
+                    S(R.string.blur_strength), s.ambientBlurLevel, 1..10, { "$it" },
+                    S(R.string.blur_strength_desc),
+                ) { vm.set(Keys.ambientBlurLevel, it) }
+            }
         }
     }
     ExternalMediaSection(vm, s)
@@ -540,6 +546,16 @@ private val LICENSES: List<LicenseInfo> get() = listOf(
         APACHE, "https://github.com/java-native-access/jna",
         S(R.string.used_for_usb_isochronous_transfers),
         "Apache-2.0.txt",
+    ),
+    LicenseInfo(
+        "Spotify App Remote SDK", "0.8.0", "Copyright (c) 2015 Spotify AB",
+        "Apache License 2.0", APACHE, "https://github.com/spotify/android-sdk",
+        S(R.string.spotify_sdk_license_note),
+        "Apache-2.0.txt",
+    ),
+    LicenseInfo(
+        "Gson", "2.10.1", "Copyright 2008 Google Inc.",
+        "Apache License 2.0", APACHE, "https://github.com/google/gson", "", "Apache-2.0.txt",
     ),
     LicenseInfo(
         S(R.string.kotlin_standard_library), "2.1.0", "Copyright JetBrains s.r.o. and Kotlin Programming Language contributors",

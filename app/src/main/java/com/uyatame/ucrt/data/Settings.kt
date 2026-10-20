@@ -88,6 +88,8 @@ data class AppSettings(
     val ambientBlur: Boolean = true,
     /** ほかの音楽アプリ(ストリーミングサービスなど)の再生を表示・操作する(「通知へのアクセス」の許可も要る) */
     val externalMedia: Boolean = true,
+    /** 背景のぼかしの強さ(1〜10。1 段階で半径 14dp。5 が以前と同じ 70dp) */
+    val ambientBlurLevel: Int = 5,
     val bitPerfect: Boolean = false,
     val usbDirect: Boolean = false,
     /** -1 = 自動(USB から音量を変えられる DAC は 50、変えられない DAC は 100) */
@@ -188,6 +190,7 @@ object Keys {
     val themeColor = intPreferencesKey("themeColor")
     val ambientBlur = booleanPreferencesKey("ambientBlur")
     val externalMedia = booleanPreferencesKey("externalMedia")
+    val ambientBlurLevel = intPreferencesKey("ambientBlurLevel")
     val bitPerfect = booleanPreferencesKey("bitPerfect")
     val usbDirect = booleanPreferencesKey("usbDirect")
     val usbVolume = intPreferencesKey("usbVolume")
@@ -252,6 +255,7 @@ class SettingsRepository(private val context: Context) {
             themeColor = p[Keys.themeColor] ?: d.themeColor,
             ambientBlur = p[Keys.ambientBlur] ?: d.ambientBlur,
             externalMedia = p[Keys.externalMedia] ?: d.externalMedia,
+            ambientBlurLevel = (p[Keys.ambientBlurLevel] ?: d.ambientBlurLevel).coerceIn(1, 10),
             bitPerfect = p[Keys.bitPerfect] ?: d.bitPerfect,
             usbDirect = p[Keys.usbDirect] ?: d.usbDirect,
             usbVolume = p[Keys.usbVolume] ?: d.usbVolume,

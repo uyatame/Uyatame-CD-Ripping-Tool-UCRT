@@ -6,6 +6,8 @@
 |---|---|---|
 | [jump3r](https://codeberg.org/sciss/jump3r) 1.0.5（LAME 3.98.4のJava移植） | MP3エンコード | LGPL v2.1以降 |
 | [JNA](https://github.com/java-native-access/jna) 5.14.0 | USB DAC直接出力（usbfsの呼び出し） | Apache License 2.0（Apache-2.0 / LGPL-2.1のデュアルライセンスから選択） |
+| [Spotify App Remote SDK](https://github.com/spotify/android-sdk) 0.8.0 | 公式Spotifyアプリでの再生の操作（ビルド時にGitHubのリリースから取得し、SHA-256を確認して使用） | Apache License 2.0 |
+| [Gson](https://github.com/google/gson) 2.10.1 | Spotify App Remote SDKが使うJSONの処理 | Apache License 2.0 |
 | Kotlin / kotlinx.coroutines | 言語・非同期処理 | Apache License 2.0 |
 | AndroidX（Core, Activity, Lifecycle, DataStore, DocumentFile） | Androidの基盤 | Apache License 2.0 |
 | Jetpack Compose / Material 3 / Material Icons | 画面 | Apache License 2.0 |
