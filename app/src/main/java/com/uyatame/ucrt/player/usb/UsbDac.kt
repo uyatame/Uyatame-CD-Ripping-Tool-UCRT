@@ -599,6 +599,8 @@ object UsbDac {
             return false
         }
         if (!uac2 && !setRate(alt, fmt.rate)) AudioEngine.log("usb dac: set rate failed")
+        // DAC によっては、周波数や代替設定を切り替えると音量が初期値(最大のことが多い)に戻るので、送り直す
+        if (hwVolume) applyVolume()
         val st = StreamThread(c.fileDescriptor, alt, fmt, speed)
         stream = st
         format = fmt

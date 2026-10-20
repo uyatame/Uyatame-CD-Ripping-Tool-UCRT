@@ -165,7 +165,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         if (active) {
             val vp = object : android.media.VolumeProvider(android.media.VolumeProvider.VOLUME_CONTROL_ABSOLUTE, 100, UsbDac.volume()) {
                 override fun onSetVolumeTo(volume: Int) { setUsbVolume(volume, true) }
-                override fun onAdjustVolume(direction: Int) { setUsbVolume(UsbDac.volume() + direction * 4, true) }
+                override fun onAdjustVolume(direction: Int) { adjustUsbVolume(direction) }
             }
             volProvider = vp
             runCatching { session.setPlaybackToRemote(vp) }
@@ -173,6 +173,41 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             volProvider = null
             runCatching { session.setPlaybackToLocal(attrs) }
         }
+    }
+
+    /** 音量を変えられない DAC で DSD を再生することを、もう知らせたか(アプリを起動している間に 1 回だけ) */
+    @Volatile private var dsdVolumeWarned = false
+
+    /** ミュートする前の DAC の音量(ミュート中でなければ -1) */
+    private var mutedFrom = -1
+
+    /**
+     * 音量ボタン・システムの音量パネルからの合図で DAC の音量を変える。
+     * 合図には上げる・下げるのほかにミュート関係の値(100 や 101)もあるので、種類ごとに扱う
+     * (以前は値をそのまま 4 倍して足していたため、ミュートの切り替えで最大音量になっていた)
+     */
+    private fun adjustUsbVolume(direction: Int) {
+        val cur = UsbDac.volume()
+        when (direction) {
+            AudioManager.ADJUST_RAISE -> { mutedFrom = -1; setUsbVolume(cur + 4, true) }
+            AudioManager.ADJUST_LOWER -> { mutedFrom = -1; setUsbVolume(cur - 4, true) }
+            AudioManager.ADJUST_MUTE -> mute(cur)
+            AudioManager.ADJUST_UNMUTE -> unmute()
+            AudioManager.ADJUST_TOGGLE_MUTE -> if (mutedFrom >= 0) unmute() else mute(cur)
+            else -> {} // ADJUST_SAME など: 変えない
+        }
+    }
+
+    private fun mute(cur: Int) {
+        if (mutedFrom < 0 && cur > 0) mutedFrom = cur
+        setUsbVolume(0, true)
+    }
+
+    /** ミュートする前の音量に戻す(ミュートしていなければ何もしない) */
+    private fun unmute() {
+        val v = mutedFrom
+        mutedFrom = -1
+        if (v > 0 && UsbDac.volume() == 0) setUsbVolume(v, true)
     }
 
     /** DAC の音量(0〜100)を変える。fromKeys なら設定にも保存する */
@@ -787,7 +822,15 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                     "DoP" -> "DoP"
                     else -> S(R.string.converted_to_pcm) + " (${AudioEngine.khz(s.sampleRate)})"
                 }
-                AudioEngine.report(s.bitPerfect, info.label() + " · " + how)
+                // ネイティブ DSD・DoP には音量を掛けられない(掛けると DSD のデータが壊れる)。
+                // DAC にも音量の調整が無いと最大音量で鳴るので、画面に知らせる
+                val noVolume = s.label != "PCM" && UsbDac.active && !UsbDac.hwVolume
+                val warn = if (noVolume) S(R.string.dsd_plays_at_full_volume) else ""
+                AudioEngine.report(s.bitPerfect, info.label() + " · " + how, warn = warn)
+                if (noVolume && !dsdVolumeWarned) {
+                    dsdVolumeWarned = true
+                    main.post { onNotice?.invoke(warn) }
+                }
                 AudioEngine.log("dsd: ${info.label()} ${info.channels}ch ${if (info.dff) "DFF" else "DSF"} -> $how")
                 val chunk = 8192
                 val bufs = Array(info.channels) { ByteArray(chunk) }

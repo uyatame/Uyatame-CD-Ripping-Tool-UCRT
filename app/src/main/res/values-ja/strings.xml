@@ -232,6 +232,7 @@
     <string name="drive_was_disconnected">"ドライブが取り外されました"</string>
     <string name="drives_usb_dac_with_apps">"独自ドライバーでUSB DACを直接駆動します（ビットパーフェクト・ネイティブDSD再生）"</string>
     <string name="dsd_playback">"DSDの再生"</string>
+    <string name="dsd_plays_at_full_volume">"このDACはアプリから音量を変えられないため、DSDは最大音量で出力されます。音量はDAC本体で調整してください"</string>
     <string name="dsd_rate">"DSDの周波数"</string>
     <string name="dsd_tracks_cannot_be_written">"DSDの曲はCDに書き込めません"</string>
     <string name="dst_compressed_dsdiff_is_not">"DST圧縮のDSDIFFには対応していません"</string>

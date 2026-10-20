@@ -236,6 +236,7 @@
     <string name="drive_was_disconnected">"The drive was disconnected"</string>
     <string name="drives_usb_dac_with_apps">"Drives the USB DAC with the app's own driver (bit-perfect, native DSD)"</string>
     <string name="dsd_playback">"DSD playback"</string>
+    <string name="dsd_plays_at_full_volume">"The app can't control this DAC's volume, so DSD plays at full volume. Adjust the volume on the DAC itself"</string>
     <string name="dsd_rate">"DSD rate"</string>
     <string name="dsd_tracks_cannot_be_written">"DSD tracks cannot be written to a CD"</string>
     <string name="dst_compressed_dsdiff_is_not">"DST-compressed DSDIFF is not supported"</string>
