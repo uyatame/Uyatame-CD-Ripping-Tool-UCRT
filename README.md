@@ -1,5 +1,7 @@
 # Uyatame CD Ripping Tool (UCRT)
 
+[![Build](https://github.com/uyatame/Uyatame-CD-Ripping-Tool-UCRT/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/uyatame/Uyatame-CD-Ripping-Tool-UCRT/actions/workflows/build.yml)
+
 外付けUSB光学ドライブ（CD/DVD/BDドライブ）をAndroid端末につないで、音楽CDの取り込み（リッピング）と再生ができるアプリです。root化は不要です。
 
 *An Android app for ripping and playing audio CDs with an external USB optical drive. No root required. (English summary below.)*
@@ -51,7 +53,25 @@ echo "alias ucrt='bash ~/UyatameCdRipper/tools/termux-build.sh'" >> ~/.bashrc &&
 
 ### PC（Android Studio / コマンドライン）
 
-Android Studioでプロジェクトを開いてビルドするか、Gradle 8.9以上で `gradle assembleRelease` を実行してください。
+Android Studioでプロジェクトを開いてビルドするか、プロジェクト直下で次のコマンドを実行してください。Gradle Wrapperが、必要な版のGradleを自動でダウンロードします（JDK 17とAndroid SDKが必要です）。
+
+```bash
+./gradlew assembleRelease        # Windowsでは gradlew.bat assembleRelease
+```
+
+### テスト
+
+内蔵デコーダー（FLAC・ALAC・WavPack・APE・AIFF）が元の音とビット単位で一致するか、文言のリソースが英語と日本語でそろっているかなどを、PC上の単体テストで確認できます。
+
+```bash
+./gradlew testDebugUnitTest
+```
+
+GitHubへのプッシュとプルリクエストのたびに、GitHub Actionsが単体テストとビルドを自動で実行します。
+
+### 開発の流れ
+
+最新のソースは `main` ブランチにあります。リリースは `main` に版のタグ（`v0.5.2` など）を付けて作成し、APKを [Releases](../../releases) に添付します。
 
 ### 署名について
 
@@ -90,5 +110,7 @@ UCRT turns an Android phone and a USB optical drive into a CD ripper and player.
 - CUE sheet support (one WAV / FLAC file split into tracks)
 - Full-screen player with ambient mode and audio format details, direct CD playback and lock screen controls
 - Tag editing for ripped and existing files
+
+To build it yourself, run `./gradlew assembleRelease` (JDK 17 and the Android SDK are required). Unit tests run with `./gradlew testDebugUnitTest`, and GitHub Actions runs them on every push and pull request. The latest source is on the `main` branch.
 
 Requires Android 8.0 or later and a device with USB OTG support. Licensed under GPL-3.0.

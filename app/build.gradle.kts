@@ -71,6 +71,9 @@ dependencies {
     implementation("de.sciss:jump3r:1.0.5")
     // USB DAC 直接出力: usbfs の ioctl を呼ぶために使う JNA(Apache-2.0 / LGPL-2.1 のデュアルライセンス。Apache-2.0 を選択)
     implementation("net.java.dev.jna:jna:5.14.0@aar")
+
+    // 単体テスト(PC 上で動かす。内蔵デコーダーや文言のリソースなどを確かめる)
+    testImplementation("junit:junit:4.13.2")
 }
 
 // ---------------------------------------------------------------

@@ -11,7 +11,14 @@ main() {
     set -e
     cd "$(dirname "$0")/.."
 
+    # 最新のソースは main にある。ほかのブランチにいたら main に切り替える
     branch=$(git rev-parse --abbrev-ref HEAD)
+    if [ "$branch" != "main" ]; then
+        echo "== main ブランチに切り替え ($branch → main)"
+        git fetch origin main
+        git checkout main 2>/dev/null || git checkout -b main origin/main
+        branch=main
+    fi
     echo "== 最新のソースを取得 ($branch)"
     git pull --ff-only origin "$branch"
     git log --oneline -1
