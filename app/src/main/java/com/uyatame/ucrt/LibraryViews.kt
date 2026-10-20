@@ -397,7 +397,7 @@ private fun UpdateDialog(vm: MainViewModel) {
         text = {
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
                 Text(
-                    T("v${r.version}が公開されています（現在のバージョンはv$cur）。", "v${r.version} is available (you have v$cur)."),
+                    T("v${r.version}が公開されました。\n現在のバージョン: v$cur", "Version ${r.version} is available.\nCurrent version: v$cur"),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -412,7 +412,7 @@ private fun UpdateDialog(vm: MainViewModel) {
                     Text(T("変更点", "What's new"), style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        r.notes.lines().joinToString("\n") { it.trimStart('#', ' ').replace("**", "") }.take(3000),
+                        notesText(r.notes),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -430,6 +430,21 @@ private fun UpdateDialog(vm: MainViewModel) {
         },
     )
 }
+
+/** リリースの説明(Markdown)を、ダイアログで読みやすい文章にする */
+private fun notesText(md: String): String =
+    md.lines().map { it.trimEnd() }
+        .filter { !it.startsWith("#") }
+        .map { l ->
+            val t = l.trimStart()
+            val indent = l.length - t.length
+            val body = t.replace("**", "").replace(Regex("""\[([^\]]+)]\([^)]+\)"""), "$1")
+            when {
+                t.startsWith("- ") || t.startsWith("* ") -> (if (indent > 0) "　・" else "・") + body.drop(2)
+                else -> body
+            }
+        }
+        .joinToString("\n").trim().take(3000)
 
 /** 曲のファイルを削除する前の確認(元に戻せないので、曲名を見せて確かめる) */
 @Composable
