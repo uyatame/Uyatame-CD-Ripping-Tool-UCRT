@@ -872,6 +872,21 @@ object UsbDac {
                 if (u.feedback) { lengths[0] = alt.epFbMaxPacket; u.prepare(lengths) } else fill(u)
                 if (!submit(u)) { stopping = true; break }
             }
+            // 転送 1 回分(約 4ms)の間隔で処理を終える必要があると端末に伝える
+            val h = PerfHint.open(app, ppu * 1_000_000_000L / packetsPerSec)
+            hint = h
+            AudioEngine.log("usb dac: performance hint ${if (h != null) "on" else "not available"}")
+            try {
+                loopBody()
+            } finally {
+                hint = null
+                h?.close()
+            }
+        }
+
+        private var hint: PerfHint? = null
+
+        private fun loopBody() {
             val ptr = Memory(Usbfs.PS.toLong())
             var errors = 0
             // 動作の記録用
@@ -934,6 +949,7 @@ object UsbDac {
                         if (ps != 0) stErr[1000 + ps] = (stErr[1000 + ps] ?: 0) + 1
                     }
                     ring.addPlayed(u.epoch, u.dataFrames)
+                    hint?.tick()
                     stData += u.dataFrames
                     fill(u)
                     // 毎秒数百回通るので、リストを作らずに足し合わせる
