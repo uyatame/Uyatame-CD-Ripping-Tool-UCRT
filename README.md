@@ -96,6 +96,25 @@ Spotifyのタブでは、Spotifyのライブラリを探して、端末の公式
 2. Redirect URIに `ucrt-spotify://callback` を、Androidのパッケージ名に `com.uyatame.cdripper` を、SHA-1フィンガープリントにアプリのSpotifyのタブに表示される値を登録します（フィンガープリントは、APKに署名した鍵によって変わります）
 3. アプリのSpotifyのタブにクライアントIDを入力して、ログインします
 
+### Spotify Premiumの有無で使える機能
+
+Spotifyの開発モードでは、Developer Dashboardでアプリを登録した本人がSpotify Premiumに加入していないと、そのアプリ（クライアントID）でのログインもWeb APIも使えません（2026年2月からのSpotifyの規則）。このアプリは使う人がそれぞれ自分で登録する作りなので、**Premiumに加入していない場合は、Spotifyのタブにログインできません**。
+
+Premiumの人が登録したアプリのUser Managementに追加してもらえば、無料アカウントでもそのクライアントIDでログインできます（登録した本人を含めて5人まで）。その場合、使える機能は次のとおりです。
+
+| 機能 | Premium | 無料（Premiumの人の登録アプリに追加された場合） | 無料（自分で登録した場合） |
+|---|---|---|---|
+| ログイン | ○ | ○ | ×（登録した本人のPremiumが必要） |
+| 検索・ライブラリ・プレイリストの閲覧 | ○ | ○ | × |
+| お気に入り・保存・フォロー、プレイリストの編集 | ○ | ○ | × |
+| 公式Spotifyアプリでの再生・一時停止・曲送り | ○ | △ Spotify無料プランの制限（シャッフル再生・スキップ回数など）がかかります | × |
+| 曲を選んで再生・アルバムやプレイリストの途中の曲から再生 | ○ | △ 無料プランでは選んだ曲から始まらないことがあります | × |
+| キューへの追加・再生する機器（Spotify Connect）の切り替え・音量 | ○ | × Web APIの再生の操作はPremium限定です | × |
+| 次に再生される曲の表示 | ○ | 未確認（Spotifyの資料に記載がありません） | × |
+| 「ほかの音楽アプリの操作」でSpotifyの再生を表示・操作 | ○ | ○ | ○（Spotifyの登録・ログインは不要） |
+
+無料アカウントでの動作（△と未確認の項目）は、Spotifyの資料をもとにしたもので、実機では確かめていません。
+
 クライアントIDとログイン情報（トークン）は端末の中だけに保存し、アプリやこのリポジトリには含めていません。ログインはPKCE方式のため、クライアントシークレットは使いません。開発モードのSpotifyアプリは、登録したアカウントを含めて最大5人まで使えます（ほかのアカウントはUser Managementに追加します）。
 
 ## 通信とプライバシー
@@ -136,7 +155,7 @@ UCRT turns an Android phone and a USB optical drive into a CD ripper and player.
 - Bit-perfect output to USB DACs through the app's own USB audio driver, DSD playback, DAR (PCM upsampling / conversion to DSD), Source Direct and a parametric equalizer with a curve editor
 - Plays FLAC, ALAC, WAV, AIFF, WavPack and APE with built-in decoders (bit-exact, independent of the device's codecs), DSD (DSF / DFF), and MP3 / AAC / Vorbis / Opus / MPEG-H using the system decoders
 - CUE sheet support (one WAV / FLAC file split into tracks)
-- A Spotify tab: search your Spotify library and play it in the official Spotify app (requires Spotify Premium and your own app in the Spotify Developer Dashboard; the client ID is entered in the app and stored only on the device). Spotify audio does not go through this app's USB DAC output or equalizer
+- A Spotify tab: search your Spotify library and play it in the official Spotify app (requires Spotify Premium and your own app in the Spotify Developer Dashboard; the client ID is entered in the app and stored only on the device). Spotify audio does not go through this app's USB DAC output or equalizer. Logging in requires Spotify Premium for the account that registered the app in the Developer Dashboard; free accounts can only join an app registered by a Premium user, with free-tier playback limits.
 - Full-screen player with ambient mode and audio format details, direct CD playback and lock screen controls
 - Tag editing for ripped and existing files
 - Shows and controls what's playing in other music apps such as Spotify, Qobuz and Amazon Music (requires notification access; the audio still plays from that app through Android). On Android 13 or later, apps installed from outside Google Play need "Allow restricted settings" in App info before notification access can be turned on
