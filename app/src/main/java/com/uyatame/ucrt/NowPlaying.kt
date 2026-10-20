@@ -269,7 +269,11 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
         // ---- 背景 ----
         if (ambient) {
             if (art != null) {
-                Image(art, null, Modifier.fillMaxSize().blur(70.dp), contentScale = ContentScale.Crop, alpha = 0.85f)
+                // ぼかさない設定では、ぼかしに対応していない端末(Android 11 以前)と同じく、そのまま薄く敷く
+                Image(
+                    art, null, if (s.ambientBlur) Modifier.fillMaxSize().blur(70.dp) else Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop, alpha = 0.85f,
+                )
             }
             Box(
                 Modifier.fillMaxSize().background(

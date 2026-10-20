@@ -45,6 +45,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Slider
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.size
@@ -429,6 +434,9 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
         if (android.os.Build.VERSION.SDK_INT >= 31) {
             SwitchRow(T("ダイナミックカラー", "Dynamic color"), T("壁紙の色に合わせます", "Match your wallpaper colors"), s.dynamicColor) { vm.set(Keys.dynamicColor, it) }
         }
+        if (!s.dynamicColor || android.os.Build.VERSION.SDK_INT < 31) {
+            ThemeColorPicker(s.themeColor) { vm.set(Keys.themeColor, it) }
+        }
         SwitchRow(
             T("一覧にジャケットを表示", "Show artwork in lists"),
             T("オフにすると、ライブラリや再生リストでジャケットを読み込まず、軽くなります(再生画面には表示します)", "Turn off to skip loading artwork in the library and queue for smoother scrolling (the player still shows it)"),
@@ -449,6 +457,14 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
             T("再生画面の背景を、ジャケット画像の色合いにします", "Tints the player background with the album art"),
             s.ambientPlayer,
         ) { vm.set(Keys.ambientPlayer, it) }
+        // ぼかしは Android 12 から(それより前の端末では、もともとぼかさずに表示している)
+        if (s.ambientPlayer && android.os.Build.VERSION.SDK_INT >= 31) {
+            SwitchRow(
+                T("背景をぼかす", "Blur the background"),
+                T("オフにすると、ジャケット画像をぼかさずに薄く背景に敷きます", "Turn off to show the album art unblurred behind the player"),
+                s.ambientBlur,
+            ) { vm.set(Keys.ambientBlur, it) }
+        }
     }
     if (AppLanguage.supported) {
         val ctx = LocalContext.current
@@ -697,5 +713,48 @@ private fun LicensePage(vm: MainViewModel, s: AppSettings, onBack: () -> Unit) {
                 }
             },
         )
+    }
+}
+
+/** テーマの色を選ぶ(見本から選ぶか、色相と鮮やかさを動かして決める) */
+@Composable
+private fun ThemeColorPicker(value: Int, onChange: (Int) -> Unit) {
+    val std = 0xFF6750A4.toInt()
+    // 動かしている間は手元の値で見せ、指を離したら保存する
+    val start = ThemeColors.hueSat(if (value == 0) std else value)
+    var hue by remember(value) { mutableStateOf(start.first) }
+    var sat by remember(value) { mutableStateOf(start.second) }
+    // まだ動かしていなければ、選んでいる色そのものを見本に出す
+    var moved by remember(value) { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(T("テーマの色", "Theme color"), style = MaterialTheme.typography.bodyLarge)
+        Text(
+            T("ダイナミックカラーを使わないときの色です", "Used when dynamic color is off"),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            for (c in ThemeColors.presets) {
+                val sel = c == value
+                Box(
+                    Modifier.size(40.dp).clip(CircleShape).background(Color(if (c == 0) std else c))
+                        .then(if (sel) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
+                        .clickable { onChange(c) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (c == 0) Text(T("標準", "Def"), color = Color.White, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(28.dp).clip(CircleShape).background(Color(if (moved) ThemeColors.fromHue(hue, sat) else if (value == 0) std else value)))
+            Spacer(Modifier.width(12.dp))
+            Text(T("色相・鮮やかさで細かく決める", "Fine-tune hue and vividness"), style = MaterialTheme.typography.bodyMedium)
+        }
+        val save = { onChange(ThemeColors.fromHue(hue, sat)) }
+        Slider(hue, { hue = it; moved = true }, valueRange = 0f..360f, onValueChangeFinished = save)
+        Slider(sat, { sat = it; moved = true }, valueRange = 0.1f..1f, onValueChangeFinished = save)
     }
 }

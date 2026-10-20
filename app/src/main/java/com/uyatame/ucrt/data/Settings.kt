@@ -80,7 +80,11 @@ data class AppSettings(
     /** 一覧(ライブラリ・再生リストなど)にジャケットを表示する */
     val listArt: Boolean = true,
     val dynamicColor: Boolean = true,
+    /** ダイナミックカラーを使わないときのテーマの色(ARGB。0 = 標準の紫) */
+    val themeColor: Int = 0,
     val ambientPlayer: Boolean = true,
+    /** アンビエントモードで背景のジャケットをぼかす(オフならぼかさずに薄く敷く) */
+    val ambientBlur: Boolean = true,
     val bitPerfect: Boolean = false,
     val usbDirect: Boolean = false,
     /** -1 = 自動(USB から音量を変えられる DAC は 50、変えられない DAC は 100) */
@@ -178,6 +182,8 @@ object Keys {
     val listArt = booleanPreferencesKey("listArt")
     val dynamicColor = booleanPreferencesKey("dynamicColor")
     val ambientPlayer = booleanPreferencesKey("ambientPlayer")
+    val themeColor = intPreferencesKey("themeColor")
+    val ambientBlur = booleanPreferencesKey("ambientBlur")
     val bitPerfect = booleanPreferencesKey("bitPerfect")
     val usbDirect = booleanPreferencesKey("usbDirect")
     val usbVolume = intPreferencesKey("usbVolume")
@@ -239,6 +245,8 @@ class SettingsRepository(private val context: Context) {
             listArt = p[Keys.listArt] ?: d.listArt,
             dynamicColor = p[Keys.dynamicColor] ?: d.dynamicColor,
             ambientPlayer = p[Keys.ambientPlayer] ?: d.ambientPlayer,
+            themeColor = p[Keys.themeColor] ?: d.themeColor,
+            ambientBlur = p[Keys.ambientBlur] ?: d.ambientBlur,
             bitPerfect = p[Keys.bitPerfect] ?: d.bitPerfect,
             usbDirect = p[Keys.usbDirect] ?: d.usbDirect,
             usbVolume = p[Keys.usbVolume] ?: d.usbVolume,

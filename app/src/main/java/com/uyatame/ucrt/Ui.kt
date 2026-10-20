@@ -120,11 +120,13 @@ import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @Composable
-fun AppTheme(mode: Int, dynamic: Boolean, content: @Composable () -> Unit) {
+fun AppTheme(mode: Int, dynamic: Boolean, seed: Int, content: @Composable () -> Unit) {
     val dark = when (mode) { 1 -> false; 2 -> true; else -> isSystemInDarkTheme() }
     val ctx = LocalContext.current
     val scheme = if (dynamic && android.os.Build.VERSION.SDK_INT >= 31) {
         if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
+    } else if (seed != 0) {
+        remember(seed, dark) { ThemeColors.scheme(seed, dark) }
     } else {
         if (dark) darkColorScheme() else lightColorScheme()
     }
@@ -134,7 +136,7 @@ fun AppTheme(mode: Int, dynamic: Boolean, content: @Composable () -> Unit) {
 @Composable
 fun App(vm: MainViewModel) {
     val s by vm.settings.collectAsState()
-    AppTheme(s.themeMode, s.dynamicColor) {
+    AppTheme(s.themeMode, s.dynamicColor, s.themeColor) {
         val view = LocalView.current
         val keep = vm.busy && s.keepScreenOn
         DisposableEffect(keep) {
