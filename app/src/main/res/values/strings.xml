@@ -259,6 +259,7 @@
     <string name="erasing">"Erasing…"</string>
     <string name="erasing_cd_rw">"Erasing the CD-RW"</string>
     <string name="expand">"Expand"</string>
+    <string name="external_audio_note">"Audio plays from that app through Android, not through UCRT's USB DAC direct output"</string>
     <string name="external_storage">"External storage"</string>
     <string name="failed">"Failed"</string>
     <string name="failed_2">"%1$s: failed (%2$s)"</string>
@@ -447,17 +448,22 @@
     <string name="nothing_found_try_searching_by">"Nothing found. Try searching by name"</string>
     <string name="nothing_logged_yet">"Nothing logged yet"</string>
     <string name="nothing_played_yet">"Nothing played yet"</string>
+    <string name="notification_access">"Notification access"</string>
+    <string name="notification_access_desc">"Required to read other apps' playback. UCRT doesn't read the content of your notifications."</string>
     <string name="of_left">"%1$s of %2$s · %3$s left"</string>
     <string name="off">"Off"</string>
     <string name="official_site">"Official site"</string>
     <string name="ok">"OK"</string>
     <string name="on">"On"</string>
     <string name="on_upsamples_only_by_integer">"On: upsamples only by integer multiples (e.g. 44.1 → 176.4 kHz) for the cleanest result. If the output doesn't accept any integer multiple, the output's rate is used instead and a warning appears in red.\nOff: uses the highest rate the output accepts, including non-integer conversions (e.g. 44.1 → 192 kHz).\nUSB DAC direct output always uses integer multiples"</string>
+    <string name="open_app">"Open %1$s"</string>
     <string name="open_disc_tab">"Open the Disc tab"</string>
     <string name="open_download_page">"Open download page"</string>
     <string name="open_folder">"Open folder"</string>
     <string name="open_settings_to_revoke">"Open settings to revoke"</string>
     <string name="original_implementation_in_this_app">"Original implementation in this app"</string>
+    <string name="other_apps_playback_desc">"Shows what's playing in streaming apps such as Spotify, Qobuz and Amazon Music at the top of the library, and lets you play, pause and skip tracks"</string>
+    <string name="other_music_apps">"Other music apps"</string>
     <string name="other_output">"Other output"</string>
     <string name="output">"Output"</string>
     <string name="output_2">"Output"</string>
@@ -475,6 +481,7 @@
     <string name="playback_and_ripping">"Playback and ripping"</string>
     <string name="player">"Player"</string>
     <string name="playing">"Playing"</string>
+    <string name="playing_in_app">"Playing in %1$s"</string>
     <string name="playing_mpeg_h_3d_audio">"Playing MPEG-H 3D Audio (360 Reality Audio) needs Android 10 or later"</string>
     <string name="playing_next_songs">"Playing next (%1$s songs)"</string>
     <string name="playlists">"Playlists"</string>
@@ -598,6 +605,7 @@
     <string name="show_artwork_in_lists">"Show artwork in lists"</string>
     <string name="show_lyrics">"Show lyrics"</string>
     <string name="show_or_hide_lyrics">"Show or hide lyrics"</string>
+    <string name="show_other_apps_playback">"Show and control other apps' playback"</string>
     <string name="shows_link_to_download_page">"Shows a link to the download page when a new version is available"</string>
     <string name="shuffle">"Shuffle"</string>
     <string name="shuffle_2">"Shuffle"</string>

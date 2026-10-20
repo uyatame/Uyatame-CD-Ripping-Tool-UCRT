@@ -28,6 +28,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         vm.scan()
+        // 設定画面で「通知へのアクセス」を変えて戻ってきたときに反映する
+        com.uyatame.ucrt.player.ExternalMedia.setEnabled(this, vm.settings.value.externalMedia)
     }
 
     override fun onNewIntent(intent: Intent) {

@@ -71,5 +71,16 @@
             android:name=".KeepAliveService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice|mediaPlayback" />
+
+        <!-- ほかの音楽アプリの再生を表示・操作するため(「通知へのアクセス」の許可に使う。通知の中身は読まない) -->
+        <service
+            android:name=".player.MediaListenerService"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

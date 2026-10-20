@@ -454,6 +454,7 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
             ) { vm.set(Keys.ambientBlur, it) }
         }
     }
+    ExternalMediaSection(vm, s)
     if (AppLanguage.supported) {
         val ctx = LocalContext.current
         var lang by remember { mutableStateOf(AppLanguage.current(ctx)) }
@@ -741,5 +742,39 @@ private fun ThemeColorPicker(value: Int, onChange: (Int) -> Unit) {
         val save = { onChange(ThemeColors.fromHue(hue, sat)) }
         Slider(hue, { hue = it; moved = true }, valueRange = 0f..360f, onValueChangeFinished = save)
         Slider(sat, { sat = it; moved = true }, valueRange = 0.1f..1f, onValueChangeFinished = save)
+    }
+}
+
+/** ほかの音楽アプリ(ストリーミングサービスなど)の再生の表示・操作と、「通知へのアクセス」の許可 */
+@Composable
+private fun ExternalMediaSection(vm: MainViewModel, s: AppSettings) {
+    val ctx = LocalContext.current
+    val ext = com.uyatame.ucrt.player.ExternalMedia
+    // 設定画面から戻ってきたときに反映する
+    LaunchedEffect(s.externalMedia) {
+        while (true) {
+            ext.setEnabled(ctx, s.externalMedia)
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+    Section(S(R.string.other_music_apps)) {
+        SwitchRow(S(R.string.show_other_apps_playback), S(R.string.other_apps_playback_desc), s.externalMedia) {
+            vm.set(Keys.externalMedia, it)
+        }
+        if (s.externalMedia) {
+            Text(S(R.string.notification_access), style = MaterialTheme.typography.bodyLarge)
+            Text(
+                S(R.string.notification_access_desc),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                if (ext.permitted) S(R.string.allowed) else S(R.string.not_allowed),
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (ext.permitted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FilledTonalButton({ ext.openPermissionSettings(ctx) }) {
+                Text(if (ext.permitted) S(R.string.open_settings_to_revoke) else S(R.string.allow))
+            }
+        }
     }
 }

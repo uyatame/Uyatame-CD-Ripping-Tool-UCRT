@@ -330,6 +330,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // ビットパーフェクト再生がオンなら、USB DAC の使用許可を先にもらっておく
                 if (mode == 2 && lastMode != 2) com.uyatame.ucrt.player.usb.UsbDac.requestPermissionIfNeeded()
                 player.setUsbVolume(s.usbVolume)
+                com.uyatame.ucrt.player.ExternalMedia.setEnabled(ctx, s.externalMedia)
                 player.gapless = s.gapless
                 val dsdChanged = com.uyatame.ucrt.player.AudioEngine.dsdMode != s.dsdMode ||
                     com.uyatame.ucrt.player.AudioEngine.dsdSwap != s.dsdSwap

@@ -16,6 +16,7 @@
 - **再生できる形式**: FLAC / ALAC / WAV / AIFF / WavPack / APE（アプリ内蔵のデコーダーで再生。端末やAndroidの版に左右されず、元の音とビット単位で一致）、DSD（DSF / DFF）、MP3 / AAC / Ogg Vorbis / Opus / MPEG-H（端末のデコーダー）
 - **プレイヤー**: CDの直接再生、全画面プレイヤー（左右のページでお気に入り・再生リスト、ジャケットのスワイプで曲送り、アンビエントモード、形式・音質表示）、再生リストの並べ替え、歌詞表示（LRC・埋め込み歌詞）、スリープタイマー、前回の続きから再生、ホーム画面のウィジェット（縦長・横長）、シャッフル・リピート、通知とロック画面からの操作
 - **音響**: ビットパーフェクト再生（独自のUSBオーディオドライバーでUSB DACを直接駆動、UAC1/UAC2、PCM 768 kHz / 32bit）、DSD再生（DSF / DFF、ネイティブDSD512・DoP・PCM変換）、DAR（PCMアップサンプリング・DSDへの変換）、曲線で自由に調整できるパラメトリックイコライザー（最大16バンド）、ソースダイレクト
+- **ほかの音楽アプリの操作**: Spotify・Qobuz・Amazon Musicなどのストリーミングアプリで再生中の曲をライブラリの上部に表示し、再生・一時停止・曲送り・シークを操作できます（「通知へのアクセス」の許可が必要。音はそのアプリからAndroid経由で再生されます）
 - **曲情報の編集**: 曲名・アーティスト・アルバム・年・ジャケットの変更（FLAC / MP3 / M4A / WAV / DSF）、取り込み済みの曲への曲情報の後付け
 - **CUEシート**: 1つのWAV / FLACをCUEシートで曲ごとに分けて表示・再生（Shift_JIS / UTF-8）
 - Material Design 3、ダイナミックカラー、日本語 / English
@@ -88,6 +89,8 @@ keyPassword=********
 
 インターネットに接続するのは、曲情報とジャケット画像を取得するときだけです（MusicBrainzとCover Art Archive）。送信するのは、CDの目次から計算したディスクIDと、検索欄に入力した文字だけです。利用状況の収集や広告はありません。
 
+「通知へのアクセス」を許可した場合も、使うのはほかの音楽アプリの再生状態（曲名・ジャケット・再生位置）だけで、通知の内容は読み取りません。この情報が端末の外に送られることもありません。
+
 ## ライセンス
 
 このアプリは [GNU General Public License v3.0](LICENSE) で公開しています。
@@ -110,6 +113,7 @@ UCRT turns an Android phone and a USB optical drive into a CD ripper and player.
 - CUE sheet support (one WAV / FLAC file split into tracks)
 - Full-screen player with ambient mode and audio format details, direct CD playback and lock screen controls
 - Tag editing for ripped and existing files
+- Shows and controls what's playing in other music apps such as Spotify, Qobuz and Amazon Music (requires notification access; the audio still plays from that app through Android)
 
 To build it yourself, run `./gradlew assembleRelease` (JDK 17 and the Android SDK are required). Unit tests run with `./gradlew testDebugUnitTest`, and GitHub Actions runs them on every push and pull request. The latest source is on the `main` branch.
 

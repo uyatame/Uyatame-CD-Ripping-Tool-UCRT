@@ -255,6 +255,7 @@
     <string name="erasing">"消去中…"</string>
     <string name="erasing_cd_rw">"CD-RWを消去中"</string>
     <string name="expand">"開く"</string>
+    <string name="external_audio_note">"音はそのアプリからAndroid経由で再生されます（UCRTのUSB DAC直接出力は通りません）"</string>
     <string name="external_storage">"外部ストレージ"</string>
     <string name="failed">"失敗"</string>
     <string name="failed_2">"%1$s: 取得失敗（%2$s）"</string>
@@ -443,17 +444,22 @@
     <string name="nothing_found_try_searching_by">"見つかりませんでした。名前で検索してください"</string>
     <string name="nothing_logged_yet">"記録はまだありません"</string>
     <string name="nothing_played_yet">"再生した曲はまだありません"</string>
+    <string name="notification_access">"通知へのアクセス"</string>
+    <string name="notification_access_desc">"ほかのアプリの再生状態を読み取るために必要です。通知の内容は読み取りません。"</string>
     <string name="of_left">"%1$s / %2$s曲 ・ 残り%3$s"</string>
     <string name="off">"オフ"</string>
     <string name="official_site">"公式サイト"</string>
     <string name="ok">"OK"</string>
     <string name="on">"オン"</string>
     <string name="on_upsamples_only_by_integer">"オン: 44.1 kHz → 176.4 kHzのように整数倍でのみ変換します（最も高音質）。出力先が整数倍の周波数に対応していない場合は、やむを得ず出力先の周波数に合わせ、その旨を赤字で表示します。\nオフ: 出力先が対応する最も高い周波数に変換します（44.1 kHz → 192 kHzのような整数倍でない変換も含みます）。\nUSB DAC直接出力では常に整数倍で変換します"</string>
+    <string name="open_app">"%1$sを開く"</string>
     <string name="open_disc_tab">"ディスク画面を開く"</string>
     <string name="open_download_page">"ダウンロードページを開く"</string>
     <string name="open_folder">"フォルダを開く"</string>
     <string name="open_settings_to_revoke">"設定を開く（許可を取り消す）"</string>
     <string name="original_implementation_in_this_app">"本アプリ独自の実装"</string>
+    <string name="other_apps_playback_desc">"Spotify・Qobuz・Amazon Musicなどのストリーミングアプリで再生中の曲をライブラリの上部に表示し、再生・一時停止・曲送りを操作できます"</string>
+    <string name="other_music_apps">"ほかの音楽アプリ"</string>
     <string name="other_output">"その他の出力"</string>
     <string name="output">"出力先"</string>
     <string name="output_2">"出力"</string>
@@ -471,6 +477,7 @@
     <string name="playback_and_ripping">"再生・取り込み"</string>
     <string name="player">"再生画面"</string>
     <string name="playing">"再生中"</string>
+    <string name="playing_in_app">"%1$sで再生中"</string>
     <string name="playing_mpeg_h_3d_audio">"MPEG-H 3D Audio（360 Reality Audio）の曲を再生するには、Android 10以降が必要です"</string>
     <string name="playing_next_songs">"次に再生します（%1$s曲）"</string>
     <string name="playlists">"プレイリスト"</string>
@@ -594,6 +601,7 @@
     <string name="show_artwork_in_lists">"一覧にジャケットを表示"</string>
     <string name="show_lyrics">"歌詞を表示"</string>
     <string name="show_or_hide_lyrics">"歌詞の表示・非表示"</string>
+    <string name="show_other_apps_playback">"ほかのアプリの再生を表示・操作"</string>
     <string name="shows_link_to_download_page">"新しいバージョンが公開されていれば、ダウンロードページへのリンクを表示します"</string>
     <string name="shuffle">"シャッフル再生"</string>
     <string name="shuffle_2">"シャッフル"</string>
