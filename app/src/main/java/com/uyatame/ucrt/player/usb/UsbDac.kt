@@ -50,6 +50,19 @@ object UsbDac {
     @Volatile var onDetached: (() -> Unit)? = null
     /** DAC を直接使っている状態が変わったとき(音量キーの切り替え用) */
     @Volatile var onActiveChanged: ((Boolean) -> Unit)? = null
+    /**
+     * USB の転送の取りこぼしが続いたとき(メインスレッドで呼ぶ)。知らせる文と、周波数を下げたか(下げたら出力を作り直す)
+     */
+    @Volatile var onTransferTrouble: ((String, Boolean) -> Unit)? = null
+
+    /**
+     * 取りこぼしが続いたために下げた、アップサンプリングの上限の周波数(この値未満にする)。
+     * DAC ごとに覚え、別の DAC をつないだら使わない。アプリを起動し直すと元に戻る
+     */
+    private var capRate = 0
+    private var capKey: String? = null
+    /** 最後に準備したときの音源の周波数(下げられるか=アップサンプリングしているかの判断用) */
+    @Volatile private var lastSrcRate = 0
 
     @Volatile var active = false
         private set
@@ -274,9 +287,53 @@ object UsbDac {
         return info != null
     }
 
+    private fun devKey(): String? = device?.let { "%04x:%04x".format(it.vendorId, it.productId) }
+
+    /** 取りこぼし対策で周波数を下げているときの上限(下げていなければ 0) */
+    private fun cap(): Int = if (capRate > 0 && capKey == devKey()) capRate else 0
+
+    /** 取りこぼしのために周波数を下げているときの、再生画面に出す説明(下げていなければ空) */
+    internal fun capNotice(rate: Int): String {
+        val c = cap()
+        if (c <= 0 || rate >= c) return ""
+        return T(
+            "USB の転送が間に合わず音が途切れたため、${khz(rate)} に下げて再生しています(アプリを起動し直すと元に戻ります)",
+            "USB transfers kept failing, so playback was lowered to ${khz(rate)} (restart the app to undo)",
+        )
+    }
+
+    /** 転送のスレッドから: 取りこぼしが続いている */
+    private fun transferTrouble(rate: Int) = main.post {
+        if (stream == null || format?.rate != rate) return@post
+        val src = lastSrcRate
+        if (src in 1 until rate) {
+            // アップサンプリングしているので、1 段下の周波数にする
+            capRate = rate
+            capKey = devKey()
+            AudioEngine.log("usb dac: transfers keep failing at ${khz(rate)}, lowering the rate")
+            onTransferTrouble?.invoke(
+                T(
+                    "USB DAC への転送が間に合わず音が途切れるため、${khz(rate)} より低い周波数に下げます",
+                    "Transfers to the USB DAC keep failing, so the rate is lowered below ${khz(rate)}",
+                ),
+                true,
+            )
+        } else {
+            AudioEngine.log("usb dac: transfers keep failing at ${khz(rate)} (source rate, can't lower)")
+            onTransferTrouble?.invoke(
+                T(
+                    "USB DAC への転送が間に合わず音が途切れています。USB ハブを通さずにつなぐと直ることがあります",
+                    "Transfers to the USB DAC keep failing. Connecting it without a USB hub may help",
+                ),
+                false,
+            )
+        }
+    }
+
     private fun prepareLocked(srcRate: Int, srcCh: Int, srcBits: Int, exact: Boolean, darMaxRate: Int): DacFormat? {
         if (!ensureOpen()) return null
         val inf = info ?: return null
+        lastSrcRate = srcRate
         // 形式(代替設定)を選ぶ
         val wantBits = if (srcBits in 1..32) srcBits else 24
         val pcmAlts = inf.alts.filter { !it.raw && it.subslot >= 2 }
@@ -292,7 +349,10 @@ object UsbDac {
         var alt: UacAlt? = null
         val muls = (if (darMaxRate > 0 && !exact) (16 downTo 2).filter { srcRate.toLong() * it <= darMaxRate } else emptyList()) +
             (1..(if (exact) 1 else 8))
-        for (mul in muls) {
+        // 取りこぼしで下げたときは、上限未満の倍率を先に試す(どれも合わなければ、上限を気にせず選ぶ)
+        val c = cap()
+        val capped = if (c > 0) muls.filter { it == 1 || srcRate.toLong() * it < c } else emptyList()
+        for (mul in capped + muls) {
             val r = srcRate * mul
             val cands = chOk.filter { supports(it, r) }
             if (cands.isNotEmpty()) {
@@ -896,6 +956,11 @@ object UsbDac {
             var stPackets = 0L; var stFrames = 0L; var stData = 0L; var stUrbs = 0
             var stShortPk = 0; var stFb = 0; var stalls = 0
             val stErr = HashMap<Int, Int>()
+            // 取りこぼし(パケットの失敗)が続いているかを 2 秒ごとに見る
+            var missWinAt = t0
+            var missWin = 0
+            var missBad = 0
+            var missReported = false
             var kicked = false
             while (urbs.any { it.inFlight }) {
                 val r = Usbfs.ioctl(fd, Usbfs.REAPURBNDELAY, ptr)
@@ -946,7 +1011,7 @@ object UsbDac {
                     stPackets += u.packets
                     for (k in 0 until u.packets) {
                         val ps = u.packetStatus(k)
-                        if (ps != 0) stErr[1000 + ps] = (stErr[1000 + ps] ?: 0) + 1
+                        if (ps != 0) { stErr[1000 + ps] = (stErr[1000 + ps] ?: 0) + 1; missWin++ }
                     }
                     ring.addPlayed(u.epoch, u.dataFrames)
                     hint?.tick()
@@ -960,6 +1025,18 @@ object UsbDac {
                     if (u.dataFrames < frames) stShortPk++
                 }
                 if (!submit(u)) stopping = true
+                if (now - missWinAt >= 2000) {
+                    // 始めた直後(DAC が落ち着くまで)は数えない。2 秒に 2 回以上の取りこぼしが 3 回(6 秒)続いたら知らせる
+                    if (now - t0 >= 4000 && warmedUp() && !ring.paused) {
+                        missBad = if (missWin >= 2) missBad + 1 else 0
+                        if (missBad >= 3 && !missReported) {
+                            missReported = true
+                            transferTrouble(fmt.rate)
+                        }
+                    }
+                    missWinAt = now
+                    missWin = 0
+                }
                 // 最初は 2 秒ごと、その後は 10 秒ごとに状態を記録する
                 val span = now - lastStat
                 if (span >= (if (now - t0 < 10_000) 2000 else 10_000)) {

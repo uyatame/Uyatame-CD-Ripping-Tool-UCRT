@@ -451,7 +451,10 @@ class AudioOutput(
                 "DAR · PCM ×$upFactor · ${khz(sampleRate)} → ${khz(d.rate)} / ${d.bits} bit · " +
                     AudioEngine.bitrateText(d.rate.toLong() * d.bits * d.channels)
             } else ""
-            AudioEngine.report(perfect, title + " · ${khz(sampleRate)}" + (if (up != null) " → ${khz(d.rate)}" else "") + " / ${d.bits} bit", darText)
+            AudioEngine.report(
+                perfect, title + " · ${khz(sampleRate)}" + (if (up != null) " → ${khz(d.rate)}" else "") + " / ${d.bits} bit", darText,
+                usbDac.capNotice(d.rate),
+            )
             AudioEngine.log("output: usb direct ${khz(d.rate)} ${d.channels}ch ${d.bits}bit" + (if (up != null) " (x$upFactor)" else ""))
             AudioEngine.setOutput(
                 OutputDevice(

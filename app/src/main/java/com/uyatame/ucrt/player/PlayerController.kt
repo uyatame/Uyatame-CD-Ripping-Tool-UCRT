@@ -195,6 +195,11 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             }
         }
         UsbDac.onActiveChanged = { a -> setVolumeRouting(a) }
+        // USB の転送の取りこぼしが続いたら知らせて、周波数を下げたなら出力を作り直す
+        UsbDac.onTransferTrouble = { msg, lowered ->
+            onNotice?.invoke(msg)
+            if (lowered && AudioEngine.wantUsbDirect && current != null) reloadOutput()
+        }
         scope.launch {
             while (true) {
                 delay(250)
