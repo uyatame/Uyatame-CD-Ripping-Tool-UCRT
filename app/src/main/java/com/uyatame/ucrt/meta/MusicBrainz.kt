@@ -171,7 +171,7 @@ object MusicBrainz {
         val parts = ArrayList<String>()
         if (album.isNotBlank()) parts.add("release:(${esc(album)})")
         if (artist.isNotBlank()) parts.add("artist:(${esc(artist)})")
-        if (parts.isEmpty()) throw IOException(T("検索語を入力してください", "Enter a search term"))
+        if (parts.isEmpty()) throw IOException(T("検索キーワードを入力してください", "Enter a search term"))
         val q = URLEncoder.encode(parts.joinToString(" AND "), "UTF-8")
         val bytes = get("$BASE/release/?query=$q&limit=25&fmt=json", "application/json")
         val rels = bytes?.let { JSONObject(String(it, Charsets.UTF_8)).optJSONArray("releases") } ?: JSONArray()
@@ -239,7 +239,7 @@ object MusicBrainz {
             if (rg.isNotEmpty()) {
                 fetchImage("https://coverartarchive.org/release-group/$rg/front-500")?.let { return CoverResult(it, "release-group") }
             }
-            CoverResult(null, T("このアルバムの画像は登録されていません", "No cover art is registered for this album"))
+            CoverResult(null, T("このアルバムのジャケット画像は登録されていません", "No artwork is available for this album"))
         } catch (e: Exception) {
             CoverResult(null, describeNetError(e))
         }
@@ -314,6 +314,6 @@ object MusicBrainz {
                 c.disconnect()
             }
         }
-        throw IOException(T("サーバーが混雑しています(HTTP 503)", "Server busy (HTTP 503)"))
+        throw IOException(T("サーバーが混雑しています（HTTP 503）", "The server is busy (HTTP 503)"))
     }
 }

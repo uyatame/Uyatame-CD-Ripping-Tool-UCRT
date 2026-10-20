@@ -40,8 +40,8 @@ class CdBurner(private val drive: UsbScsiDrive, private val opt: BurnOptions, pr
         val info = drive.readDiscInfo()
         if (info.status != 0) {
             throw IOException(
-                if (info.erasable) T("この CD-RW は空ではありません。消去してから書き込んでください", "This CD-RW is not blank. Erase it first")
-                else T("空の CD-R を入れてください(このディスクは書き込み済みです)", "Insert a blank CD-R (this disc has already been written)"),
+                if (info.erasable) T("このCD-RWは空ではありません。消去してから書き込んでください。", "This CD-RW is not blank. Erase it before writing.")
+                else T("空のCD-Rを入れてください（このディスクは書き込み済みです）", "Insert a blank CD-R (this disc has already been written)"),
             )
         }
         // 1 曲目の前の 2 秒を含めて入るか
@@ -194,7 +194,7 @@ class CdBurner(private val drive: UsbScsiDrive, private val opt: BurnOptions, pr
                     Thread.sleep(25)
                     continue
                 }
-                throw IOException(T("書き込みに失敗しました(LBA %d: %s)", "Write failed (LBA %d: %s)").format(lba, e.message), e)
+                throw IOException(T("書き込みに失敗しました（LBA %d: %s）", "Write failed (LBA %d: %s)").format(lba, e.message), e)
             }
         }
     }

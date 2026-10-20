@@ -138,7 +138,7 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
         SwitchRow(T("イコライザーを使う", "Use equalizer"), null, s.eqEnabled) { vm.set(Keys.eqEnabled, it) }
         if (s.sourceDirect) {
             Text(
-                T("ソースダイレクトがオンのため、イコライザーは使われません", "Source direct is on, so the equalizer is bypassed"),
+                T("ソースダイレクトがオンのため、イコライザーは無効です", "The equalizer is bypassed while source direct is on"),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
             )
         }
@@ -189,8 +189,8 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
         val hint: @Composable () -> Unit = {
             Text(
                 T(
-                    "点をドラッグして周波数と強さを変えます。点をタップすると種類や幅を変えられます。何もないところをダブルタップすると帯域を追加します",
-                    "Drag a point to change its frequency and level. Tap a point to change its type and width. Double-tap an empty spot to add a band",
+                    "点をドラッグすると周波数とゲインを変更できます。点をタップすると種類や幅を変更できます。何もない場所をダブルタップするとバンドを追加します",
+                    "Drag a point to change its frequency and gain. Tap a point to change its type and width. Double-tap an empty area to add a band",
                 ),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -198,7 +198,7 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
         val bandList: @Composable () -> Unit = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    T("バンド ${bands.size} / ${ParamEq.MAX_BANDS}", "Bands ${bands.size} / ${ParamEq.MAX_BANDS}"),
+                    T("バンド数: ${bands.size} / ${ParamEq.MAX_BANDS}", "Bands: ${bands.size} / ${ParamEq.MAX_BANDS}"),
                     style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f),
                 )
                 OutlinedButton(
@@ -274,7 +274,7 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
         }
         SwitchRow(
             T("音割れを自動で防ぐ", "Prevent clipping automatically"),
-            T("曲線のいちばん持ち上がった分だけ、全体の音量を下げます", "Lowers the overall level by the highest boost in the curve"),
+            T("カーブの最大ブースト量に合わせて、全体の音量を下げます", "Lowers the overall level by the curve's highest boost"),
             s.eqAutoPreamp,
         ) { vm.set(Keys.eqAutoPreamp, it) }
         TextButton({
@@ -303,7 +303,7 @@ private fun BandEditor(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(T("バンド ${index + 1}", "Band ${index + 1}"), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+            Text(T("バンド${index + 1}", "Band ${index + 1}"), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
             TextButton(onDelete, enabled = enabled) {
                 Icon(Icons.Filled.Delete, null)
                 Spacer(Modifier.width(4.dp))
@@ -325,13 +325,13 @@ private fun BandEditor(
                 )
             }
         }
-        ParamSlider(T("周波数", "Freq"), freqLabel(b.freq), freqToPos(b.freq), enabled, { onChange(b.copy(freq = posToFreq(it))) }, onDone)
+        ParamSlider(T("周波数", "Frequency"), freqLabel(b.freq), freqToPos(b.freq), enabled, { onChange(b.copy(freq = posToFreq(it))) }, onDone)
         ParamSlider(
-            T("強さ", "Gain"), dbLabel(b.gain), (b.gain + ParamEq.MAX_DB) / (2 * ParamEq.MAX_DB), enabled && b.type.hasGain,
+            T("ゲイン", "Gain"), dbLabel(b.gain), (b.gain + ParamEq.MAX_DB) / (2 * ParamEq.MAX_DB), enabled && b.type.hasGain,
             { onChange(b.copy(gain = ((it * 2 * ParamEq.MAX_DB - ParamEq.MAX_DB) * 2).roundToInt() / 2f)) }, onDone,
         )
         ParamSlider(
-            T("幅 (Q)", "Width (Q)"), "Q " + "%.2f".format(java.util.Locale.US, b.q), qToPos(b.q), enabled,
+            T("幅（Q）", "Width (Q)"), "Q " + "%.2f".format(java.util.Locale.US, b.q), qToPos(b.q), enabled,
             { onChange(b.copy(q = (posToQ(it) * 100).roundToInt() / 100f)) }, onDone,
         )
     }

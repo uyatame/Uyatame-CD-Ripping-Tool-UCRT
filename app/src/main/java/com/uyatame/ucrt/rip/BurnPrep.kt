@@ -88,7 +88,7 @@ object BurnPrep {
                 if (pad > 0) os.write(ByteArray(pad * 4))
                 if (sectors < MIN_TRACK) { writeSilence(os, MIN_TRACK - sectors); sectors = MIN_TRACK }
                 pos += sectors
-                if (pos > MAX_SECTORS) throw IOException(T("80 分を超えるため、CD 1 枚に入りません", "Longer than 80 minutes; does not fit on one CD"))
+                if (pos > MAX_SECTORS) throw IOException(T("80分を超えるため、CD1枚に収まりません", "Too long for one CD (over 80 minutes)"))
             }
         }
         return BurnImage(out, starts, gaps, pos)
@@ -112,7 +112,7 @@ object BurnPrep {
     ): Long {
         val name = Uri.decode(uri.toString())
         if (com.uyatame.ucrt.player.dsd.DsdFile.isDsd(name)) {
-            throw IOException(T("DSD の曲は CD に書き込めません", "DSD tracks cannot be written to a CD"))
+            throw IOException(T("DSDの曲はCDに書き込めません", "DSD tracks cannot be written to a CD"))
         }
         val w = Writer(os, startMs, endMs)
         val kind = BuiltinCodecs.kindOf(name)
@@ -160,7 +160,7 @@ object BurnPrep {
             ex.setDataSource(ctx, uri, null)
             val ti = (0 until ex.trackCount).firstOrNull {
                 ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
-            } ?: throw IOException(T("音声が見つかりません", "No audio found"))
+            } ?: throw IOException(T("音声が見つかりません", "No audio track found"))
             ex.selectTrack(ti)
             val fmt = ex.getTrackFormat(ti)
             val durUs = if (fmt.containsKey(MediaFormat.KEY_DURATION)) fmt.getLong(MediaFormat.KEY_DURATION) else 0L

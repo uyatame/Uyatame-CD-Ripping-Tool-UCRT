@@ -7,7 +7,7 @@
     <string name="widget_tall_desc">Artwork on top, with title and playback controls</string>
     <string name="widget_wide_desc">Artwork on the left, with title and playback controls</string>
     <string name="widget_prev">Previous</string>
-    <string name="widget_play">Play / pause</string>
+    <string name="widget_play">Play/pause</string>
     <string name="widget_next">Next</string>
     <string name="widget_idle">Nothing playing</string>
     <string name="widget_idle_sub">Tap to open UCRT</string>

@@ -51,8 +51,8 @@ object SoundPage {
     fun title(p: Int): String = when (p) {
         EQ -> T("イコライザー", "Equalizer")
         DAR -> "DAR"
-        OUTPUT -> T("USB DAC 直接出力", "USB DAC direct output")
-        DSD -> T("DSD の再生", "DSD playback")
+        OUTPUT -> T("USB DAC直接出力", "USB DAC direct output")
+        DSD -> T("DSDの再生", "DSD playback")
         else -> T("音質設定", "Sound settings")
     }
 }
@@ -71,20 +71,20 @@ fun SoundSubPage(vm: MainViewModel, s: AppSettings, page: Int) {
 private fun eqSummary(s: AppSettings): String = when {
     !s.eqEnabled -> T("オフ", "Off")
     else -> EqBands.PRESETS.getOrNull(s.eqPreset)?.let { T(it.ja, it.en) }
-        ?: T("カスタム(${s.eqBandList.size} バンド)", "Custom (${s.eqBandList.size} bands)")
+        ?: T("カスタム（${s.eqBandList.size}バンド）", "Custom (${s.eqBandList.size} bands)")
 }
 
 private fun darSummary(s: AppSettings): String = when (s.darMode) {
-    1 -> T("PCM アップサンプリング", "PCM upsampling") + " · " +
-        listOf(T("DAC の最大", "DAC max"), "×2", "×4", "×8", "×16").getOrElse(s.darPcm) { "" }
-    2 -> T("DSD に変換", "Convert to DSD") + " · " + listOf("DSD64", "DSD128", "DSD256").getOrElse(s.darDsd) { "" }
+    1 -> T("PCMアップサンプリング", "PCM upsampling") + " · " +
+        listOf(T("DACの最大値", "DAC max"), "×2", "×4", "×8", "×16").getOrElse(s.darPcm) { "" }
+    2 -> T("DSDに変換", "Convert to DSD") + " · " + listOf("DSD64", "DSD128", "DSD256").getOrElse(s.darDsd) { "" }
     else -> T("オフ", "Off")
 }
 
 private fun dsdSummary(s: AppSettings): String = when (s.dsdMode) {
     1 -> "DoP"
-    2 -> T("PCM に変換", "Convert to PCM")
-    else -> T("自動(ネイティブ DSD → DoP → PCM)", "Auto (native → DoP → PCM)")
+    2 -> T("PCMに変換", "Convert to PCM")
+    else -> T("自動（ネイティブDSD → DoP → PCM）", "Auto (native DSD → DoP → PCM)")
 }
 
 /**
@@ -99,7 +99,7 @@ fun SoundMain(vm: MainViewModel, s: AppSettings, onOpen: (Int) -> Unit) {
     SoundGroup(T("音質", "Sound quality")) {
         SoundRow(
             T("ソースダイレクト", "Source direct"),
-            T("イコライザー・DAR を通さず、音源のままの音で再生します", "Plays the source as is, bypassing the equalizer and DAR"),
+            T("イコライザーとDARを通さず、音源をそのまま再生します", "Plays the source as is, bypassing the equalizer and DAR"),
             checked = direct, enabled = true,
             onToggle = { vm.set(Keys.sourceDirect, it) },
             highlight = true,
@@ -113,14 +113,14 @@ fun SoundMain(vm: MainViewModel, s: AppSettings, onOpen: (Int) -> Unit) {
         )
         HorizontalDivider()
         SoundRow(
-            "DAR", T("アップサンプリング・DSD 変換", "Upsampling / DSD conversion") + " · " + darSummary(s),
+            "DAR", T("アップサンプリング・DSD変換", "Upsampling / DSD conversion") + " · " + darSummary(s),
             checked = s.darMode != 0, enabled = !direct,
             onToggle = { vm.set(Keys.darMode, if (it) 1 else 0) },
             onOpen = { onOpen(SoundPage.DAR) },
         )
         if (direct) {
             Text(
-                T("ソースダイレクトがオンのため、イコライザーと DAR は使われません", "Source direct is on, so the equalizer and DAR are bypassed"),
+                T("ソースダイレクトがオンのため、イコライザーとDARは無効です", "The equalizer and DAR are bypassed while source direct is on"),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
@@ -128,22 +128,22 @@ fun SoundMain(vm: MainViewModel, s: AppSettings, onOpen: (Int) -> Unit) {
     }
     SoundGroup(T("出力", "Output")) {
         SoundRow(
-            T("USB DAC 直接出力", "USB DAC direct output"),
-            T("独自ドライバーで USB DAC を直接動かします(ビットパーフェクト・DSD ネイティブ再生)", "Drives the USB DAC with the app's own driver (bit-perfect, native DSD)"),
+            T("USB DAC直接出力", "USB DAC direct output"),
+            T("独自ドライバーでUSB DACを直接駆動します（ビットパーフェクト・ネイティブDSD再生）", "Drives the USB DAC with the app's own driver (bit-perfect, native DSD)"),
             checked = s.outputMode == 2, enabled = true,
             onToggle = { vm.setOutputMode(if (it) 2 else 0) },
             onOpen = { onOpen(SoundPage.OUTPUT) },
         )
         HorizontalDivider()
         SoundRow(
-            T("DSD の再生", "DSD playback"), dsdSummary(s),
+            T("DSDの再生", "DSD playback"), dsdSummary(s),
             checked = null, enabled = true,
             onOpen = { onOpen(SoundPage.DSD) },
         )
         HorizontalDivider()
         SoundRow(
             T("ギャップレス再生", "Gapless playback"),
-            T("同じ形式の曲が続くとき、曲間に無音をはさみません", "No silence between songs of the same format"),
+            T("同じ形式の曲が続くとき、曲間に無音を入れずに再生します", "Plays tracks of the same format without silence between them"),
             checked = s.gapless, enabled = true,
             onToggle = { vm.set(Keys.gapless, it) },
         )
@@ -180,7 +180,7 @@ private fun NowOutputCard(s: AppSettings) {
                         when {
                             s.sourceDirect -> T("ソースダイレクト", "Source direct")
                             s.eqEnabled -> T("イコライザー使用中", "Equalizer on")
-                            else -> T("再生すると、ここに出力の状態を表示します", "The output status appears here during playback")
+                            else -> T("再生中はここに出力の状態が表示されます", "Output status appears here during playback")
                         }
                     },
                     style = MaterialTheme.typography.bodySmall,

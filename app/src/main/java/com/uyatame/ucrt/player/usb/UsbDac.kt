@@ -262,7 +262,7 @@ object UsbDac {
         if (!inited) return false
         val dev = findDac()
         if (dev == null) {
-            AudioEngine.report(false, T("USB DAC が見つからないため、通常の出力で再生しています", "No USB DAC found; using normal output"))
+            AudioEngine.report(false, T("USB DACが見つからないため、通常の出力で再生しています", "USB DAC not found. Using standard output"))
             close(reattach = true)
             return false
         }
@@ -274,7 +274,7 @@ object UsbDac {
                 )
                 main.post { runCatching { usb().requestPermission(dev, pi) } }
             }
-            AudioEngine.report(false, T("USB DAC の使用を許可すると、直接出力で再生します", "Allow access to the USB DAC to use direct output"))
+            AudioEngine.report(false, T("USB DACへのアクセスを許可すると、直接出力で再生します", "Allow access to the USB DAC to use direct output"))
             return false
         }
         if (device?.deviceName != dev.deviceName || conn == null) {
@@ -339,7 +339,7 @@ object UsbDac {
         val pcmAlts = inf.alts.filter { !it.raw && it.subslot >= 2 }
         val chOk = pcmAlts.filter { it.channels == srcCh }.ifEmpty { pcmAlts.filter { it.channels == 2 } }
         if (chOk.isEmpty()) {
-            AudioEngine.report(false, T("この DAC は ${srcCh}ch に対応していません", "This DAC does not support ${srcCh}ch"))
+            AudioEngine.report(false, T("このDACは${srcCh}chに対応していません", "This DAC does not support ${srcCh} channels"))
             close(reattach = true)
             return null
         }
@@ -366,7 +366,7 @@ object UsbDac {
         if (alt == null) {
             AudioEngine.report(
                 false,
-                T("この DAC は ${khz(srcRate)} に対応していないため、通常の出力で再生しています", "This DAC does not support ${khz(srcRate)}; using normal output"),
+                T("このDACは${khz(srcRate)}に対応していないため、通常の出力で再生しています", "This DAC does not support ${khz(srcRate)}. Using standard output"),
             )
             if (!exact) close(reattach = true)
             return null
@@ -902,7 +902,7 @@ object UsbDac {
             runCatching { drain() }
             // 止める指示なしに転送が終わった(エラー・切断)ときは、再生側に出力のやり直しを促す
             if (!halted) {
-                AudioEngine.report(false, T("USB DAC への転送が止まりました", "USB DAC streaming stopped"))
+                AudioEngine.report(false, T("USB DACへの転送が停止しました", "USB DAC streaming stopped"))
                 // 短い間に何度も止まるときは、やり直しを繰り返さない
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastFailAt > 60_000) failCount = 0

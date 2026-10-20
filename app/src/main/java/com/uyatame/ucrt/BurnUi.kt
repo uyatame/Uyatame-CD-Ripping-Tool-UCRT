@@ -42,9 +42,9 @@ fun BurnDialog(vm: MainViewModel) {
     if (confirmClose) {
         AlertDialog(
             onDismissRequest = { confirmClose = false },
-            title = { Text(T("書き込みをやめますか?", "Stop writing?")) },
-            text = { Text(T("準備した内容は消えます(もう一度書くには、読み取り・準備からやり直しになります)", "The prepared content will be deleted (you'll have to prepare it again to write)")) },
-            confirmButton = { TextButton({ confirmClose = false; vm.closeBurn() }) { Text(T("やめる", "Stop")) } },
+            title = { Text(T("書き込みを中止しますか？", "Cancel writing?")) },
+            text = { Text(T("準備したデータは削除されます（もう一度書き込むには、読み取りと準備からやり直す必要があります）", "The prepared data will be deleted (to write again, you'll need to read and prepare it from the start)")) },
+            confirmButton = { TextButton({ confirmClose = false; vm.closeBurn() }) { Text(T("中止する", "Cancel writing")) } },
             dismissButton = { TextButton({ confirmClose = false }) { Text(T("戻る", "Back")) } },
         )
     }
@@ -53,17 +53,17 @@ fun BurnDialog(vm: MainViewModel) {
     val sec = (img.seconds % 60).toInt()
     AlertDialog(
         onDismissRequest = { if (!writing) confirmClose = true },
-        title = { Text(if (b.stage == 1) T("書き込み完了", "Finished") else T("CD に書き込む", "Write a CD")) },
+        title = { Text(if (b.stage == 1) T("書き込み完了", "Write complete") else T("CDに書き込む", "Write to CD")) },
         text = {
             Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(b.title, style = MaterialTheme.typography.titleSmall)
                 Text(
-                    T("${img.tracks.size}曲 ・ %d 分 %02d 秒", "${img.tracks.size} tracks · %d:%02d").format(min, sec),
+                    T("${img.tracks.size}曲・%d分%02d秒", "${img.tracks.size} tracks · %d:%02d").format(min, sec),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (writing) {
                     Text(
-                        if (vm.busyKind == 4) T("消去しています…", "Erasing…") else T("書き込んでいます… ${(vm.ripOverall * 100).toInt()}%", "Writing… ${(vm.ripOverall * 100).toInt()}%"),
+                        if (vm.busyKind == 4) T("消去中…", "Erasing…") else T("書き込み中… ${(vm.ripOverall * 100).toInt()}%", "Writing… ${(vm.ripOverall * 100).toInt()}%"),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     androidx.compose.material3.LinearProgressIndicator({ vm.ripOverall }, Modifier.fillMaxWidth())
@@ -72,15 +72,15 @@ fun BurnDialog(vm: MainViewModel) {
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
                     )
                 } else if (b.stage == 0) {
-                    Text(T("空の CD-R(または CD-RW)を入れて「書き込む」を押してください", "Insert a blank CD-R (or CD-RW) and tap Write"), style = MaterialTheme.typography.bodyMedium)
-                    Text(T("書き込みの速さ", "Write speed"), style = MaterialTheme.typography.labelLarge)
+                    Text(T("空のCD-R（またはCD-RW）を入れて「書き込む」をタップしてください", "Insert a blank CD-R (or CD-RW) and tap Write"), style = MaterialTheme.typography.bodyMedium)
+                    Text(T("書き込み速度", "Write speed"), style = MaterialTheme.typography.labelLarge)
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(4, 8, 16, 0).forEach { x ->
                             FilterChip(speed == x, { speed = x }, label = { Text(if (x == 0) T("最大", "Max") else "${x}x") })
                         }
                     }
                     Text(
-                        T("遅いほど失敗しにくく、古い CD プレーヤーでも読みやすくなります", "Slower is safer and plays better on old CD players"),
+                        T("速度が遅いほど失敗しにくく、古いCDプレーヤーでも読み取りやすくなります", "Slower speeds are more reliable and play better on older CD players"),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Row(Modifier.fillMaxWidth().clickable { test = !test }, verticalAlignment = Alignment.CenterVertically) {
@@ -88,7 +88,7 @@ fun BurnDialog(vm: MainViewModel) {
                         Column {
                             Text(T("テスト書き込み", "Test write"), style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                T("実際には焼かずに、最後まで書き込めるかだけを試します(ディスクはそのまま使えます)", "Simulates the whole write without burning (the disc stays blank)"),
+                                T("実際には書き込まず、最後まで書き込めるかどうかだけを確認します（ディスクはそのまま使えます）", "Simulates the entire write without burning anything (the disc stays blank)"),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -106,9 +106,9 @@ fun BurnDialog(vm: MainViewModel) {
         confirmButton = {
             when {
                 writing -> TextButton({ vm.cancelRip() }) { Text(T("中止", "Stop")) }
-                b.stage == 1 -> TextButton({ vm.burnAgain() }) { Text(T("もう 1 枚書く", "Write another")) }
+                b.stage == 1 -> TextButton({ vm.burnAgain() }) { Text(T("もう1枚書き込む", "Write another")) }
                 else -> Row {
-                    if (b.canErase) TextButton({ vm.eraseDisc() }) { Text(T("消去する", "Erase")) }
+                    if (b.canErase) TextButton({ vm.eraseDisc() }) { Text(T("消去", "Erase")) }
                     TextButton({ vm.writeDisc(speed, test) }) { Text(T("書き込む", "Write")) }
                 }
             }
@@ -127,19 +127,19 @@ fun BurnTracksDialog(vm: MainViewModel) {
     val totalSec = req.second.sumOf { (if (it.endMs > 0) it.endMs - it.startMs else it.durationMs) } / 1000
     AlertDialog(
         onDismissRequest = { vm.burnRequest = null },
-        title = { Text(T("CD に書き込む", "Write a CD")) },
+        title = { Text(T("CDに書き込む", "Write to CD")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(req.first, style = MaterialTheme.typography.titleSmall)
                 Text(
-                    T("${req.second.size}曲 ・ 約 %d 分", "${req.second.size} tracks · about %d min").format((totalSec + 59) / 60),
+                    T("${req.second.size}曲・約%d分", "${req.second.size} tracks · about %d min").format((totalSec + 59) / 60),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (totalSec > 80 * 60) {
-                    Text(T("80 分を超えるため、CD 1 枚に入りません", "Longer than 80 minutes; does not fit on one CD"), color = MaterialTheme.colorScheme.error)
+                    Text(T("80分を超えるため、CD1枚に収まりません", "Too long for one CD (over 80 minutes)"), color = MaterialTheme.colorScheme.error)
                 }
                 Text(T("曲間", "Gap between tracks"), style = MaterialTheme.typography.labelLarge)
-                listOf(2 to T("2 秒(普通の CD と同じ)", "2 seconds (like a normal CD)"), 0 to T("なし(ライブ盤など、曲がつながっているとき)", "None (gapless, e.g. live albums)")).forEach { (v, label) ->
+                listOf(2 to T("2秒（一般的なCDと同じ）", "2 seconds (standard for CDs)"), 0 to T("なし（ライブ盤など、曲がつながっている場合）", "None (for continuous tracks, e.g. live albums)")).forEach { (v, label) ->
                     Row(Modifier.fillMaxWidth().clickable { gap = v }, verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(gap == v, { gap = v })
                         Text(label, style = MaterialTheme.typography.bodyMedium)
@@ -147,8 +147,8 @@ fun BurnTracksDialog(vm: MainViewModel) {
                 }
                 Text(
                     T(
-                        "曲を CD の形式(44.1 kHz / 16bit)にしてから書き込みます。ハイレゾの曲は周波数を変換します。DSD の曲は書き込めません",
-                        "Tracks are converted to CD format (44.1 kHz / 16-bit) first; hi-res tracks are resampled. DSD tracks can't be written",
+                        "曲はCDの形式（44.1 kHz / 16bit）に変換してから書き込みます（ハイレゾの曲はサンプリング周波数も変換されます）。DSDの曲は書き込めません",
+                        "Tracks are converted to CD format (44.1 kHz / 16-bit) before writing, and hi-res tracks are resampled. DSD tracks can't be written",
                     ),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

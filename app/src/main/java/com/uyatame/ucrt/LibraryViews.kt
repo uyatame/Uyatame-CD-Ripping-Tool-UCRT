@@ -180,7 +180,7 @@ fun TrackRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp),
         )
         IconButton({ vm.showTrackMenu(t, playlist) }) {
-            Icon(Icons.Filled.MoreVert, T("その他の操作", "More"), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Filled.MoreVert, T("その他の操作", "More options"), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -232,7 +232,7 @@ fun AlbumListRow(vm: MainViewModel, a: LibAlbum, sub: String? = null) {
                 QualityBadge(Quality.badge(a), Quality.classOf(a))
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    sub ?: (a.artist + T(" ・ ${a.tracks.size}曲", " · ${a.tracks.size} tracks")),
+                    sub ?: (a.artist + T(" ・ ${a.tracks.size}曲", " · ${a.tracks.size} songs")),
                     style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -393,11 +393,11 @@ private fun UpdateDialog(vm: MainViewModel) {
     }
     AlertDialog(
         onDismissRequest = { vm.updateOffer = null },
-        title = { Text(T("新しい版があります", "Update available")) },
+        title = { Text(T("アップデートがあります", "Update available")) },
         text = {
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
                 Text(
-                    T("v${r.version} が公開されています(いまの版は v$cur)。", "v${r.version} is out (you have v$cur)."),
+                    T("v${r.version}が公開されています（現在のバージョンはv$cur）。", "v${r.version} is available (you have v$cur)."),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -418,14 +418,14 @@ private fun UpdateDialog(vm: MainViewModel) {
                 }
             }
         },
-        confirmButton = { TextButton({ open() }) { Text(T("ダウンロードのページを開く", "Open download page")) } },
+        confirmButton = { TextButton({ open() }) { Text(T("ダウンロードページを開く", "Open download page")) } },
         dismissButton = {
             Row {
                 TextButton({
                     vm.set(com.uyatame.ucrt.data.Keys.updateSkip, r.version)
                     vm.updateOffer = null
-                }) { Text(T("この版は通知しない", "Skip this version")) }
-                TextButton({ vm.updateOffer = null }) { Text(T("あとで", "Later")) }
+                }) { Text(T("このバージョンをスキップ", "Skip this version")) }
+                TextButton({ vm.updateOffer = null }) { Text(T("後で", "Later")) }
             }
         },
     )
@@ -439,11 +439,11 @@ private fun DeleteConfirmDialog(vm: MainViewModel) {
     AlertDialog(
         onDismissRequest = { vm.deleteRequest = null },
         icon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
-        title = { Text(T("${list.size}曲のファイルを削除しますか?", "Delete ${list.size} song files?")) },
+        title = { Text(T("${list.size}曲のファイルを削除しますか？", "Delete ${list.size} song files?")) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    T("端末からファイルを削除します。元に戻すことはできません。", "The files will be deleted from your device. This cannot be undone."),
+                    T("ファイルを端末から削除します。この操作は取り消せません。", "The files will be deleted from your device. This can't be undone."),
                     color = MaterialTheme.colorScheme.error,
                 )
                 Text(
@@ -455,7 +455,7 @@ private fun DeleteConfirmDialog(vm: MainViewModel) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     androidx.compose.material3.Checkbox(agree, { agree = it })
-                    Text(T("元に戻せないことを理解しました", "I understand this cannot be undone"))
+                    Text(T("取り消せないことを理解しました", "I understand this can't be undone"))
                 }
             }
         },
@@ -510,7 +510,7 @@ private fun TrackMenuSheet(vm: MainViewModel) {
                 SheetAction(AppIcons.Album, T("アルバムを表示", "Go to album")) { close(); vm.openRoute("album:$k") }
             }
             SheetAction(Icons.Filled.Person, T("アーティストを表示", "Go to artist")) { close(); vm.openRoute("artist:" + artistOf(t)) }
-            SheetAction(Icons.Filled.Info, T("曲の詳細情報", "Song details")) { vm.infoItem = vm.itemOf(t); close() }
+            SheetAction(Icons.Filled.Info, T("曲の詳細", "Song details")) { vm.infoItem = vm.itemOf(t); close() }
             HorizontalDivider()
             SheetAction(Icons.Filled.Delete, T("ファイルを削除…", "Delete file…")) { vm.deleteRequest = listOf(t); close() }
             Spacer(Modifier.size(16.dp))
@@ -532,7 +532,7 @@ private fun AlbumMenuSheet(vm: MainViewModel) {
                 Column(Modifier.weight(1f)) {
                     Text(a.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(
-                        a.artist + T(" ・ ${a.tracks.size}曲", " · ${a.tracks.size} tracks"), style = MaterialTheme.typography.bodySmall,
+                        a.artist + T(" ・ ${a.tracks.size}曲", " · ${a.tracks.size} songs"), style = MaterialTheme.typography.bodySmall,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     QualityBadge(Quality.badge(a), Quality.classOf(a), Modifier.padding(top = 4.dp))
@@ -551,9 +551,9 @@ private fun AlbumMenuSheet(vm: MainViewModel) {
             SheetAction(AppIcons.PlaylistAdd, T("プレイリストに追加…", "Add to playlist…")) { vm.playlistPick = a.tracks.map { it.uri }; close() }
             SheetAction(Icons.Filled.Person, T("アーティストを表示", "Go to artist")) { close(); vm.openRoute("artist:" + a.artist) }
             if (vm.libStack.lastOrNull() != "album:" + a.key) {
-                SheetAction(AppIcons.Album, T("アルバムを開く", "Open album")) { close(); vm.openRoute("album:" + a.key) }
+                SheetAction(AppIcons.Album, T("アルバムを表示", "Go to album")) { close(); vm.openRoute("album:" + a.key) }
             }
-            SheetAction(AppIcons.Album, T("CD に書き込む…", "Write to CD…")) { vm.burnRequest = a.title to a.tracks; close() }
+            SheetAction(AppIcons.Album, T("CDに書き込む…", "Burn to CD…")) { vm.burnRequest = a.title to a.tracks; close() }
             HorizontalDivider()
             SheetAction(Icons.Filled.Delete, T("アルバムのファイルを削除…", "Delete album files…")) { vm.deleteRequest = a.tracks; close() }
             Spacer(Modifier.size(16.dp))
@@ -616,7 +616,7 @@ private fun PlaylistPickDialog(vm: MainViewModel) {
         },
         confirmButton = {
             if (creating) {
-                TextButton({ vm.createPlaylist(name, uris); close() }, enabled = name.isNotBlank()) { Text(T("作成して追加", "Create")) }
+                TextButton({ vm.createPlaylist(name, uris); close() }, enabled = name.isNotBlank()) { Text(T("作成して追加", "Create and add")) }
             }
         },
         dismissButton = { TextButton(close) { Text(T("キャンセル", "Cancel")) } },
@@ -656,7 +656,7 @@ private fun TrackInfoDialog(vm: MainViewModel) {
     }
     AlertDialog(
         onDismissRequest = { vm.infoItem = null },
-        title = { Text(T("曲の詳細情報", "Song details")) },
+        title = { Text(T("曲の詳細", "Song details")) },
         text = {
             LazyColumn(Modifier.heightIn(max = 460.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
                 items(rows) { (k, v) ->

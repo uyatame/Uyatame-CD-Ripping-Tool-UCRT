@@ -442,10 +442,10 @@ class AudioOutput(
             val perfect = up == null && !softVol && !eqOn
             val title = when {
                 perfect -> T("ビットパーフェクト", "Bit-perfect")
-                eqOn && up == null -> T("USB DAC 直接出力(イコライザーを使用中)", "USB DAC direct (equalizer on)")
-                up != null && darMax > 0 -> T("DAR: PCM アップサンプリング", "DAR: PCM upsampling")
-                up != null -> T("USB DAC 直接出力(DAC が非対応の周波数のためアップサンプリング)", "USB DAC direct (upsampled: rate not supported by the DAC)")
-                else -> T("USB DAC 直接出力(ソフトウェア音量を使用中。音量 100 でビットパーフェクト)", "USB DAC direct (software volume; set 100 for bit-perfect)")
+                eqOn && up == null -> T("USB DAC直接出力（イコライザー使用中）", "USB DAC direct output (equalizer on)")
+                up != null && darMax > 0 -> T("DAR: PCMアップサンプリング", "DAR: PCM upsampling")
+                up != null -> T("USB DAC直接出力（DAC非対応の周波数のためアップサンプリング）", "USB DAC direct output (upsampled to a rate the DAC supports)")
+                else -> T("USB DAC直接出力（ソフトウェア音量を使用中。音量100でビットパーフェクト）", "USB DAC direct output (software volume; bit-perfect at 100)")
             }
             val darText = if (up != null && darMax > 0) {
                 "DAR · PCM ×$upFactor · ${khz(sampleRate)} → ${khz(d.rate)} / ${d.bits} bit · " +
@@ -481,14 +481,14 @@ class AudioOutput(
                     .also { AudioEngine.log("upsample: ${it.threadCount} threads on $cores cores") }
             } else null
             if (AudioEngine.wantUsbDirect && channels > 2) {
-                AudioEngine.report(false, T("多チャンネル音源のため、通常の出力で再生しています", "Multichannel source; using normal output"))
+                AudioEngine.report(false, T("多チャンネル音源のため、通常の出力で再生しています", "Multichannel source. Using standard output"))
                 runCatching { usbDac.close(reattach = true) }
             }
             if (outRate != sampleRate) {
                 val how = if (frac != null) "×%.3f".format(java.util.Locale.US, outRate.toDouble() / sampleRate) else "×$nf"
                 AudioEngine.report(
                     false,
-                    T("DAR: PCM アップサンプリング", "DAR: PCM upsampling") + " · ${khz(sampleRate)} → ${khz(outRate)}",
+                    T("DAR: PCMアップサンプリング", "DAR: PCM upsampling") + " · ${khz(sampleRate)} → ${khz(outRate)}",
                     "DAR · PCM $how · ${khz(sampleRate)} → ${khz(outRate)} / 32 bit float · " +
                         AudioEngine.bitrateText(outRate.toLong() * 32 * channels),
                     if (forcedFrac) {

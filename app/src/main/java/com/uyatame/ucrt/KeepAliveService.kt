@@ -82,7 +82,7 @@ class KeepAliveService : Service() {
         fun build(ctx: Context, info: NotifInfo): Notification {
             if (!channelReady) {
                 ctx.getSystemService(NotificationManager::class.java).createNotificationChannel(
-                    NotificationChannel("work", T("再生・取り込み", "Playback & ripping"), NotificationManager.IMPORTANCE_LOW),
+                    NotificationChannel("work", T("再生・取り込み", "Playback and ripping"), NotificationManager.IMPORTANCE_LOW),
                 )
                 channelReady = true
             }

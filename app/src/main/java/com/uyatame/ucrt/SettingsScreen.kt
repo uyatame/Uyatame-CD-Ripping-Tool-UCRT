@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -153,7 +154,7 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
         Card(Modifier.fillMaxWidth()) {
             CategoryRow(
                 AppIcons.Download, T("保存と取り込み", "Saving & ripping"),
-                folderLabel(s.outputUri) + T(" ・ 曲情報の自動取得 ", " · Auto info ") + if (s.autoMeta) "ON" else "OFF",
+                folderLabel(s.outputUri) + T(" ・ 曲情報の自動取得 ", " · Auto track info ") + if (s.autoMeta) "ON" else "OFF",
             ) { onPage(1) }
             HorizontalDivider()
             CategoryRow(AppIcons.MusicNote, T("音質", "Quality"), s.qualityLabel()) { onPage(2) }
@@ -166,14 +167,14 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
             HorizontalDivider()
             CategoryRow(
                 AppIcons.Library, T("ライブラリ", "Library"),
-                T("${folders.coerceAtLeast(0)}個のフォルダ ・ 端末内の曲も追加できます", "${folders.coerceAtLeast(0)} folders · add music already on your device"),
+                T("${folders.coerceAtLeast(0)}個のフォルダ ・ 端末内の曲も追加できます", "${folders.coerceAtLeast(0)} folders · add music from your device"),
             ) { onPage(4) }
             HorizontalDivider()
             CategoryRow(
                 AppIcons.Headphones, T("音質設定", "Sound settings"),
                 (if (s.sourceDirect) T("ソースダイレクト", "Source direct") else T("EQ ", "EQ ") + (if (s.eqEnabled) "ON" else "OFF") +
                     (if (s.darMode != 0) " ・ DAR" else "")) +
-                    (if (s.outputMode == 2) T(" ・ USB DAC 直接出力", " · USB DAC direct") else ""),
+                    (if (s.outputMode == 2) T(" ・ USB DAC直接出力", " · USB DAC direct") else ""),
             ) { onPage(8) }
             HorizontalDivider()
             CategoryRow(
@@ -183,7 +184,7 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
             ) { onPage(5) }
         }
         Card(Modifier.fillMaxWidth()) {
-            CategoryRow(Icons.Filled.Build, T("ログ", "Log"), T("動作の記録(不具合の確認用)", "Activity log (for troubleshooting)")) { onPage(6) }
+            CategoryRow(Icons.Filled.Build, T("ログ", "Log"), T("動作の記録（不具合の確認用）", "Activity log (for troubleshooting)")) { onPage(6) }
             HorizontalDivider()
             CategoryRow(
                 Icons.Filled.Info, T("このアプリについて", "About this app"),
@@ -224,14 +225,14 @@ private fun RipPage(vm: MainViewModel, s: AppSettings) {
     Section(T("CDを入れたとき", "When a CD is inserted")) {
         SwitchRow(
             T("曲情報を自動で取得", "Get track info automatically"),
-            T("曲名・アーティスト・ジャケットを MusicBrainz から取得します", "Fetches titles, artists and cover art from MusicBrainz"),
+            T("曲名・アーティスト・ジャケットをMusicBrainzから取得します", "Fetches titles, artists, and cover art from MusicBrainz"),
             s.autoMeta,
         ) { vm.set(Keys.autoMeta, it) }
         SwitchRow(T("ディスク画面を開く", "Open the Disc tab"), null, s.autoOpenDisc) { vm.set(Keys.autoOpenDisc, it) }
     }
     Section(T("取り込みのとき", "When ripping")) {
-        SwitchRow(T("ジャケットを曲ファイルに埋め込む", "Embed cover in song files"), null, s.embedCover) { vm.set(Keys.embedCover, it) }
-        SwitchRow(T("ジャケットをフォルダに保存(cover.jpg)", "Save cover to folder (cover.jpg)"), null, s.saveCover) { vm.set(Keys.saveCover, it) }
+        SwitchRow(T("ジャケットを曲ファイルに埋め込む", "Embed cover art in files"), null, s.embedCover) { vm.set(Keys.embedCover, it) }
+        SwitchRow(T("ジャケットをフォルダに保存（cover.jpg）", "Save cover art to folder (cover.jpg)"), null, s.saveCover) { vm.set(Keys.saveCover, it) }
         SwitchRow(T("取り込み後にCDを取り出す", "Eject CD after ripping"), null, s.ejectAfter) { vm.set(Keys.ejectAfter, it) }
         SwitchRow(T("取り込み中は画面を消さない", "Keep screen on while ripping"), null, s.keepScreenOn) { vm.set(Keys.keepScreenOn, it) }
     }
@@ -240,22 +241,22 @@ private fun RipPage(vm: MainViewModel, s: AppSettings) {
 @Composable
 private fun QualityPage(vm: MainViewModel, s: AppSettings) {
     Section(T("かんたん設定", "Presets")) { QualityOptions(vm, s) }
-    Section(T("細かく設定する", "Custom")) {
+    Section(T("詳細設定", "Custom")) {
         Segmented(T("形式", "Format"), AudioFormat.entries.map { it.label }, s.format.ordinal) { vm.set(Keys.format, it) }
         when (s.format) {
             AudioFormat.FLAC -> IntSlider(
-                T("FLAC 圧縮レベル", "FLAC compression level"), s.flacLevel, 0..8, { "$it" },
-                T("音質はどのレベルでも同じです。高いほど容量が小さく、取り込みに時間がかかります", "Sound quality is identical at every level. Higher levels give smaller files but take longer"),
+                T("FLAC圧縮レベル", "FLAC compression level"), s.flacLevel, 0..8, { "$it" },
+                T("音質はどのレベルでも変わりません。レベルが高いほどファイルは小さくなりますが、取り込みに時間がかかります。", "Sound quality is the same at every level. Higher levels make smaller files but take longer to rip."),
             ) { vm.set(Keys.flacLevel, it) }
             AudioFormat.AAC -> IntSlider(
-                T("AAC ビットレート", "AAC bitrate"), s.aacKbps, 64..320, { "${snap32(it)} kbps" },
-                T("高いほど高音質・大容量。256kbps以上ならほとんど聴き分けられません", "Higher means better quality and larger files. Above 256 kbps differences are hard to hear"),
+                T("AACビットレート", "AAC bitrate"), s.aacKbps, 64..320, { "${snap32(it)} kbps" },
+                T("高いほど音質が良くなり、ファイルも大きくなります。256 kbps以上ではほとんど聴き分けられません。", "Higher bitrates mean better quality and larger files. Above 256 kbps, differences are hard to hear."),
             ) { vm.set(Keys.aacKbps, snap32(it)) }
             AudioFormat.MP3 -> {
                 IntSlider(
-                    T("MP3 ビットレート", "MP3 bitrate"), MP3_RATES.indexOf(s.mp3Kbps).coerceAtLeast(0), 0..MP3_RATES.lastIndex,
+                    T("MP3ビットレート", "MP3 bitrate"), MP3_RATES.indexOf(s.mp3Kbps).coerceAtLeast(0), 0..MP3_RATES.lastIndex,
                     { "${MP3_RATES[it]} kbps" },
-                    T("固定ビットレート(CBR)。320kbpsが最高音質です", "Constant bitrate (CBR). 320 kbps is the highest quality"),
+                    T("固定ビットレート（CBR）です。320 kbpsが最高音質です。", "Constant bitrate (CBR). 320 kbps gives the best quality."),
                 ) { vm.set(Keys.mp3Kbps, MP3_RATES[it]) }
                 Segmented(
                     T("エンコード品質", "Encoding quality"), listOf(T("速度優先", "Fast"), T("標準", "Standard"), T("高品質", "High")),
@@ -263,7 +264,7 @@ private fun QualityPage(vm: MainViewModel, s: AppSettings) {
                 ) { vm.set(Keys.mp3Quality, listOf(7, 5, 2)[it]) }
             }
             AudioFormat.WAV -> Text(
-                T("WAVは無圧縮(16bit / 44.1kHz)で保存します。曲情報やジャケットは保存されません", "WAV is saved uncompressed (16-bit / 44.1 kHz). Track info and cover art are not stored"),
+                T("WAVは無圧縮（16 bit / 44.1 kHz）で保存します。曲情報やジャケットは保存されません。", "WAV files are saved uncompressed (16-bit / 44.1 kHz). Track info and cover art are not saved."),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -275,36 +276,36 @@ private fun DrivePage(vm: MainViewModel, s: AppSettings) {
     Section(T("読み取り", "Reading")) {
         IntSlider(
             T("読み取り速度", "Read speed"), s.speedX, 0..52, { if (it == 0) T("最大", "Max") else "${it}x" },
-            T("遅くすると傷のあるCDでも正確に読めることがあります", "Slower speeds can read scratched CDs more accurately"),
+            T("遅くすると、傷のあるCDも正確に読めることがあります", "Slower speeds can help read scratched CDs accurately"),
         ) { vm.set(Keys.speedX, it) }
         IntSlider(
-            T("リトライ回数", "Retries"), s.retries, 0..20, { T("$it 回", "$it") },
-            T("読み取りに失敗したときに読み直す回数", "How many times to re-read after a read error"),
+            T("リトライ回数", "Retries"), s.retries, 0..20, { T("${it}回", "$it") },
+            T("読み取りに失敗したときに読み直す回数", "How many times to retry after a read error"),
         ) { vm.set(Keys.retries, it) }
         SwitchRow(
-            T("エラー時に中断", "Stop on error"), T("オフにすると、読めない部分を無音にして続行します", "When off, unreadable parts are filled with silence and ripping continues"),
+            T("エラー時に中断", "Stop on error"), T("オフにすると、読めない部分を無音で埋めて続行します", "When off, unreadable parts are filled with silence and ripping continues"),
             s.abortOnError,
         ) { vm.set(Keys.abortOnError, it) }
     }
     Section(T("上級者向け", "Advanced")) {
         IntSlider(
-            T("読み取りオフセット補正", "Read offset correction"), s.offsetSamples, -2000..2000, { T("$it サンプル", "$it samples") },
-            T("ドライブ固有の読み取り位置のずれを補正します。分からなければ 0", "Corrects the drive-specific read position offset. Use 0 if unsure"),
+            T("読み取りオフセット補正", "Read offset correction"), s.offsetSamples, -2000..2000, { T("${it}サンプル", "$it samples") },
+            T("ドライブごとの読み取り位置のずれを補正します。分からない場合は0にしてください。", "Corrects the drive's read position offset. Set to 0 if unsure."),
         ) { vm.set(Keys.offsetSamples, it) }
         IntSlider(
             T("一度に読むセクター数", "Sectors per read"), s.sectorsPerRead, 1..27, { "$it" },
-            T("通常はそのままで問題ありません", "Usually there is no need to change this"),
+            T("通常は変更する必要はありません", "You usually don't need to change this"),
         ) { vm.set(Keys.sectorsPerRead, it) }
         SwitchRow(
             T("C2エラー検出", "C2 error detection"),
-            T("対応ドライブでのみ有効。非対応の場合は自動で無効になります", "Works only on supported drives. Turned off automatically otherwise"),
+            T("対応ドライブでのみ使えます。非対応のドライブでは自動で無効になります。", "Works only on supported drives. It turns off automatically on other drives."),
             s.useC2,
         ) { vm.set(Keys.useC2, it) }
     }
     Section(T("CDの再生", "CD playback")) {
         IntSlider(
-            T("再生時の回転速度", "Playback speed"), s.cdPlaySpeed, 1..8, { "${it}x" },
-            T("低いほどドライブの動作音が静かになります", "Lower speeds make the drive quieter"),
+            T("再生時の回転速度", "Drive speed during playback"), s.cdPlaySpeed, 1..8, { "${it}x" },
+            T("低くするとドライブの動作音が静かになります", "Lower speeds make the drive quieter"),
         ) { vm.set(Keys.cdPlaySpeed, it) }
     }
     var confirmReset by remember { mutableStateOf(false) }
@@ -312,8 +313,8 @@ private fun DrivePage(vm: MainViewModel, s: AppSettings) {
     if (confirmReset) {
         AlertDialog(
             onDismissRequest = { confirmReset = false },
-            title = { Text(T("初期値に戻しますか?", "Reset to defaults?")) },
-            text = { Text(T("読み取り速度・リトライ・オフセットなど、CDドライブの設定が初期値に戻ります", "Read speed, retries, offset and other CD drive settings will be reset")) },
+            title = { Text(T("初期値に戻しますか？", "Reset to defaults?")) },
+            text = { Text(T("読み取り速度・リトライ回数・オフセットなど、CDドライブの設定が初期値に戻ります", "Read speed, retries, offset, and other CD drive settings will be reset to their defaults")) },
             confirmButton = { TextButton({ confirmReset = false; vm.resetDriveSettings() }) { Text(T("戻す", "Reset")) } },
             dismissButton = { TextButton({ confirmReset = false }) { Text(T("キャンセル", "Cancel")) } },
         )
@@ -328,8 +329,8 @@ private fun LibraryFoldersPage(vm: MainViewModel, s: AppSettings) {
     Section(T("ライブラリに表示するフォルダ", "Folders shown in the library")) {
         Text(
             T(
-                "取り込んだ曲の保存先に加えて、端末内のほかの音楽フォルダも追加できます。追加したフォルダの曲も、再生や曲情報の取得・編集ができます。",
-                "Besides the rip folder, you can add other music folders on your device. Songs in them can be played and have their info fetched or edited.",
+                "取り込んだ曲の保存先に加えて、端末内のほかの音楽フォルダも追加できます。追加したフォルダの曲も再生でき、曲情報の取得や編集もできます。",
+                "Along with your rip folder, you can add other music folders on your device. Songs in them can be played, and their track info can be fetched or edited.",
             ),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -355,7 +356,7 @@ private fun LibraryFoldersPage(vm: MainViewModel, s: AppSettings) {
         removing?.let { f ->
             AlertDialog(
                 onDismissRequest = { removing = null },
-                title = { Text(T("ライブラリから外しますか?", "Remove from library?")) },
+                title = { Text(T("ライブラリから外しますか？", "Remove from library?")) },
                 text = {
                     Text(
                         folderLabel(f) + "\n\n" + T(
@@ -373,8 +374,8 @@ private fun LibraryFoldersPage(vm: MainViewModel, s: AppSettings) {
             OutlinedButton({ vm.refreshLibrary(fresh = true) }, enabled = !vm.libScanning) { Text(T("読み込み直す", "Rescan")) }
         }
         Text(
-            T("新しく入った曲はアプリを開いたときに自動で読み込みます。曲情報がおかしいときは「読み込み直す」ですべての曲を読み直せます",
-                "New songs are loaded automatically when the app opens. If track info looks wrong, \"Rescan\" re-reads every song"),
+            T("新しい曲はアプリを開いたときに自動で読み込まれます。曲情報が正しく表示されないときは、「読み込み直す」ですべての曲を読み直せます。",
+                "New songs are added automatically when you open the app. If track info looks wrong, tap \"Rescan\" to re-read all songs."),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (vm.libScanning && (vm.libFull || vm.libNew > 0)) {
@@ -408,8 +409,8 @@ private fun AllFilesSection(vm: MainViewModel) {
     Section(T("すべてのファイルへのアクセス", "All files access")) {
         Text(
             T(
-                "許可すると、ライブラリのフォルダや曲情報をファイルから直接読むので、読み込みが速くなります。許可しなくても、これまでどおり使えます。",
-                "When allowed, folders and track info are read directly from files, so the library loads faster. The app works without it.",
+                "許可すると、フォルダや曲情報をファイルから直接読み込むため、ライブラリの読み込みが速くなります。許可しなくても、これまでどおり使えます。",
+                "Allowing this lets the app read folders and track info directly from files, so the library loads faster. The app works fine without it.",
             ),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -422,7 +423,7 @@ private fun AllFilesSection(vm: MainViewModel) {
             val sa = com.uyatame.ucrt.library.StorageAccess
             runCatching { ctx.startActivity(sa.requestIntent(ctx)) }
                 .onFailure { runCatching { ctx.startActivity(sa.fallbackIntent()) } }
-        }) { Text(if (granted) T("設定を開く(取り消す)", "Open settings (revoke)") else T("許可する", "Allow")) }
+        }) { Text(if (granted) T("設定を開く（許可を取り消す）", "Open settings to revoke") else T("許可する", "Allow")) }
     }
 }
 
@@ -432,21 +433,21 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
         Segmented(T("テーマ", "Theme"), listOf(T("自動", "Auto"), T("ライト", "Light"), T("ダーク", "Dark")), s.themeMode) { vm.set(Keys.themeMode, it) }
         // ダイナミックカラーは Android 12 から
         if (android.os.Build.VERSION.SDK_INT >= 31) {
-            SwitchRow(T("ダイナミックカラー", "Dynamic color"), T("壁紙の色に合わせます", "Match your wallpaper colors"), s.dynamicColor) { vm.set(Keys.dynamicColor, it) }
+            SwitchRow(T("ダイナミックカラー", "Dynamic color"), T("壁紙の色に合わせます", "Matches your wallpaper colors"), s.dynamicColor) { vm.set(Keys.dynamicColor, it) }
         }
         if (!s.dynamicColor || android.os.Build.VERSION.SDK_INT < 31) {
             ThemeColorPicker(s.themeColor) { vm.set(Keys.themeColor, it) }
         }
         SwitchRow(
             T("一覧にジャケットを表示", "Show artwork in lists"),
-            T("オフにすると、ライブラリや再生リストでジャケットを読み込まず、軽くなります(再生画面には表示します)", "Turn off to skip loading artwork in the library and queue for smoother scrolling (the player still shows it)"),
+            T("オフにすると、ライブラリや再生リストでジャケットを読み込まないため、動作が軽くなります（再生画面には表示されます）", "Turn off to skip loading artwork in the library and queue for smoother scrolling (the player still shows it)"),
             s.listArt,
         ) { vm.set(Keys.listArt, it) }
         Segmented(T("タブレットモード", "Tablet mode"), listOf(T("自動", "Auto"), T("オン", "On"), T("オフ", "Off")), s.tabletMode) { vm.set(Keys.tabletMode, it) }
         Text(
             T(
-                "タブを画面の左に並べ、広い画面では再生画面をライブラリの右に出したままにします。自動では、タブレットなど画面の大きい端末で使います",
-                "Puts the tabs on the left, and on wide screens keeps the player open beside the library. Auto uses it on tablets and other large screens",
+                "タブを画面の左側に並べ、広い画面では再生画面をライブラリの右に表示したままにします。「自動」では、タブレットなど画面の大きい端末で有効になります。",
+                "Moves the tabs to the left side and, on wide screens, keeps the player open next to the library. Auto turns it on for tablets and other large screens.",
             ),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -454,14 +455,14 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
     Section(T("再生画面", "Player")) {
         SwitchRow(
             T("アンビエントモード", "Ambient mode"),
-            T("再生画面の背景を、ジャケット画像の色合いにします", "Tints the player background with the album art"),
+            T("再生画面の背景をジャケットの色合いにします", "Tints the player background to match the album art"),
             s.ambientPlayer,
         ) { vm.set(Keys.ambientPlayer, it) }
         // ぼかしは Android 12 から(それより前の端末では、もともとぼかさずに表示している)
         if (s.ambientPlayer && android.os.Build.VERSION.SDK_INT >= 31) {
             SwitchRow(
                 T("背景をぼかす", "Blur the background"),
-                T("オフにすると、ジャケット画像をぼかさずに薄く背景に敷きます", "Turn off to show the album art unblurred behind the player"),
+                T("オフにすると、ジャケットをぼかさずに薄く背景に表示します", "Turn off to show the album art faintly behind the player without blur"),
                 s.ambientBlur,
             ) { vm.set(Keys.ambientBlur, it) }
         }
@@ -474,7 +475,7 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
             val sel = tags.indexOfFirst { lang.startsWith(it) && it.isNotEmpty() }.let { if (it < 0) 0 else it }
             ChoiceList(
                 T("表示言語", "Display language"),
-                listOf(T("端末の設定に合わせる", "Follow system"), "日本語", "English"),
+                listOf(T("端末の設定に合わせる", "System default"), "日本語", "English"),
                 sel,
             ) { i ->
                 lang = tags[i]
@@ -496,7 +497,7 @@ private fun LogPage(vm: MainViewModel, s: AppSettings, onBack: () -> Unit) {
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SwitchRow(T("詳細ログ", "Verbose log"), T("SCSIコマンドのエラーまで記録します(不具合調査用)", "Also records SCSI command errors (for troubleshooting)"), s.verboseLog) { vm.set(Keys.verboseLog, it) }
+            SwitchRow(T("詳細ログ", "Verbose log"), T("SCSIコマンドのエラーも記録します（不具合調査用）", "Also records SCSI command errors (for troubleshooting)"), s.verboseLog) { vm.set(Keys.verboseLog, it) }
             FilledTonalButton({
                 val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cm.setPrimaryClip(ClipData.newPlainText("log", vm.logText))
@@ -531,32 +532,32 @@ private val LICENSES: List<LicenseInfo> get() = listOf(
         "GNU General Public License v3.0", "https://www.gnu.org/licenses/gpl-3.0.html",
         com.uyatame.ucrt.meta.MusicBrainz.PROJECT_URL,
         T(
-            "このアプリはオープンソースで、GPL v3 のもとで自由に使用・改変・再配布できます。改変したものを配布する場合は、ソースコードも同じライセンスで公開してください。",
-            "This app is open source under the GPL v3. You may use, modify and redistribute it; if you distribute a modified version, publish its source under the same license.",
+            "このアプリはオープンソースソフトウェアで、GPL v3のもとで自由に使用・改変・再配布できます。改変版を配布する場合は、ソースコードも同じライセンスで公開してください。",
+            "This app is open source under the GPL v3. You're free to use, modify, and redistribute it. If you distribute a modified version, you must release its source code under the same license.",
         ),
         "GPL-3.0.txt",
     ),
     LicenseInfo(
-        T("jump3r(MP3エンコーダ)", "jump3r (MP3 encoder)"), "1.0.5",
+        T("jump3r（MP3エンコーダ）", "jump3r (MP3 encoder)"), "1.0.5",
         T("Java移植: Ken Händel / パッケージ化: Hanns Holger Rutz / 原作 LAME 3.98.4: The LAME Project", "Java port: Ken Händel / Packaging: Hanns Holger Rutz / Original LAME 3.98.4: The LAME Project"),
-        T("GNU Lesser General Public License v2.1 以降", "GNU Lesser General Public License v2.1 or later"), LGPL21,
+        T("GNU Lesser General Public License v2.1以降", "GNU Lesser General Public License v2.1 or later"), LGPL21,
         "https://codeberg.org/sciss/jump3r",
-        T("本アプリは jump3r を改変せず、独立したライブラリ(de.sciss:jump3r:1.0.5)として利用しています。", "This app uses jump3r unmodified, as a separate library (de.sciss:jump3r:1.0.5). ") +
-            T("ソースコードは上記リポジトリおよび Maven Central(sources jar)から入手できます。", "The source code is available from the repository above and from Maven Central (sources jar). ") +
-            T("LGPLに基づき、利用者はこのライブラリを改変・差し替えたものと組み合わせて使用できます。", "Under the LGPL, you may use this app with a modified or replaced version of the library. ") +
-            T("本アプリのビルド環境(プロジェクト一式)を使えば、差し替えたライブラリで再ビルドできます。", "You can rebuild the app with a replaced library using this project. ") +
-            T("LGPL v2.1 の全文は本アプリに同梱しています。", "The full text of the LGPL v2.1 is included in this app."),
+        T("本アプリはjump3rを改変せず、独立したライブラリ（de.sciss:jump3r:1.0.5）として使用しています。", "This app uses jump3r unmodified, as a separate library (de.sciss:jump3r:1.0.5). ") +
+            T("ソースコードは上記のリポジトリとMaven Central（sources jar）から入手できます。", "The source code is available from the repository above and from Maven Central (sources jar). ") +
+            T("LGPLに基づき、このライブラリを改変または差し替えたものと組み合わせて本アプリを使用できます。", "Under the LGPL, you may use this app with a modified or replacement version of the library. ") +
+            T("本アプリのビルド環境（プロジェクト一式）を使えば、差し替えたライブラリで再ビルドできます。", "You can use this project's build setup to rebuild the app with a replacement library. ") +
+            T("LGPL v2.1の全文を本アプリに同梱しています。", "The full text of the LGPL v2.1 is included in this app."),
         "LGPL-2.1.txt",
     ),
     LicenseInfo(
         "JNA (Java Native Access)", "5.14.0", "Copyright (c) 2007-2024 Timothy Wall and JNA contributors",
-        T("Apache License 2.0(Apache-2.0 / LGPL-2.1 のデュアルライセンスから Apache-2.0 を選択)", "Apache License 2.0 (chosen from the Apache-2.0 / LGPL-2.1 dual license)"),
+        T("Apache License 2.0（Apache-2.0 / LGPL-2.1のデュアルライセンスからApache-2.0を選択）", "Apache License 2.0 (chosen from the Apache-2.0 / LGPL-2.1 dual license)"),
         APACHE, "https://github.com/java-native-access/jna",
-        T("USB DAC 直接出力で、USB の等時転送を行うために利用しています。", "Used for USB isochronous transfers in USB DAC direct output."),
+        T("USB DAC直接出力で、USBのアイソクロナス転送に使用しています。", "Used for USB isochronous transfers in USB DAC direct output."),
         "Apache-2.0.txt",
     ),
     LicenseInfo(
-        T("Kotlin 標準ライブラリ", "Kotlin standard library"), "2.1.0", "Copyright JetBrains s.r.o. and Kotlin Programming Language contributors",
+        T("Kotlin標準ライブラリ", "Kotlin standard library"), "2.1.0", "Copyright JetBrains s.r.o. and Kotlin Programming Language contributors",
         "Apache License 2.0", APACHE, "https://github.com/JetBrains/kotlin", "", "Apache-2.0.txt",
     ),
     LicenseInfo(
@@ -572,26 +573,26 @@ private val LICENSES: List<LicenseInfo> get() = listOf(
         "Apache License 2.0", APACHE, "https://android.googlesource.com/platform/frameworks/support", "", "Apache-2.0.txt",
     ),
     LicenseInfo(
-        T("MusicBrainz(曲情報データ)", "MusicBrainz (track data)"), "", "MetaBrainz Foundation and contributors",
-        T("CC0 1.0(コアデータ)", "CC0 1.0 (core data)"), "https://creativecommons.org/publicdomain/zero/1.0/", "https://musicbrainz.org",
-        T("曲名・アーティスト名などの情報を MusicBrainz Web Service から取得しています。", "Titles, artist names and similar information are fetched from the MusicBrainz Web Service."),
+        T("MusicBrainz（曲情報データ）", "MusicBrainz (track data)"), "", "MetaBrainz Foundation and contributors",
+        T("CC0 1.0（コアデータ）", "CC0 1.0 (core data)"), "https://creativecommons.org/publicdomain/zero/1.0/", "https://musicbrainz.org",
+        T("曲名・アーティスト名などの情報をMusicBrainz Web Serviceから取得しています。", "Titles, artist names and similar information are fetched from the MusicBrainz Web Service."),
         "CC0-1.0.txt",
     ),
     LicenseInfo(
-        T("Cover Art Archive(ジャケット画像)", "Cover Art Archive (cover art)"), "", T("画像の著作権は各権利者に帰属します", "Images are copyright of their respective owners"),
-        T("各画像の権利者による", "Determined by each image owner"), "https://coverartarchive.org", "https://coverartarchive.org",
-        T("取得したジャケット画像は、私的使用の範囲でご利用ください。", "Please use downloaded cover art for personal use only."),
+        T("Cover Art Archive（ジャケット画像）", "Cover Art Archive (cover art)"), "", T("画像の著作権は各権利者に帰属します", "Images are copyright of their respective owners"),
+        T("画像ごとの権利者による", "Set by each image's rights holder"), "https://coverartarchive.org", "https://coverartarchive.org",
+        T("取得したジャケット画像は、私的使用の範囲内でご利用ください。", "Downloaded cover art is for personal use only."),
     ),
     LicenseInfo(
-        T("FLACエンコーダ / MP4・ID3タグ処理 / javax.sound 互換クラス", "FLAC encoder / MP4 & ID3 tagging / javax.sound compatibility classes"), "", T("本アプリ独自の実装", "Original implementation in this app"),
+        T("FLACエンコーダ / MP4・ID3タグ処理 / javax.sound互換クラス", "FLAC encoder / MP4 & ID3 tagging / javax.sound compatibility classes"), "", T("本アプリ独自の実装", "Original implementation in this app"),
         "—", "https://xiph.org/flac/", null,
-        T("FLACはオープンでロイヤリティフリーな形式です。javax.sound.sampled の互換クラスは、", "FLAC is an open, royalty-free format. The javax.sound.sampled compatibility classes ") +
-            T("Androidで MP3エンコーダを動かすためにアプリ側で用意した最小限の実装です。", "are a minimal implementation that lets the MP3 encoder run on Android."),
+        T("FLACはオープンでロイヤリティフリーな形式です。javax.sound.sampledの互換クラスは、", "FLAC is an open, royalty-free format. The javax.sound.sampled compatibility classes ") +
+            T("AndroidでMP3エンコーダを動かすためにアプリ側で用意した最小限の実装です。", "are a minimal implementation that lets the MP3 encoder run on Android."),
     ),
     LicenseInfo(
-        T("AACエンコーダ・各種デコーダ", "AAC encoder and decoders"), "", T("Android OS に内蔵", "Built into Android"),
+        T("AACエンコーダ・各種デコーダ", "AAC encoder and decoders"), "", T("Android OSに内蔵", "Built into Android"),
         T("OS側で提供", "Provided by the OS"), "https://source.android.com/", null,
-        T("AACの書き出しと曲の再生には Android OS 内蔵のコーデックを使用しており、本アプリには同梱していません。", "AAC encoding and playback use codecs built into Android; they are not bundled with this app."),
+        T("AACの書き出しと曲の再生にはAndroid OS内蔵のコーデックを使用しており、本アプリには同梱していません。", "AAC encoding and playback use codecs built into Android; they are not bundled with this app."),
     ),
 )
 
@@ -601,7 +602,7 @@ private fun LicenseTextPage(title: String, asset: String, onBack: () -> Unit) {
     val text by produceState<String?>(null, asset) {
         value = withContext(Dispatchers.IO) {
             runCatching { ctx.assets.open("licenses/$asset").bufferedReader().use { it.readText() } }.getOrNull()
-                ?: T("ライセンス全文が見つかりません(ビルド時に取得できなかった可能性があります)。", "License text not found (it may not have been downloaded at build time).")
+                ?: T("ライセンス全文が見つかりません（ビルド時に取得できなかった可能性があります）。", "License text not found (it may not have been downloaded at build time).")
         }
     }
     Column(Modifier.fillMaxSize()) {
@@ -646,15 +647,15 @@ private fun LicensePage(vm: MainViewModel, s: AppSettings, onBack: () -> Unit) {
             }
             Section(T("アップデート", "Updates")) {
                 SwitchRow(
-                    T("起動時に新しい版を確認する", "Check for updates at startup"),
-                    T("新しい版が公開されていたら、ダウンロードのページへのリンクを表示します", "Shows a link to the download page when a new version is out"),
+                    T("起動時にアップデートを確認", "Check for updates at startup"),
+                    T("新しいバージョンが公開されていれば、ダウンロードページへのリンクを表示します", "Shows a link to the download page when a new version is available"),
                     s.updateCheck,
                 ) { vm.set(Keys.updateCheck, it) }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledTonalButton({ vm.checkUpdate(manual = true) }, enabled = !vm.updateChecking) {
                         Text(if (vm.updateChecking) T("確認しています…", "Checking…") else T("今すぐ確認", "Check now"))
                     }
-                    TextButton({ browse(com.uyatame.ucrt.meta.UpdateCheck.RELEASES_PAGE) }) { Text(T("リリースのページ", "Releases page")) }
+                    TextButton({ browse(com.uyatame.ucrt.meta.UpdateCheck.RELEASES_PAGE) }) { Text(T("リリースページ", "Releases page")) }
                 }
             }
             Text(
@@ -708,7 +709,7 @@ private fun LicensePage(vm: MainViewModel, s: AppSettings, onBack: () -> Unit) {
                     Text(T("ライセンス: ${l.license}", "License: ${l.license}"), style = MaterialTheme.typography.bodyMedium)
                     if (l.note.isNotEmpty()) Text(l.note, style = MaterialTheme.typography.bodySmall)
                     if (l.sourceUrl != null) {
-                        TextButton({ browse(l.sourceUrl) }) { Text(T("ソースコード / 公式サイトを開く", "Open source code / official site")) }
+                        TextButton({ browse(l.sourceUrl) }) { Text(T("ソースコード / 公式サイトを開く", "View source code / website")) }
                     }
                 }
             },
@@ -744,14 +745,14 @@ private fun ThemeColorPicker(value: Int, onChange: (Int) -> Unit) {
                         .clickable { onChange(c) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (c == 0) Text(T("標準", "Def"), color = Color.White, style = MaterialTheme.typography.labelSmall)
+                    if (c == 0) Text(T("標準", "Default"), color = Color.White, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, maxLines = 1, softWrap = false)
                 }
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(28.dp).clip(CircleShape).background(Color(if (moved) ThemeColors.fromHue(hue, sat) else if (value == 0) std else value)))
             Spacer(Modifier.width(12.dp))
-            Text(T("色相・鮮やかさで細かく決める", "Fine-tune hue and vividness"), style = MaterialTheme.typography.bodyMedium)
+            Text(T("色相と鮮やかさで細かく調整", "Fine-tune hue and saturation"), style = MaterialTheme.typography.bodyMedium)
         }
         val save = { onChange(ThemeColors.fromHue(hue, sat)) }
         Slider(hue, { hue = it; moved = true }, valueRange = 0f..360f, onValueChangeFinished = save)

@@ -339,7 +339,7 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                                 onClick = { menu = false; showTimer = true },
                             )
                             DropdownMenuItem(
-                                text = { Text(T("曲の詳細情報", "Song details")) },
+                                text = { Text(T("曲の詳細", "Song details")) },
                                 leadingIcon = { Icon(Icons.Filled.Info, null) },
                                 onClick = { menu = false; vm.infoItem = cur },
                             )
@@ -469,8 +469,8 @@ private fun PlayerPage(
                             Spacer(Modifier.height(6.dp))
                             Text(
                                 T(
-                                    "曲と同じ名前の .lrc ファイルを同じフォルダに置くか、曲に歌詞を埋め込むと表示されます",
-                                    "Put a .lrc file with the same name next to the song, or embed lyrics in the file",
+                                    "曲と同じフォルダに同名の.lrcファイルを置くか、曲に歌詞を埋め込むと表示されます",
+                                    "Add an .lrc file with the same name to the song's folder, or embed the lyrics in the song",
                                 ),
                                 style = MaterialTheme.typography.bodySmall, color = col.sub, textAlign = TextAlign.Center,
                             )
@@ -892,7 +892,7 @@ private fun FavoritesPanel(vm: MainViewModel, col: PlayerColors) {
             Text(T("お気に入りの曲はまだありません", "No favorite songs yet"), style = MaterialTheme.typography.titleMedium, color = col.content)
             Spacer(Modifier.height(6.dp))
             Text(
-                T("再生中のページのハートのボタンで追加できます", "Tap the heart on the player to add the current song"),
+                T("再生画面のハートボタンで追加できます", "Tap the heart in the player to add songs"),
                 style = MaterialTheme.typography.bodySmall, color = col.sub, textAlign = TextAlign.Center,
             )
         }
@@ -932,7 +932,7 @@ private fun QueuePanel(vm: MainViewModel, col: PlayerColors, onSave: () -> Unit)
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text(T("この曲より後ろを消去しますか?", "Clear the songs after this one?")) },
+            title = { Text(T("この曲より後の曲を消去しますか？", "Clear songs after this one?")) },
             confirmButton = { TextButton({ p.clearUpcoming(); confirmClear = false }) { Text(T("消去", "Clear")) } },
             dismissButton = { TextButton({ confirmClear = false }) { Text(T("キャンセル", "Cancel")) } },
         )
@@ -946,7 +946,7 @@ private fun QueuePanel(vm: MainViewModel, col: PlayerColors, onSave: () -> Unit)
                     val left = after + (p.durationMs - p.positionMs).coerceAtLeast(0)
                     Text(T("再生リスト", "Queue"), style = MaterialTheme.typography.titleMedium, color = col.content)
                     Text(
-                        T("${p.index + 1} / ${q.size}曲 ・ 残り ${fmtMs(left)}", "${p.index + 1} of ${q.size} · ${fmtMs(left)} left"),
+                        T("${p.index + 1} / ${q.size}曲 ・ 残り${fmtMs(left)}", "${p.index + 1} of ${q.size} · ${fmtMs(left)} left"),
                         style = MaterialTheme.typography.bodySmall, color = col.sub,
                     )
                 }
@@ -954,7 +954,7 @@ private fun QueuePanel(vm: MainViewModel, col: PlayerColors, onSave: () -> Unit)
                     IconButton(onSave) { Icon(AppIcons.PlaylistAdd, T("プレイリストとして保存", "Save as playlist"), tint = col.content) }
                 }
                 if (p.index < q.lastIndex) {
-                    IconButton({ confirmClear = true }) { Icon(Icons.Filled.Delete, T("この曲より後ろを消去", "Clear upcoming"), tint = col.content) }
+                    IconButton({ confirmClear = true }) { Icon(Icons.Filled.Delete, T("この曲より後を消去", "Clear upcoming"), tint = col.content) }
                 }
             }
         }
@@ -987,7 +987,7 @@ private fun SaveQueueDialog(vm: MainViewModel, onDismiss: () -> Unit) {
         text = {
             Column {
                 Text(
-                    T("今の再生リストの曲(CD の曲を除く)を保存します", "Saves the songs in the queue (except CD tracks)"),
+                    T("再生リストの曲（CDの曲を除く）を保存します", "Saves the songs in the queue, except CD tracks"),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -1029,7 +1029,7 @@ private fun VolumeSheet(vm: MainViewModel, onDismiss: () -> Unit) {
     val title: @Composable () -> Unit = {
         Text(T("音量", "Volume"), style = MaterialTheme.typography.titleLarge)
         Text(
-            (AudioEngine.output?.name ?: T("出力先", "Output")) + if (usb) T(" ・ DAC の音量", " · DAC volume") else "",
+            (AudioEngine.output?.name ?: T("出力先", "Output")) + if (usb) T(" ・ DACの音量", " · DAC volume") else "",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -1040,7 +1040,7 @@ private fun VolumeSheet(vm: MainViewModel, onDismiss: () -> Unit) {
             OutlinedIconButton({ setVol(v + 1, true) }, Modifier.size(52.dp)) { Text("+", fontSize = 24.sp) }
         }
         Text(
-            T("ダイヤルをなぞって回すと、大きく変えられます", "Trace the dial to change it quickly"),
+            T("ダイヤルに沿ってなぞると、大きく調整できます", "Trace around the dial for larger changes"),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 12.dp),
         )
@@ -1142,9 +1142,9 @@ private fun SleepTimerDialog(p: PlayerController, onDismiss: () -> Unit) {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
                     when {
-                        p.stopAfterTrack -> T("今の曲が終わったら止まります", "Stops at the end of this song")
-                        left > 0 -> T("あと約${left}分で止まります", "Stops in about $left min")
-                        else -> T("指定した時間がたつと、再生を一時停止します", "Pauses playback after the chosen time")
+                        p.stopAfterTrack -> T("この曲が終わると停止します", "Stops at the end of this song")
+                        left > 0 -> T("約${left}分後に停止します", "Stops in about $left min")
+                        else -> T("指定した時間が経過すると再生を一時停止します", "Pauses playback after the selected time")
                     },
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(bottom = 8.dp),
@@ -1167,7 +1167,7 @@ private fun SleepTimerDialog(p: PlayerController, onDismiss: () -> Unit) {
         },
         confirmButton = {
             if (left > 0 || p.stopAfterTrack) {
-                TextButton({ p.setSleep(0); onDismiss() }) { Text(T("タイマーを止める", "Turn off")) }
+                TextButton({ p.setSleep(0); onDismiss() }) { Text(T("タイマーを解除", "Turn off timer")) }
             }
         },
         dismissButton = { TextButton(onDismiss) { Text(T("閉じる", "Close")) } },
@@ -1177,14 +1177,14 @@ private fun SleepTimerDialog(p: PlayerController, onDismiss: () -> Unit) {
 @Composable
 private fun GuideDialog(onDismiss: () -> Unit) {
     val rows = listOf(
-        T("ジャケットを左右にスワイプ", "Swipe the artwork") to T("前の曲 / 次の曲", "Previous / next song"),
+        T("ジャケットを左右にスワイプ", "Swipe the artwork left or right") to T("前の曲 / 次の曲", "Previous / next song"),
         T("ジャケットをタップ", "Tap the artwork") to T("歌詞の表示・非表示", "Show or hide lyrics"),
-        T("画面を左右にスワイプ", "Swipe the screen sideways") to T("お気に入り / 再生リスト", "Favorites / queue"),
+        T("画面を左右にスワイプ", "Swipe the screen left or right") to T("お気に入り / 再生リスト", "Favorites / queue"),
         T("画面を下にスワイプ", "Swipe down") to T("再生画面を閉じる", "Close the player"),
         T("画面を上にスワイプ", "Swipe up") to T("音質設定", "Sound settings"),
         T("曲名をタップ", "Tap the title") to T("アルバム・アーティストを表示", "Go to the album or artist"),
-        T("ミニプレーヤーを左右にスワイプ", "Swipe the mini player") to T("前の曲 / 次の曲", "Previous / next song"),
-        T("再生リストのつまみをドラッグ", "Drag the handle in the queue") to T("曲の順番を入れ替え", "Reorder songs"),
+        T("ミニプレーヤーを左右にスワイプ", "Swipe the mini player left or right") to T("前の曲 / 次の曲", "Previous / next song"),
+        T("再生リストのつまみをドラッグ", "Drag the handle in the queue") to T("曲を並べ替え", "Reorder songs"),
         T("曲やアルバムを長押し", "Long-press a song or album") to T("次に再生・お気に入り・プレイリストなど", "Play next, favorites, playlists and more"),
     )
     AlertDialog(

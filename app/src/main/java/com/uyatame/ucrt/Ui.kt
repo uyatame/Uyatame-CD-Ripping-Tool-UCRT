@@ -454,7 +454,7 @@ fun QualityOptions(vm: MainViewModel, s: AppSettings) {
         }
         if (cur < 0) {
             Text(
-                T("カスタム設定中:${s.qualityLabel()}(詳細設定で変更)", "Custom: ${s.qualityLabel()} (change in Advanced settings)"),
+                T("カスタム：${s.qualityLabel()}（「詳細設定」で変更）", "Custom: ${s.qualityLabel()} (change in Advanced settings)"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(start = 12.dp, top = 4.dp),
@@ -562,12 +562,12 @@ fun RipBar(vm: MainViewModel, onOpen: () -> Unit) {
     if (confirmCancel) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { confirmCancel = false },
-            title = { Text(T("取り込みを中止しますか?", "Stop ripping?")) },
+            title = { Text(T("取り込みを中止しますか？", "Stop ripping?")) },
             text = {
                 Text(
                     T(
-                        "取り込み中の曲は保存されません(取り込み終えた曲と、上書きしようとしていた元のファイルは残ります)",
-                        "The track being ripped will not be saved (finished tracks and any files being overwritten are kept)",
+                        "取り込み中の曲は保存されません。取り込み済みの曲と、上書き予定だった元のファイルは残ります。",
+                        "The track being ripped won't be saved. Finished tracks and any files that would have been overwritten are kept.",
                     ),
                 )
             },
@@ -590,7 +590,7 @@ fun RipBar(vm: MainViewModel, onOpen: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                TextButton({ confirmCancel = true }) { Text(T("中止", "Cancel")) }
+                TextButton({ confirmCancel = true }) { Text(T("中止", "Stop")) }
             }
             LinearProgressIndicator({ p }, Modifier.fillMaxWidth().padding(top = 4.dp, end = 12.dp))
         }

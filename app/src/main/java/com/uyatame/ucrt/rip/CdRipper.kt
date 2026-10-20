@@ -89,7 +89,7 @@ class CdRipper(private val drive: UsbScsiDrive, private val opt: RipOptions) {
             return out
         }
         errors++
-        if (opt.abortOnError) throw IOException(T("読み取りエラー LBA=$lba", "Read error at LBA $lba"))
+        if (opt.abortOnError) throw IOException(T("読み取りエラー（LBA ${lba}）", "Read error at LBA $lba"))
         return r.data ?: ByteArray(sector)
     }
 

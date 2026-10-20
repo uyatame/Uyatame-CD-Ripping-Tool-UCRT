@@ -40,11 +40,11 @@ fun coverFrom(b: ByteArray): Cover {
 fun prepareCoverImage(b: ByteArray): ByteArray {
     val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(b, 0, b.size, o)
-    if (o.outWidth <= 0) throw IOException(T("画像を読み込めません", "Cannot load the image"))
+    if (o.outWidth <= 0) throw IOException(T("画像を読み込めません", "Can't load the image"))
     if (b.size <= 1_500_000 && maxOf(o.outWidth, o.outHeight) <= 1500 &&
         (o.outMimeType == "image/jpeg" || o.outMimeType == "image/png")
     ) return b
-    val bmp = BitmapFactory.decodeByteArray(b, 0, b.size) ?: throw IOException(T("画像を読み込めません", "Cannot load the image"))
+    val bmp = BitmapFactory.decodeByteArray(b, 0, b.size) ?: throw IOException(T("画像を読み込めません", "Can't load the image"))
     val scale = 1000f / maxOf(bmp.width, bmp.height)
     val scaled = if (scale < 1f) {
         Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true)
@@ -95,7 +95,7 @@ object TagEditor {
         val inF = File(ctx.cacheDir, "tag_in.$ext")
         val outF = File(ctx.cacheDir, "tag_out.$ext")
         try {
-            val ins = ctx.contentResolver.openInputStream(uri) ?: throw IOException(T("ファイルを開けません", "Cannot open the file"))
+            val ins = ctx.contentResolver.openInputStream(uri) ?: throw IOException(T("ファイルを開けません", "Can't open the file"))
             ins.use { i -> inF.outputStream().use { i.copyTo(it) } }
             val cover = newCover?.let { coverFrom(it) }
             when (ext) {
@@ -139,7 +139,7 @@ object TagEditor {
             if (ok) return
             tmp.delete()
         }
-        val os = ctx.contentResolver.openOutputStream(uri, "wt") ?: throw IOException(T("ファイルに書き込めません", "Cannot write to the file"))
+        val os = ctx.contentResolver.openOutputStream(uri, "wt") ?: throw IOException(T("ファイルに書き込めません", "Can't write to the file"))
         try {
             os.use { o ->
                 out.inputStream().use { it.copyTo(o, 1 shl 16) }
@@ -214,7 +214,7 @@ private object FlacTags {
                 if (!drop) keep.add(type to body)
             }
             val audioStart = raf.filePointer
-            val streamInfo = keep.firstOrNull { it.first == 0 } ?: throw IOException(T("STREAMINFOがありません", "STREAMINFO missing"))
+            val streamInfo = keep.firstOrNull { it.first == 0 } ?: throw IOException(T("STREAMINFOブロックがありません", "STREAMINFO block is missing"))
             val blocks = ArrayList<Pair<Int, ByteArray>>()
             blocks.add(streamInfo)
             keep.filter { it.first != 0 }.forEach { blocks.add(it) }
@@ -335,7 +335,7 @@ private object Mp3Tags {
                         ((h[8].toInt() and 0x7F) shl 7) or (h[9].toInt() and 0x7F)
                     start = 10L + size + (if ((h[5].toInt() and 0x10) != 0) 10 else 0)
                     // タグの大きさが壊れていると、音声を消してしまうので書き換えない
-                    if (start > fileLen) throw IOException(T("ID3タグが壊れています", "The ID3 tag is damaged"))
+                    if (start > fileLen) throw IOException(T("ID3タグが破損しています", "The ID3 tag is corrupted"))
                     old = ByteArray(10 + size)
                     raf.seek(0)
                     raf.readFully(old)

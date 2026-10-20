@@ -57,11 +57,11 @@ object StorageAccess {
         val u = Uri.parse(uri)
         val id = runCatching {
             if (DocumentsContract.isTreeUri(u)) DocumentsContract.getTreeDocumentId(u) else DocumentsContract.getDocumentId(u)
-        }.getOrNull() ?: u.lastPathSegment ?: return T("設定済み", "Set")
+        }.getOrNull() ?: u.lastPathSegment ?: return T("設定済み", "Selected")
         val vol = id.substringBefore(':')
         val path = id.substringAfter(':', "")
         val name = volumeName(vol)
-        return if (path.isEmpty()) T("$name(ルート)", "$name (root)") else "$name / $path"
+        return if (path.isEmpty()) T("${name}（ルート）", "$name (root)") else "$name / $path"
     }
 
     /** ドキュメント ID から実際のファイル(許可が無い・分からなければ null) */

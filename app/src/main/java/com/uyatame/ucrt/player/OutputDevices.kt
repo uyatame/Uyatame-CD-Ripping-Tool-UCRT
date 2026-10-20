@@ -113,7 +113,7 @@ object OutputDevices {
         val (name, detail) = when (kind) {
             OutputKind.Speaker -> Build.MODEL to T("本体スピーカー", "Built-in speaker")
             OutputKind.Wired -> T("有線イヤホン", "Wired headphones") to T("イヤホンジャック", "Headphone jack")
-            OutputKind.Usb -> product.ifEmpty { "USB" } to T("USB オーディオ(Android の出力)", "USB audio (via Android)")
+            OutputKind.Usb -> product.ifEmpty { "USB" } to T("USBオーディオ（Android経由）", "USB audio (via Android)")
             OutputKind.Bluetooth -> product.ifEmpty { "Bluetooth" } to "Bluetooth"
             else -> product.ifEmpty { T("その他の出力", "Other output") } to (if (d.type == AudioDeviceInfo.TYPE_HDMI) "HDMI" else "")
         }

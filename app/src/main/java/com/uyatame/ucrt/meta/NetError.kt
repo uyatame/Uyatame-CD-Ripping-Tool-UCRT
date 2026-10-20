@@ -11,16 +11,16 @@ fun describeNetError(e: Throwable): String {
     val raw = "${e.javaClass.simpleName}: ${e.message ?: ""}".trim()
     val hint = when {
         e is UnknownHostException -> T(
-            "サーバーに接続できません。インターネット接続と、このアプリの通信許可(WLAN・モバイルデータ)を確認してください",
-            "Cannot reach the server. Check your connection and this app's network permission (Wi-Fi / mobile data)",
+            "サーバーに接続できません。インターネット接続と、このアプリの通信許可（Wi-Fi・モバイルデータ）を確認してください。",
+            "Can't reach the server. Check your internet connection and this app's network access (Wi-Fi and mobile data).",
         )
         e is SecurityException || (e.message ?: "").contains("EPERM") || (e.message ?: "").contains("EACCES") -> T(
-            "このアプリの通信がOSにより制限されています。アプリ情報で通信を許可してください",
-            "The OS is blocking network access for this app. Allow it in App info",
+            "このアプリの通信がAndroidにより制限されています。「アプリ情報」で通信を許可してください。",
+            "Android is blocking network access for this app. Allow it in App info.",
         )
-        e is SocketTimeoutException -> T("応答がありません(タイムアウト)", "No response (timeout)")
+        e is SocketTimeoutException -> T("応答がありません（タイムアウト）", "No response (timeout)")
         e is ConnectException -> T("接続を拒否されました", "Connection refused")
-        e is SSLException -> T("安全な接続に失敗しました。端末の日時が正しいか確認してください", "Secure connection failed. Check the device date and time")
+        e is SSLException -> T("安全な接続を確立できませんでした。端末の日時が正しいか確認してください。", "Secure connection failed. Check the device's date and time.")
         else -> ""
     }
     return if (hint.isEmpty()) raw else "$hint\n($raw)"

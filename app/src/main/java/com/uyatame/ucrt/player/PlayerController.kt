@@ -768,7 +768,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             }
             try {
                 val info = com.uyatame.ucrt.player.dsd.DsdFile.parse(rf)
-                if (info.compressed) throw java.io.IOException(T("DST 圧縮の DSDIFF には対応していません", "DST-compressed DSDIFF is not supported"))
+                if (info.compressed) throw java.io.IOException(T("DST圧縮のDSDIFFには対応していません", "DST-compressed DSDIFF is not supported"))
                 val d = info.durationMs
                 main.post { if (file === this) { durationMs = d; publish() } }
                 // 多チャンネルの場合は前方の左右だけを使う
@@ -782,9 +782,9 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 if (stopFlag) return
                 if (!paused) s.play()
                 val how = when (s.label) {
-                    "Native DSD" -> T("ネイティブ DSD", "Native DSD")
+                    "Native DSD" -> T("ネイティブDSD", "Native DSD")
                     "DoP" -> "DoP"
-                    else -> T("PCM に変換", "Converted to PCM") + " (${AudioEngine.khz(s.sampleRate)})"
+                    else -> T("PCMに変換", "Converted to PCM") + " (${AudioEngine.khz(s.sampleRate)})"
                 }
                 AudioEngine.report(s.bitPerfect, info.label() + " · " + how)
                 AudioEngine.log("dsd: ${info.label()} ${info.channels}ch ${if (info.dff) "DFF" else "DSF"} -> $how")

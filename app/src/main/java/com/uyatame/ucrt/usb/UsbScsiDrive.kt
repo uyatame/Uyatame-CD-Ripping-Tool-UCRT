@@ -113,7 +113,7 @@ class UsbScsiDrive private constructor(
             0x40 -> "BD-ROM"
             0x41, 0x42 -> "BD-R"
             0x43 -> "BD-RE"
-            else -> T("不明(0x%02X)", "Unknown (0x%02X)").format(p)
+            else -> T("不明（0x%02X）", "Unknown (0x%02X)").format(p)
         }
     }
 
@@ -179,12 +179,12 @@ class UsbScsiDrive private constructor(
             if (r != 13) {
                 resetRecovery()
                 logger?.invoke(T("$op: CSW受信失敗", "$op: CSW receive failed"))
-                throw ScsiException(-1, 0, 0, T("USB受信に失敗しました(ドライブの電力不足の可能性)", "USB receive failed (the drive may lack power)"))
+                throw ScsiException(-1, 0, 0, T("USB受信に失敗しました（ドライブの電力が不足している可能性があります）", "USB receive failed (the drive may not be getting enough power)"))
             }
         }
         if (ByteBuffer.wrap(csw).order(ByteOrder.LITTLE_ENDIAN).int != 0x53425355) {
             resetRecovery()
-            throw ScsiException(-1, 0, 0, T("不正なUSBレスポンスです", "Invalid USB response"))
+            throw ScsiException(-1, 0, 0, T("USBの応答が不正です", "Invalid USB response"))
         }
         val status = csw[12].toInt()
         if (status == 2) {
@@ -195,7 +195,7 @@ class UsbScsiDrive private constructor(
             val s = try {
                 execute(cdb(0x03, 0, 0, 0, 18, 0), 18, withSense = false).copyOf(18)
             } catch (e: Exception) {
-                throw ScsiException(-1, 0, 0, T("SCSIコマンド失敗", "SCSI command failed"))
+                throw ScsiException(-1, 0, 0, T("SCSIコマンドに失敗しました", "SCSI command failed"))
             }
             val key = s[2].toInt() and 0x0F
             val asc = s[12].toInt() and 0xFF
@@ -247,12 +247,12 @@ class UsbScsiDrive private constructor(
             if (r != 13) {
                 resetRecovery()
                 logger?.invoke(T("$op: CSW受信失敗", "$op: CSW receive failed"))
-                throw ScsiException(-1, 0, 0, T("USB受信に失敗しました(ドライブの電力不足の可能性)", "USB receive failed (the drive may lack power)"))
+                throw ScsiException(-1, 0, 0, T("USB受信に失敗しました（ドライブの電力が不足している可能性があります）", "USB receive failed (the drive may not be getting enough power)"))
             }
         }
         if (ByteBuffer.wrap(csw).order(ByteOrder.LITTLE_ENDIAN).int != 0x53425355) {
             resetRecovery()
-            throw ScsiException(-1, 0, 0, T("不正なUSBレスポンスです", "Invalid USB response"))
+            throw ScsiException(-1, 0, 0, T("USBの応答が不正です", "Invalid USB response"))
         }
         val status = csw[12].toInt()
         if (status == 2) {
@@ -260,11 +260,11 @@ class UsbScsiDrive private constructor(
             throw ScsiException(-1, 0, 0, T("USBフェーズエラー", "USB phase error"))
         }
         if (status != 0 || dataFail) {
-            if (!withSense) throw ScsiException(-1, 0, 0, T("SCSIコマンド失敗", "SCSI command failed"))
+            if (!withSense) throw ScsiException(-1, 0, 0, T("SCSIコマンドに失敗しました", "SCSI command failed"))
             val s = try {
                 execute(cdb(0x03, 0, 0, 0, 18, 0), 18, withSense = false).copyOf(18)
             } catch (e: Exception) {
-                throw ScsiException(-1, 0, 0, T("SCSIコマンド失敗", "SCSI command failed"))
+                throw ScsiException(-1, 0, 0, T("SCSIコマンドに失敗しました", "SCSI command failed"))
             }
             val key = s[2].toInt() and 0x0F
             val asc = s[12].toInt() and 0xFF
@@ -406,16 +406,16 @@ class UsbScsiDrive private constructor(
     /** 書き込みの条件(モードページ 05h)を設定する */
     fun setWriteParameters(writeType: Int, testWrite: Boolean, multiSession: Boolean = false) {
         val sense = execute(cdb(0x5A, 0x08, 0x05, 0, 0, 0, 0, 0, 0xFF, 0), 0xFF)
-        if (sense.size < 8 + 16) throw ScsiException(-1, 0, 0, T("書き込み条件を読めません", "Cannot read write parameters"))
+        if (sense.size < 8 + 16) throw ScsiException(-1, 0, 0, T("書き込み条件を読み取れません", "Cannot read write parameters"))
         val bdl = ((sense[6].toInt() and 0xFF) shl 8) or (sense[7].toInt() and 0xFF)
         val p = 8 + bdl
         // ページ 05h が返らない(書き込みに非対応の)ドライブでは、範囲の外を読まないように
         if (p + 2 > sense.size || (sense[p].toInt() and 0x3F) != 0x05) {
-            throw ScsiException(-1, 0, 0, T("書き込み条件を読めません", "Cannot read write parameters"))
+            throw ScsiException(-1, 0, 0, T("書き込み条件を読み取れません", "Cannot read write parameters"))
         }
         val plen = (sense[p + 1].toInt() and 0xFF) + 2
         val page = sense.copyOfRange(p, minOf(sense.size, p + plen))
-        if (page.size < 16) throw ScsiException(-1, 0, 0, T("書き込み条件を読めません", "Cannot read write parameters"))
+        if (page.size < 16) throw ScsiException(-1, 0, 0, T("書き込み条件を読み取れません", "Cannot read write parameters"))
         page[0] = (page[0].toInt() and 0x3F).toByte() // PS は送り返さない
         // 2: BUFE(バッファーアンダーラン防止)・テスト書き込み・書き込み方式
         page[2] = ((0x40) or (if (testWrite) 0x10 else 0) or (writeType and 0x0F)).toByte()
@@ -445,7 +445,7 @@ class UsbScsiDrive private constructor(
         val d = execute(cdb(0x52, 0x01, 0, 0, 0, 0xFF, 0, 0, 36, 0), 36)
         if (d.size < 16) throw ScsiException(-1, 0, 0, T("トラック情報の応答が短すぎます", "Track information response too short"))
         val nwaValid = (d[7].toInt() and 0x01) != 0
-        if (!nwaValid) throw ScsiException(-1, 0, 0, T("書き込める位置がありません", "No writable address"))
+        if (!nwaValid) throw ScsiException(-1, 0, 0, T("書き込める位置がありません", "No writable address found"))
         return be32(d, 12).toInt()
     }
 

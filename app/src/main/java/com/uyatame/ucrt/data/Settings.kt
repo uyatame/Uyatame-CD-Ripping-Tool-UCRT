@@ -41,12 +41,12 @@ class QualityPreset(
 )
 
 val QUALITY_PRESETS: List<QualityPreset> get() = listOf(
-    QualityPreset(T("ロスレス(FLAC)", "Lossless (FLAC)"), T("CDと同じ音質のまま容量を約半分に。迷ったらこれ", "Same quality as the CD at about half the size. Recommended"), AudioFormat.FLAC, 5, 256),
-    QualityPreset(T("高音質(AAC 320kbps)", "High quality (AAC 320 kbps)"), T("聴き分けが難しいほどの高音質。1曲 約10MB", "Nearly indistinguishable from the CD. About 10 MB per song"), AudioFormat.AAC, 5, 320),
-    QualityPreset(T("標準(AAC 256kbps)", "Standard (AAC 256 kbps)"), T("音質と容量のバランス型。1曲 約8MB", "Balanced quality and size. About 8 MB per song"), AudioFormat.AAC, 5, 256),
-    QualityPreset(T("互換性重視(MP3 320kbps)", "Compatible (MP3 320 kbps)"), T("古いプレーヤーやカーオーディオでも再生しやすい形式。1曲 約10MB", "Plays on older players and car audio. About 10 MB per song"), AudioFormat.MP3, 5, 256, 320),
-    QualityPreset(T("省容量(AAC 128kbps)", "Small (AAC 128 kbps)"), T("容量を優先。1曲 約4MB", "Prioritizes size. About 4 MB per song"), AudioFormat.AAC, 5, 128),
-    QualityPreset(T("無圧縮(WAV)", "Uncompressed (WAV)"), T("CD と同じデータのまま保存。容量は FLAC の約 2 倍です(曲情報とジャケットも保存します)", "Saves the CD data as is. About twice the size of FLAC (track info and cover art are saved too)"), AudioFormat.WAV, 5, 256),
+    QualityPreset(T("ロスレス（FLAC）", "Lossless (FLAC)"), T("CDと同じ音質で、容量は約半分。迷ったらこちら", "CD quality at about half the size. Recommended"), AudioFormat.FLAC, 5, 256),
+    QualityPreset(T("高音質（AAC 320kbps）", "High quality (AAC 320 kbps)"), T("CDとほとんど聴き分けられない音質。1曲あたり約10MB", "Nearly indistinguishable from the CD. About 10 MB per song"), AudioFormat.AAC, 5, 320),
+    QualityPreset(T("標準（AAC 256kbps）", "Standard (AAC 256 kbps)"), T("音質と容量のバランスが良い形式。1曲あたり約8MB", "Balanced quality and size. About 8 MB per song"), AudioFormat.AAC, 5, 256),
+    QualityPreset(T("互換性重視（MP3 320kbps）", "Most compatible (MP3 320 kbps)"), T("古いプレーヤーやカーオーディオでも再生しやすい形式。1曲あたり約10MB", "Plays on older players and car stereos. About 10 MB per song"), AudioFormat.MP3, 5, 256, 320),
+    QualityPreset(T("省容量（AAC 128kbps）", "Space saver (AAC 128 kbps)"), T("容量を優先した形式。1曲あたり約4MB", "Smallest files. About 4 MB per song"), AudioFormat.AAC, 5, 128),
+    QualityPreset(T("無圧縮（WAV）", "Uncompressed (WAV)"), T("CDのデータをそのまま保存。容量はFLACの約2倍（曲情報とジャケットも保存）", "Saves the CD data as is. About twice the size of FLAC (track info and artwork included)"), AudioFormat.WAV, 5, 256),
 )
 
 data class AppSettings(
@@ -146,10 +146,10 @@ fun AppSettings.presetIndex(): Int = QUALITY_PRESETS.indexOfFirst { p ->
 }
 
 fun AppSettings.qualityLabel(): String = when (format) {
-    AudioFormat.FLAC -> T("FLAC ロスレス", "FLAC lossless")
+    AudioFormat.FLAC -> T("FLAC（ロスレス）", "FLAC (lossless)")
     AudioFormat.AAC -> "AAC ${aacKbps}kbps"
     AudioFormat.MP3 -> "MP3 ${mp3Kbps}kbps"
-    AudioFormat.WAV -> T("WAV 無圧縮", "WAV uncompressed")
+    AudioFormat.WAV -> T("WAV（無圧縮）", "WAV (uncompressed)")
 }
 
 object Keys {

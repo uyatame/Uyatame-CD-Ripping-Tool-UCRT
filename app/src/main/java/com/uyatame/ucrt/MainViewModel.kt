@@ -82,7 +82,7 @@ import java.io.OutputStream
 
 /** 操作ボタン付きのお知らせ */
 sealed class ActionSnack(val text: String, val action: String) {
-    class OpenAlbum(text: String, val album: String, val artist: String) : ActionSnack(text, T("ライブラリで見る", "View in library"))
+    class OpenAlbum(text: String, val album: String, val artist: String) : ActionSnack(text, T("ライブラリで表示", "View in library"))
     class UndoMeta(text: String) : ActionSnack(text, T("元に戻す", "Undo"))
 }
 
@@ -288,7 +288,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // Android 12 でも動くよう、互換ライブラリ経由で取り出す
             val dev = androidx.core.content.IntentCompat.getParcelableExtra(i, UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
             if (i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false) && dev != null) openDevice(dev)
-            else status = T("USBの使用が許可されませんでした", "USB access was not allowed")
+            else status = T("USBの使用が許可されませんでした", "USB access was denied")
         }
     }
     private val detachReceiver = object : BroadcastReceiver() {
@@ -445,8 +445,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             when {
                 newer && (manual || r!!.version != settings.value.updateSkip) -> updateOffer = r
                 !manual -> {}
-                r == null -> snack = T("新しい版を確認できませんでした(ネットワークにつながっているか確かめてください)", "Couldn't check for updates (check your network connection)")
-                else -> snack = T("最新の版を使っています(v$cur)", "You're on the latest version (v$cur)")
+                r == null -> snack = T("アップデートを確認できませんでした（ネットワーク接続を確認してください）", "Couldn't check for updates. Check your network connection")
+                else -> snack = T("最新バージョンです（v$cur）", "You're up to date (v$cur)")
             }
         }
     }
@@ -498,7 +498,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             busy -> {
                 val pct = (ripOverall * 100).toInt().coerceIn(0, 100)
                 NotifInfo(
-                    false, if (busyKind == 0) T("CDを取り込み中 ${ripIndex + 1}/$ripCount", "Ripping CD ${ripIndex + 1}/$ripCount") else busyTitle(),
+                    false, if (busyKind == 0) T("CDを取り込み中（${ripIndex + 1}/${ripCount}）", "Ripping CD (${ripIndex + 1}/$ripCount)") else busyTitle(),
                     "$pct% ・ " + albumTitle, progress = pct,
                     type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
                 )
@@ -638,7 +638,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val dev = devices.firstOrNull { UsbScsiDrive.findInterface(it) != null }
         if (dev == null) {
             status = if (devices.any { UsbScsiDrive.isUasOnly(it) }) {
-                T("このドライブはUAS専用のため使用できません", "This drive supports UAS only and cannot be used")
+                T("このドライブはUAS専用のため使用できません", "This drive only supports UAS and cannot be used")
             } else {
                 T("ドライブが見つかりません", "No drive found")
             }
@@ -795,7 +795,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         e.senseKey == -1 -> e.message ?: T("通信エラー", "Communication error")
         e.asc == 0x3A -> T("ディスクなし", "No disc")
         e.asc == 0x04 -> T("読み込み中", "Loading")
-        e.senseKey == 6 -> T("ディスク交換を検知", "Disc change detected")
+        e.senseKey == 6 -> T("ディスクが交換されました", "Disc changed")
         else -> "key=%X asc=%02X/%02X".format(e.senseKey, e.asc, e.ascq)
     }
 
@@ -842,7 +842,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val pname = if (p < 0) T("種別不明", "Unknown type") else UsbScsiDrive.profileName(p)
         // 空の CD-R / CD-RW
         if (p in 0x09..0x0A && runCatching { d.readDiscInfo().status == 0 }.getOrDefault(false)) {
-            return DiscScan(T("空の $pname です。CD のコピーや、曲の書き込みに使えます", "Blank $pname. You can copy a CD or write tracks to it"), emptyList(), 0)
+            return DiscScan(T("空の${pname}です。CDのコピーや曲の書き込みに使えます", "Blank $pname. Use it to copy a CD or write tracks"), emptyList(), 0)
         }
         if (toc != null) {
             if (p in 0x08..0x0A) return DiscScan(T("データCDです。音楽CDのみ再生・取り込みできます", "This is a data CD. Only audio CDs can be played or ripped"), emptyList(), 0)
@@ -851,12 +851,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val cap = try { d.readCapacity() } catch (e: ScsiException) { capErr = why(e); null }
         if (cap != null) {
             return DiscScan(
-                T("$pname(%.1f GB)のディスクです。音楽CDのみ再生・取り込みできます", "This is a $pname (%.1f GB) disc. Only audio CDs can be played or ripped").format(cap.first * cap.second / 1e9),
+                T("${pname}（%.1f GB）のディスクです。音楽CDのみ再生・取り込みできます", "This is a $pname disc (%.1f GB). Only audio CDs can be played or ripped").format(cap.first * cap.second / 1e9),
                 emptyList(), 0,
             )
         }
         log(T("ディスクを認識できません(TOC: $tocErr / 容量: $capErr)", "Cannot recognize the disc (TOC: $tocErr / capacity: $capErr)"))
-        return DiscScan(if (ready) T("ディスクを読み取れません", "Cannot read the disc") else T("ドライブの準備ができません", "The drive is not ready"), emptyList(), 0, retry = true)
+        return DiscScan(if (ready) T("ディスクを読み取れません", "Cannot read the disc") else T("ドライブの準備ができていません", "The drive isn't ready"), emptyList(), 0, retry = true)
     }
 
     fun refreshDisc() {
@@ -894,7 +894,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         if (cached != null && id != null) {
                             // 前に決めた曲情報があれば、ネットに問い合わせずにすぐ使う
                             meta = fitMeta(cached)
-                            metaStatus = "✓ " + T("曲情報: 前回の内容(選び直すこともできます)", "Track info: saved from last time (you can choose again)")
+                            metaStatus = "✓ " + T("曲情報: 前回の内容（選び直せます）", "Track info: from last time (you can pick another match)")
                             val img = withContext(Dispatchers.IO) { discCache.loadCover(id) }
                             if (img != null) {
                                 coverBytes = img
@@ -905,7 +905,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             } catch (e: Exception) {
-                discText = T("読み取りに失敗しました: ${e.message}", "Read failed: ${e.message}")
+                discText = T("読み取りに失敗しました: ${e.message}", "Could not read the disc: ${e.message}")
             } finally {
                 discBusy = false
             }
@@ -952,7 +952,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         MusicBrainz.contact = ""
         MusicBrainz.version = BuildConfigVersion.name(ctx)
         val audio = audioTracks
-        metaStatus = T("曲情報を検索しています…", "Searching track info…")
+        metaStatus = T("曲情報を検索しています…", "Searching for track info…")
         metaSearching = true
         metaError = ""
         candidates = emptyList()
@@ -1025,8 +1025,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 searchResults = r.candidates
                 searchMessage = when {
                     r.error != null -> T("検索できませんでした: ${r.error}", "Search failed: ${r.error}")
-                    r.candidates.isEmpty() -> T("見つかりませんでした。表記(漢字・かな・英字)を変えて試してください", "Nothing found. Try a different spelling")
-                    else -> T("${r.candidates.size}件見つかりました(曲数が一致するものが上に表示されます)", "${r.candidates.size} found (matching track counts are listed first)")
+                    r.candidates.isEmpty() -> T("見つかりませんでした。表記（漢字・かな・英字）を変えて試してください", "Nothing found. Try a different spelling")
+                    else -> T("${r.candidates.size}件見つかりました（曲数が一致するものを上に表示）", "${r.candidates.size} found (matching track counts first)")
                 }
             } finally {
                 searchBusy = false
@@ -1047,8 +1047,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     } else {
                         if (m.tracks.size != audioTracks.size) {
                             snack = T(
-                                "曲数が一致しません(CD ${audioTracks.size}曲 / 候補 ${m.tracks.size}曲)。内容を確認してください",
-                                "Track count differs (CD ${audioTracks.size} / match ${m.tracks.size}). Please check",
+                                "曲数が一致しません（CD ${audioTracks.size}曲 / 候補 ${m.tracks.size}曲）。内容を確認してください",
+                                "Track counts don't match (CD ${audioTracks.size}, match ${m.tracks.size}). Check the track info",
                             )
                         }
                         useMeta(m, c.source)
@@ -1124,7 +1124,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun updateMeta(m: AlbumMeta) {
         meta = fitMeta(m)
-        metaStatus = T("曲情報を編集しました", "Track info edited")
+        metaStatus = T("曲情報を編集しました", "Track info updated")
         val id = currentDiscId
         val keep = meta
         if (id != null && keep != null) viewModelScope.launch(Dispatchers.IO) { discCache.save(id, keep) }
@@ -1266,13 +1266,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 ripOverall = 1f
                 actionSnack = ActionSnack.OpenAlbum(
                     if (errors == 0) T("「${m.title}」の取り込みが完了しました", "Finished ripping \"${m.title}\"")
-                    else T("取り込み完了(読み取りエラー ${errors}セクター)", "Ripping finished (${errors} sectors had read errors)"),
+                    else T("取り込み完了（読み取りエラー: ${errors}セクター）", "Ripping finished with read errors in ${errors} sectors"),
                     m.title, m.artist,
                 )
                 log(T("取り込み完了: ${m.title}(${targets.size - skipped}曲)", "Ripped: ${m.title} (${targets.size - skipped} tracks)"))
                 if (s.ejectAfter) withContext(Dispatchers.IO) { runCatching { d.eject() } }
             } catch (e: CancellationException) {
-                snack = T("取り込みを中止しました", "Ripping cancelled")
+                snack = T("取り込みを中止しました", "Ripping canceled")
                 throw e
             } catch (e: Exception) {
                 snack = T("取り込みに失敗しました: ${e.message}", "Ripping failed: ${e.message}")
@@ -1295,11 +1295,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 進み具合の表示(取り込み以外) */
     fun busyTitle(): String = when (busyKind) {
-        1 -> T("コピーする CD を読み取り中", "Reading the CD to copy")
-        2 -> T("書き込む曲を準備中 ${ripIndex + 1} / $ripCount 曲目", "Preparing track ${ripIndex + 1} of $ripCount")
-        3 -> T("CD に書き込み中", "Writing the CD")
-        4 -> T("CD-RW を消去中", "Erasing the CD-RW")
-        else -> T("取り込み中 ${ripIndex + 1} / $ripCount 曲目", "Ripping track ${ripIndex + 1} of $ripCount")
+        1 -> T("コピーするCDを読み取り中", "Reading the CD to copy")
+        2 -> T("書き込む曲を準備中（${ripIndex + 1}/${ripCount}曲目）", "Preparing track ${ripIndex + 1} of $ripCount")
+        3 -> T("CDに書き込み中", "Writing to the CD")
+        4 -> T("CD-RWを消去中", "Erasing the CD-RW")
+        else -> T("取り込み中（${ripIndex + 1}/${ripCount}曲目）", "Ripping track ${ripIndex + 1} of $ripCount")
     }
 
     /** 書き込みの画面(null なら出さない) */
@@ -1328,7 +1328,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val need = sectors * 2352 + (50L shl 20)
         val free = ctx.cacheDir.usableSpace + (if (burnFile.exists()) burnFile.length() else 0L)
         if (free >= need) return true
-        snack = T("端末の空き容量が足りません(約 %d MB 必要)", "Not enough free storage (about %d MB needed)").format(need shr 20)
+        snack = T("端末の空き容量が足りません（約%d MB必要）", "Not enough free storage (about %d MB needed)").format(need shr 20)
         return false
     }
 
@@ -1338,7 +1338,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (busy || discBusy) return
         // 先頭から続いている音楽トラック(エンハンスド CD のデータトラックは除く)
         val tr = tracks.takeWhile { it.isAudio }
-        if (tr.isEmpty()) { snack = T("音楽 CD を入れてください", "Insert an audio CD"); return }
+        if (tr.isEmpty()) { snack = T("音楽CDを入れてください", "Insert an audio CD"); return }
         if (!burnSpaceOk((tr.last().endLba - tr.first().startLba).toLong())) return
         if (player.isCd) player.stop()
         val s = settings.value
@@ -1362,15 +1362,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 log(T("コピー用に読み取り: $title(${tr.size}曲 %.1f 分)", "Read for copy: $title (${tr.size} tracks, %.1f min)").format(img.seconds / 60))
                 withContext(Dispatchers.IO) { runCatching { d.eject() } }
-                clearDisc(T("空の CD-R を入れてください", "Insert a blank CD-R"))
+                clearDisc(T("空のCD-Rを入れてください", "Insert a blank CD-R"))
                 lastMedia = mediaNone
                 burn = BurnSession(title, img, 0)
             } catch (e: CancellationException) {
-                snack = T("コピーを中止しました", "Copy cancelled")
+                snack = T("コピーを中止しました", "Copy canceled")
                 runCatching { burnFile.delete() }
                 throw e
             } catch (e: Exception) {
-                snack = T("CD を読み取れませんでした: ${e.message}", "Could not read the CD: ${e.message}")
+                snack = T("CDを読み取れませんでした: ${e.message}", "Could not read the CD: ${e.message}")
                 log(T("コピーの読み取りエラー: ${e.message}", "Copy read error: ${e.message}"))
                 runCatching { burnFile.delete() }
             } finally {
@@ -1386,7 +1386,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (busy || discBusy) return
         if (list.isEmpty()) return
         val secs = list.sumOf { (if (it.endMs > 0) it.endMs - it.startMs else it.durationMs) } / 1000 + gapSec * list.size
-        if (secs > 80 * 60) { snack = T("80 分を超えるため、CD 1 枚に入りません", "Longer than 80 minutes; does not fit on one CD"); return }
+        if (secs > 80 * 60) { snack = T("80分を超えるため、CD1枚に収まりません", "Too long for one CD (over 80 minutes)"); return }
         if (!burnSpaceOk(secs * 75 + 75 * 60)) return
         val src = list.map {
             com.uyatame.ucrt.rip.BurnSource(Uri.parse(com.uyatame.ucrt.library.Cue.fileUri(it.uri)), it.startMs, it.endMs)
@@ -1412,7 +1412,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 log(T("書き込みの準備: $title(${list.size}曲 %.1f 分)", "Prepared for writing: $title (${list.size} tracks, %.1f min)").format(img.seconds / 60))
                 burn = BurnSession(title, img, 0)
             } catch (e: CancellationException) {
-                snack = T("準備を中止しました", "Cancelled")
+                snack = T("準備を中止しました", "Preparation canceled")
                 runCatching { burnFile.delete() }
                 throw e
             } catch (e: Exception) {
@@ -1431,7 +1431,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun writeDisc(speedX: Int, testWrite: Boolean) {
         val b = burn ?: return
         val d = drive
-        if (d == null) { burn = b.copyMsg(T("ドライブをつないでください", "Connect the drive"), true); return }
+        if (d == null) { burn = b.copyMsg(T("ドライブを接続してください", "Connect the drive"), true); return }
         if (busy) return
         if (player.isCd) player.stop()
         val burner = com.uyatame.ucrt.rip.CdBurner(d, com.uyatame.ucrt.rip.BurnOptions(speedX, testWrite)) { log(it) }
@@ -1479,11 +1479,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 withContext(Dispatchers.IO) { runCatching { d.eject() } }
                 burn = BurnSession(
                     b.title, b.image, 1,
-                    if (testWrite) T("テスト書き込みが完了しました。問題なく書き込めます(ディスクには何も書かれていません)", "Test write finished; the disc can be written (nothing was written to it)")
+                    if (testWrite) T("テスト書き込みが完了しました。問題なく書き込めます（ディスクには何も書き込まれていません）", "Test write complete. The disc can be written (nothing was actually written)")
                     else T("書き込みが完了しました", "Finished writing the CD"),
                 )
             } catch (e: CancellationException) {
-                if (started) burn = b.copyMsg(T("書き込みを中止しました。このディスクは使えなくなっている可能性があります", "Writing was stopped; this disc may be unusable"), true)
+                if (started) burn = b.copyMsg(T("書き込みを中止しました。このディスクは使えなくなっている可能性があります", "Writing stopped. This disc may now be unusable"), true)
                 throw e
             } catch (e: Exception) {
                 log(T("書き込みエラー: ${e.message}", "Write error: ${e.message}"))
@@ -1522,7 +1522,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 burn = BurnSession(b.title, b.image, 0, T("消去しました。「書き込む」を押してください", "Erased. Tap Write"))
             } catch (e: CancellationException) {
-                burn = b.copyMsg(T("消去の確認を中止しました(ドライブは消去を続けていることがあります)", "Stopped waiting for the erase (the drive may still be erasing)"), true)
+                burn = b.copyMsg(T("消去の確認を中止しました（ドライブは消去を続けている場合があります）", "Stopped waiting for the erase (the drive may still be erasing)"), true)
                 throw e
             } catch (e: Exception) {
                 burn = b.copyMsg(T("消去できませんでした: ${e.message}", "Could not erase: ${e.message}"), true)
@@ -1537,7 +1537,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** もう 1 枚書く(同じ内容のまま、ディスク待ちに戻る) */
     fun burnAgain() {
         val b = burn ?: return
-        burn = BurnSession(b.title, b.image, 0, T("空の CD-R を入れて「書き込む」を押してください", "Insert a blank CD-R and tap Write"))
+        burn = BurnSession(b.title, b.image, 0, T("空のCD-Rを入れて「書き込む」を押してください", "Insert a blank CD-R and tap Write"))
     }
 
     /** 書き込みの画面を閉じる(端末に置いた内容も消す) */
@@ -1682,7 +1682,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (existing != null) replaceFile(dir, existing, file, name, s.format.mime) { oldGone = true }
             progress[t.number] = 1f
-            trackStatus[t.number] = if (res.errorSectors == 0) T("完了", "Done") else T("完了(エラー${res.errorSectors})", "Done (${res.errorSectors} errors)")
+            trackStatus[t.number] = if (res.errorSectors == 0) T("完了", "Done") else T("完了（エラー${res.errorSectors}）", "Done (${res.errorSectors} errors)")
             if (res.c2Disabled) log(T("このドライブはC2エラー検出に非対応のため無効にしました", "C2 error detection is not supported by this drive and was turned off"))
             return res.errorSectors
         } catch (e: Exception) {
@@ -1691,7 +1691,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             os = null
             if (!oldGone) runCatching { file.delete() }
             tmp.delete()
-            trackStatus[t.number] = if (e is CancellationException) T("中止", "Cancel") else T("失敗", "Failed")
+            trackStatus[t.number] = if (e is CancellationException) T("中止", "Canceled") else T("失敗", "Failed")
             throw e
         } finally {
             runCatching { os?.close() }
@@ -1707,7 +1707,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         onOldDeleted()
         if (tmp.renameTo(name)) return
         // 名前を変えられない保存先では、中身を写す。写せなかったときは、取り込んだファイル(.part)を残す
-        val f = dir.createFile(mime, name) ?: throw IOException(T("ファイルを作成できません($name.part に保存しました)", "Cannot create the file (saved as $name.part)"))
+        val f = dir.createFile(mime, name) ?: throw IOException(T("ファイルを作成できません（$name.partに保存しました）", "Cannot create the file (saved as $name.part)"))
         try {
             openOut(f).use { o ->
                 val inp = ctx.contentResolver.openInputStream(tmp.uri) ?: throw IOException(T("ファイルを読めません", "Cannot read the file"))
@@ -1715,7 +1715,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         } catch (e: Exception) {
             runCatching { f.delete() }
-            throw IOException(T("ファイルを置き換えられません($name.part に保存しました): ${e.message}", "Cannot replace the file (saved as $name.part): ${e.message}"), e)
+            throw IOException(T("ファイルを置き換えられません（$name.partに保存しました）: ${e.message}", "Cannot replace the file (saved as $name.part): ${e.message}"), e)
         }
         tmp.delete()
     }
@@ -1767,7 +1767,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             snack = buildString {
                 append(T("${ok}個のファイルを削除しました", "Deleted ${ok} files"))
                 if (failed > 0) append(T("。${failed}個は削除できませんでした", ". ${failed} could not be deleted"))
-                if (kept > 0) append(T("(CUE シートの一部の曲だけは削除できません)", " (individual tracks of a CUE sheet cannot be deleted)"))
+                if (kept > 0) append(T("（CUEシートの曲は個別に削除できません）", " (tracks in a CUE sheet can't be deleted individually)"))
             }
             refreshLibrary()
         }
@@ -1788,7 +1788,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resetDriveSettings() {
         viewModelScope.launch { repo.resetDrive() }
-        snack = T("CDドライブの設定を初期値に戻しました", "CD drive settings were reset")
+        snack = T("CDドライブの設定を初期値に戻しました", "CD drive settings reset to defaults")
     }
 
     /** 端末内の音楽フォルダをライブラリに追加する */
@@ -1913,8 +1913,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     .filter { seen.add((it.meta.releaseId ?: it.meta.title) + "/" + it.meta.discNo) }
                     .sortedWith(compareByDescending<ReleaseCandidate> { it.trackCount == n }.thenByDescending { it.loader == null })
                 libMessage = when {
-                    libCandidates.isNotEmpty() -> T("${libCandidates.size}件の候補(曲数が合うものが上)", "${libCandidates.size} matches (matching track counts first)")
-                    results.isNotEmpty() && results.all { it.error != null } -> T("通信エラーのため検索できませんでした", "Lookup failed due to a network error")
+                    libCandidates.isNotEmpty() -> T("${libCandidates.size}件の候補（曲数が一致するものが上）", "${libCandidates.size} matches (matching track counts first)")
+                    results.isNotEmpty() && results.all { it.error != null } -> T("通信エラーのため検索できませんでした", "Search failed due to a network error")
                     else -> T("見つかりませんでした。名前で検索してください", "Nothing found. Try searching by name")
                 }
             } finally {
@@ -1934,7 +1934,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 libMessage = when {
                     r.error != null -> T("検索できませんでした: ${r.error}", "Search failed: ${r.error}")
                     r.candidates.isEmpty() -> T("見つかりませんでした。表記を変えて試してください", "Nothing found. Try a different spelling")
-                    else -> T("${r.candidates.size}件見つかりました(曲数が合うものが上)", "${r.candidates.size} found (matching track counts first)")
+                    else -> T("${r.candidates.size}件見つかりました（曲数が一致するものが上）", "${r.candidates.size} found (matching track counts first)")
                 }
             } finally {
                 libSearching = false
@@ -2011,7 +2011,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 ArtLoader.forget(a.key)
                 snack = buildString {
                     append(T("${ok}曲の曲情報を保存しました", "Saved track info for ${ok} tracks"))
-                    if (skipped > 0) append(T("(書き換えられない形式の${skipped}曲は対象外)", " (${skipped} tracks in formats that cannot be edited were skipped)"))
+                    if (skipped > 0) append(T("（編集できない形式の${skipped}曲は除外）", " (skipped ${skipped} tracks in formats that can't be edited)"))
                     if (failed > 0) append(T("。${failed}曲は失敗しました", ". ${failed} tracks failed"))
                 }
                 refreshLibrary()
@@ -2054,14 +2054,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (list.isEmpty()) return
         val wasEmpty = player.current == null
         player.playNext(list.map { itemOf(it) })
-        if (!wasEmpty) snack = T("次に再生します(${list.size}曲)", "Playing next (${list.size} songs)")
+        if (!wasEmpty) snack = T("次に再生します（${list.size}曲）", "Playing next (${list.size} songs)")
     }
 
     fun addToQueue(list: List<com.uyatame.ucrt.library.LibTrack>) {
         if (list.isEmpty()) return
         val wasEmpty = player.current == null
         player.addToQueue(list.map { itemOf(it) })
-        if (!wasEmpty) snack = T("再生リストの最後に追加しました(${list.size}曲)", "Added to the end of the queue (${list.size} songs)")
+        if (!wasEmpty) snack = T("再生リストの最後に追加しました（${list.size}曲）", "Added to the end of the queue (${list.size} songs)")
     }
 
     // ---- お気に入り・プレイリスト ----
@@ -2093,7 +2093,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun createPlaylist(name: String, uris: List<String>) {
         store.createPlaylist(name, uris)
-        snack = T("プレイリスト「${name.trim()}」を作りました", "Created playlist \"${name.trim()}\"")
+        snack = T("プレイリスト「${name.trim()}」を作成しました", "Created playlist \"${name.trim()}\"")
     }
 
     /** 今の再生リストをプレイリストとして保存する(CD の曲は除く) */

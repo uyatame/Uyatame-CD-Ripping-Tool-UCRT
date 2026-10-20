@@ -55,12 +55,12 @@ private fun db(v: Float): String {
 @Composable
 fun BitPerfectPanel(vm: MainViewModel, s: AppSettings) {
     val mode = s.outputMode
-    Section(T("USB DAC 直接出力", "USB DAC direct output")) {
+    Section(T("USB DAC直接出力", "USB DAC direct output")) {
         SwitchRow(
-            T("USB DAC 直接出力を使う", "Use USB DAC direct output"),
+            T("USB DAC直接出力を使う", "Use USB DAC direct output"),
             T(
-                "アプリの独自ドライバーで USB DAC を直接動かします(Android の音声機能は通しません)。ソースダイレクトをオンにすると、音源のデータを一切加工せずに送ります(ビットパーフェクト)。使用中は DAC を独占するため、通知音などは DAC から鳴りません",
-                "The app's own driver drives the USB DAC directly, bypassing Android audio. With source direct on, the audio data is sent unaltered (bit-perfect). The DAC is used exclusively, so notification sounds won't play through it",
+                "アプリ独自のドライバーでUSB DACを直接駆動します（Androidのオーディオ機能を経由しません）。ソースダイレクトをオンにすると、音源のデータを一切加工せずに送ります（ビットパーフェクト）。使用中はDACを独占するため、通知音などはDACから鳴りません",
+                "Controls the USB DAC directly with the app's own driver, bypassing Android's audio system. With source direct on, audio data is sent completely unaltered (bit-perfect). The app takes exclusive control of the DAC, so notification sounds won't play through it",
             ),
             mode == 2,
         ) { vm.setOutputMode(if (it) 2 else 0) }
@@ -76,7 +76,7 @@ fun BitPerfectPanel(vm: MainViewModel, s: AppSettings) {
                 mutableFloatStateOf((if (s.usbVolume < 0) UsbDac.volume() else s.usbVolume).toFloat())
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(T("DAC の音量", "DAC volume"), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(84.dp))
+                Text(T("DACの音量", "DAC volume"), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(84.dp))
                 Slider(
                     value = vol,
                     onValueChange = {
@@ -91,18 +91,18 @@ fun BitPerfectPanel(vm: MainViewModel, s: AppSettings) {
             }
             Text(
                 if (UsbDac.active && !UsbDac.hwVolume) {
-                    T("この DAC は USB からの音量調整に対応していないため、ソフトウェアで音量を下げています。100 にするとビットパーフェクトになるので、DAC 本体のボタンで音量を調整してください(DSD はこの音量に関係なく、DAC 本体の音量で鳴ります)",
-                        "This DAC has no USB volume control, so volume is applied in software. Set 100 for bit-perfect and use the DAC's own buttons (DSD always plays at the DAC's own volume)")
+                    T("このDACはUSB経由の音量調整に対応していないため、ソフトウェアで音量を下げています。ビットパーフェクトにするには100に設定し、DAC本体のボタンで音量を調整してください（DSDはこの設定に関係なく、DAC本体の音量で再生されます）",
+                        "This DAC doesn't support volume control over USB, so volume is reduced in software. For bit-perfect playback, set this to 100 and use the DAC's own buttons (DSD always plays at the DAC's own volume)")
                 } else {
-                    T("DAC 本体の音量を直接調整します(音質は変わりません)。本体の音量キーでも変えられます",
-                        "Adjusts the DAC's own volume (no quality loss). The phone's volume keys also work")
+                    T("DAC本体の音量を直接調整します（音質は変わりません）。端末の音量キーでも調整できます",
+                        "Adjusts the DAC's hardware volume directly, with no loss in quality. You can also use the phone's volume keys")
                 },
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         if (mode == 2) {
             Text(
-                T("詳しい動作の記録は「設定 → ログ」で確認できます", "Details are recorded in Settings → Log"),
+                T("詳しい動作ログは「設定 → ログ」で確認できます", "For details, see Settings → Log"),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -112,16 +112,16 @@ fun BitPerfectPanel(vm: MainViewModel, s: AppSettings) {
 /** DAR(PCM の曲を高い周波数の PCM や DSD にして DAC へ送る) */
 @Composable
 fun DarPanel(vm: MainViewModel, s: AppSettings) {
-    Section(T("DAR(アップサンプリング・DSD 変換)", "DAR (upsampling / DSD conversion)")) {
+    Section(T("DAR（アップサンプリング・DSD変換）", "DAR (upsampling / DSD conversion)")) {
         val options = listOf(
             T("オフ", "Off") to
-                T("音源のまま送ります(ビットパーフェクト)", "Sends the source as is (bit-perfect)"),
-            T("PCM アップサンプリング", "PCM upsampling") to
-                T("音源を整数倍の高い周波数(例: 44.1 kHz → 352.8 kHz)にして、24 / 32bit で送ります",
-                    "Raises the source to an integer multiple (e.g. 44.1 kHz → 352.8 kHz) and sends it at 24 / 32 bit"),
-            T("DSD に変換", "Convert to DSD") to
-                T("音源を DSD に変換して、ネイティブ DSD か DoP で送ります。DSD に対応した DAC で使ってください",
-                    "Converts the source to DSD and sends it as native DSD or DoP. Use with a DSD-capable DAC"),
+                T("音源をそのまま送ります（ビットパーフェクト）", "Sends the source unaltered (bit-perfect)"),
+            T("PCMアップサンプリング", "PCM upsampling") to
+                T("音源を整数倍の高い周波数（例: 44.1 kHz → 352.8 kHz）に変換し、24 / 32bitで送ります",
+                    "Upsamples the source by an integer multiple (e.g. 44.1 kHz → 352.8 kHz) and sends it as 24- or 32-bit audio"),
+            T("DSDに変換", "Convert to DSD") to
+                T("音源をDSDに変換し、ネイティブDSDまたはDoPで送ります。DSD対応のDACで使用してください",
+                    "Converts the source to DSD and sends it as native DSD or DoP. Requires a DSD-capable DAC"),
         )
         options.forEachIndexed { i, (title, desc) ->
             Row(
@@ -136,9 +136,9 @@ fun DarPanel(vm: MainViewModel, s: AppSettings) {
             }
         }
         if (s.darMode == 1) {
-            Text(T("上げる周波数(44.1 / 48 kHz の何倍まで)", "Target rate (up to N × 44.1 / 48 kHz)"), style = MaterialTheme.typography.labelLarge)
+            Text(T("アップサンプリングの上限（44.1 / 48 kHzの倍数）", "Maximum rate (multiple of 44.1 / 48 kHz)"), style = MaterialTheme.typography.labelLarge)
             val labels = listOf(
-                T("DAC の最大", "DAC maximum"), "×2 (88.2 / 96k)", "×4 (176.4 / 192k)", "×8 (352.8 / 384k)", "×16 (705.6 / 768k)",
+                T("DACの最大値", "DAC maximum"), "×2 (88.2 / 96k)", "×4 (176.4 / 192k)", "×8 (352.8 / 384k)", "×16 (705.6 / 768k)",
             )
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 labels.forEachIndexed { i, l ->
@@ -146,10 +146,10 @@ fun DarPanel(vm: MainViewModel, s: AppSettings) {
                 }
             }
             SwitchRow(
-                T("整数倍だけで変換する", "Integer multiples only"),
+                T("整数倍でのみ変換", "Integer multiples only"),
                 T(
-                    "オン: 44.1 kHz → 176.4 kHz のように整数倍だけで上げます(いちばんきれい)。出力先が整数倍の周波数を受け付けないときは、仕方なく出力先に合わせ、そのことを赤字で表示します。\nオフ: 出力先が受け付けるいちばん高い周波数に合わせます(44.1 kHz → 192 kHz など、整数倍でない変換も使います)。\nUSB DAC 直接出力では、いつも整数倍です",
-                    "On: raises only by integer multiples (e.g. 44.1 → 176.4 kHz), the cleanest. If the output accepts no integer multiple, it is converted to the output's rate anyway and shown in red.\nOff: uses the highest rate the output accepts (may be non-integer, e.g. 44.1 → 192 kHz).\nUSB DAC direct output always uses integer multiples",
+                    "オン: 44.1 kHz → 176.4 kHzのように整数倍でのみ変換します（最も高音質）。出力先が整数倍の周波数に対応していない場合は、やむを得ず出力先の周波数に合わせ、その旨を赤字で表示します。\nオフ: 出力先が対応する最も高い周波数に変換します（44.1 kHz → 192 kHzのような整数倍でない変換も含みます）。\nUSB DAC直接出力では常に整数倍で変換します",
+                    "On: upsamples only by integer multiples (e.g. 44.1 → 176.4 kHz) for the cleanest result. If the output doesn't accept any integer multiple, the output's rate is used instead and a warning appears in red.\nOff: uses the highest rate the output accepts, including non-integer conversions (e.g. 44.1 → 192 kHz).\nUSB DAC direct output always uses integer multiples",
                 ),
                 s.darInteger,
             ) { vm.set(Keys.darInteger, it) }
@@ -158,7 +158,7 @@ fun DarPanel(vm: MainViewModel, s: AppSettings) {
             }
         }
         if (s.darMode == 2) {
-            Text(T("DSD の周波数", "DSD rate"), style = MaterialTheme.typography.labelLarge)
+            Text(T("DSDの周波数", "DSD rate"), style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("DSD64", "DSD128", "DSD256").forEachIndexed { i, l ->
                     FilterChip(s.darDsd == i, { vm.set(Keys.darDsd, i) }, label = { Text(l) })
@@ -166,16 +166,16 @@ fun DarPanel(vm: MainViewModel, s: AppSettings) {
             }
             Text(
                 T(
-                    "DAC が対応していない周波数のときは、低い周波数に下げて変換します。DSD256 は処理が重く、端末によっては音が途切れます(その場合は DSD128 以下にしてください)。送り方(ネイティブ DSD / DoP)は下の「DSD の再生」の設定に従います",
-                    "If the DAC does not support the rate, a lower DSD rate is used. DSD256 is heavy and may stutter on some phones (use DSD128 or lower then). The transport (native DSD / DoP) follows the DSD playback setting below",
+                    "DACが対応していない周波数の場合は、より低い周波数で変換します。DSD256は処理が重く、端末によっては音が途切れることがあります（その場合はDSD128以下にしてください）。送信方式（ネイティブDSD / DoP）は下の「DSDの再生」の設定に従います",
+                    "If the DAC doesn't support the selected rate, a lower DSD rate is used. DSD256 is demanding and may stutter on some phones (if so, choose DSD128 or lower). Whether native DSD or DoP is used depends on the DSD playback setting below",
                 ),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Text(
             T(
-                "DAR は、ソースダイレクトがオフのときに PCM の曲(ファイル・CD)に使われます。PCM アップサンプリングは USB DAC 直接出力でもイヤホンジャックなどの通常の出力でも使え、通常の出力では出力先が受け付ける周波数まで上げます。DSD への変換は USB DAC 直接出力のときだけです。DSD の曲はそのまま再生します。オンにするとビットパーフェクトではなくなり、電池の減りが早くなります",
-                "DAR is applied to PCM tracks (files and CDs) when source direct is off. PCM upsampling works with USB DAC direct output and with the normal output (headphone jack etc.), where it goes up to the rates the output accepts. DSD conversion needs USB DAC direct output. DSD tracks play as is. With DAR on, playback is no longer bit-perfect and uses more battery",
+                "DARは、ソースダイレクトがオフのときにPCMの曲（ファイル・CD）に適用されます。PCMアップサンプリングはUSB DAC直接出力でも、イヤホンジャックなどの通常の出力でも使え、通常の出力では出力先が対応する周波数まで上げます。DSDへの変換はUSB DAC直接出力のときのみ使えます。DSDの曲はそのまま再生します。オンにするとビットパーフェクトではなくなり、電池の消費も増えます",
+                "DAR applies to PCM tracks (files and CDs) when source direct is off. PCM upsampling works with both USB DAC direct output and the standard output (such as the headphone jack); with the standard output, it upsamples only as high as the output accepts. DSD conversion requires USB DAC direct output. DSD tracks play unchanged. With DAR on, playback is no longer bit-perfect and uses more battery",
             ),
             style = MaterialTheme.typography.bodySmall,
             color = if (s.darMode != 0 && (s.sourceDirect || (s.darMode == 2 && s.outputMode != 2))) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -186,16 +186,16 @@ fun DarPanel(vm: MainViewModel, s: AppSettings) {
 /** DSD(DSF / DFF)の再生方法 */
 @Composable
 fun DsdPanel(vm: MainViewModel, s: AppSettings) {
-    Section(T("DSD の再生", "DSD playback")) {
+    Section(T("DSDの再生", "DSD playback")) {
         val options = listOf(
-            T("自動(ネイティブ DSD → DoP → PCM 変換)", "Auto (native DSD → DoP → PCM)") to
-                T("ネイティブ DSD を優先します。使えないときは DoP、それも無理なら PCM に変換します",
-                    "Native DSD is preferred, then DoP, then conversion to PCM"),
-            T("DoP を使う", "Use DoP") to
-                T("ネイティブ DSD を使わず、DoP(DSD over PCM)で送ります。DoP に対応した DAC で使ってください",
-                    "Sends DSD over PCM instead of native DSD. Use only with a DoP-capable DAC"),
-            T("常に PCM に変換", "Always convert to PCM") to
-                T("DSD 非対応の DAC やスマホのスピーカー向け。イコライザーも使えます", "For DACs without DSD or the phone speaker. The equalizer works too"),
+            T("自動（ネイティブDSD → DoP → PCM変換）", "Auto (native DSD → DoP → PCM)") to
+                T("ネイティブDSDを優先し、使えない場合はDoP、それも使えない場合はPCMに変換します",
+                    "Uses native DSD when possible, then DoP, and otherwise converts to PCM"),
+            T("DoPを使う", "Use DoP") to
+                T("ネイティブDSDを使わず、DoP（DSD over PCM）で送ります。DoP対応のDACで使用してください",
+                    "Sends DSD over PCM (DoP) instead of native DSD. Requires a DoP-capable DAC"),
+            T("常にPCMに変換", "Always convert to PCM") to
+                T("DSD非対応のDACや端末のスピーカー向けです。イコライザーも使えます", "For DACs without DSD support or the phone's speaker. The equalizer also works"),
         )
         options.forEachIndexed { i, (title, desc) ->
             Row(
@@ -211,14 +211,14 @@ fun DsdPanel(vm: MainViewModel, s: AppSettings) {
         }
         Text(
             T(
-                "ネイティブ DSD と DoP は、ビットパーフェクト再生がオンのときに使われます。オフのときは PCM に変換して再生します",
-                "Native DSD and DoP are used when bit-perfect playback is on. Otherwise DSD is converted to PCM",
+                "ネイティブDSDとDoPは、ビットパーフェクト再生がオンのときに使われます。オフのときはPCMに変換して再生します",
+                "Native DSD and DoP are used only when bit-perfect playback is on. Otherwise, DSD is converted to PCM",
             ),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         SwitchRow(
-            T("ネイティブ DSD のバイト順を入れ替える", "Swap native DSD byte order"),
-            T("ネイティブ DSD で「ザー」という雑音しか出ない DAC のときだけオンにしてください", "Turn on only if native DSD plays as noise on your DAC"),
+            T("ネイティブDSDのバイト順を入れ替える", "Swap native DSD byte order"),
+            T("ネイティブDSDで「ザー」というノイズしか出ないDACの場合のみオンにしてください", "Turn on only if your DAC plays native DSD as static"),
             s.dsdSwap,
         ) { vm.set(Keys.dsdSwap, it) }
     }
@@ -312,7 +312,7 @@ fun OutputDeviceSheet(vm: MainViewModel, s: AppSettings, onDismiss: () -> Unit) 
                 }
             }
             Text(
-                T("出力先を選んでください", "Choose an output"), style = MaterialTheme.typography.titleMedium,
+                T("出力先を選択", "Choose an output"), style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(top = 8.dp),
             )
             @Composable
@@ -337,15 +337,15 @@ fun OutputDeviceSheet(vm: MainViewModel, s: AppSettings, onDismiss: () -> Unit) 
             item(
                 com.uyatame.ucrt.player.OutputDevices.KEY_AUTO, com.uyatame.ucrt.player.OutputKind.Auto,
                 T("自動", "Automatic"),
-                T("Android に任せる", "Let Android decide") + (auto?.let { " · ${it.name}" } ?: ""),
+                T("Androidに任せる", "Let Android decide") + (auto?.let { " · ${it.name}" } ?: ""),
             )
             devices.forEach { d ->
                 item(d.key, d.kind, d.name, listOf(d.detail, d.spec).filter { it.isNotEmpty() }.joinToString(" · "))
             }
             Text(
                 T(
-                    "USB DAC を選ぶとビットパーフェクト再生になります(アプリが DAC を直接動かします)",
-                    "Choosing the USB DAC turns on bit-perfect playback (the app drives the DAC directly)",
+                    "USB DACを選ぶとビットパーフェクト再生になります（アプリがDACを直接駆動します）",
+                    "Choosing the USB DAC enables bit-perfect playback (the app controls the DAC directly)",
                 ),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),
