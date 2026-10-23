@@ -49,7 +49,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -77,6 +79,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -129,7 +132,15 @@ fun LibraryScreen(vm: MainViewModel, s: AppSettings) {
     }
     // 行き先ごとに、スクロールの位置などを覚えておく(曲を再生してから戻ったときなどに、元の位置に戻れるように)
     val holder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
-    holder.SaveableStateProvider(route ?: "home") { LibraryRoute(vm, s, route) }
+    Box(Modifier.fillMaxSize()) {
+        // 選んでいる間は、一覧の終わりが下の帯に隠れないよう、その分だけ上げる
+        Box(Modifier.fillMaxSize().padding(bottom = if (vm.selecting) 72.dp else 0.dp)) {
+            holder.SaveableStateProvider(route ?: "home") { LibraryRoute(vm, s, route) }
+        }
+        if (vm.selecting) SelectionBar(vm, Modifier.align(Alignment.BottomCenter))
+    }
+    // 選んでいる間の戻るボタンは、選ぶのをやめる(ページの戻るより先に受け取る)
+    BackHandler(enabled = vm.selecting) { vm.endSelection() }
 }
 
 @Composable
@@ -211,10 +222,60 @@ private fun norm(s: String): String {
     return sb.toString()
 }
 
+// ---------------- 曲を選ぶ(まとめてプレイリストへ) ----------------
+
+/** 選ぶモードを始めるボタン(ページの上の帯に置く) */
+@Composable
+private fun SelectButton(vm: MainViewModel) {
+    IconButton({ vm.startSelection(null) }) { Icon(Icons.Filled.CheckCircle, S(R.string.select_songs)) }
+}
+
+/** このページの曲を「すべて選択」の対象にする(ページを離れたら外す) */
+@Composable
+private fun SelectionPool(vm: MainViewModel, all: List<LibTrack>) {
+    DisposableEffect(all) {
+        vm.selectionPool = all
+        onDispose { if (vm.selectionPool === all) vm.selectionPool = null }
+    }
+}
+
+/**
+ * 選ぶモードの帯(ライブラリの下に重ねて出す)。やめる・選んだ数・すべて選択・プレイリストに追加。
+ * ページを移っても選んだ曲は残るので、いくつかのアルバムから選んでまとめて入れられる
+ */
+@Composable
+private fun SelectionBar(vm: MainViewModel, modifier: Modifier) {
+    Surface(
+        modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shadowElevation = 6.dp,
+    ) {
+        Row(Modifier.padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton({ vm.endSelection() }) { Icon(Icons.Filled.Close, S(R.string.cancel)) }
+            Text(
+                S(R.string.songs_selected, vm.selectedSongs.size), style = MaterialTheme.typography.titleMedium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+            )
+            vm.selectionPool?.let { pool ->
+                val allPicked = pool.isNotEmpty() && pool.all { vm.isSelected(it.uri) }
+                TextButton({ if (allPicked) vm.unselectAll(pool) else vm.selectAll(pool) }) {
+                    Text(if (allPicked) S(R.string.deselect_all) else S(R.string.select_all))
+                }
+            }
+            FilledTonalButton({ vm.addSelectedToPlaylist() }, enabled = vm.selectedSongs.isNotEmpty()) {
+                Icon(AppIcons.PlaylistAdd, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(S(R.string.add_to_playlist))
+            }
+        }
+    }
+}
+
 // ---------------- トップ ----------------
 
 private val TILE_IDS = listOf(
-    "albums", "artists", "songs", "favorites", "playlists", "recent", "history", "top", "hires", "genres", "years", "folders",
+    "albums", "artists", "songs", "favorites", "check", "playlists", "recent", "history", "top", "hires", "genres", "years", "folders",
 )
 
 private fun tileIcon(id: String): ImageVector = when (id) {
@@ -222,6 +283,7 @@ private fun tileIcon(id: String): ImageVector = when (id) {
     "artists" -> Icons.Filled.Person
     "songs" -> AppIcons.MusicNote
     "favorites" -> Icons.Filled.Favorite
+    "check" -> AppIcons.Headphones
     "playlists" -> AppIcons.Queue
     "recent" -> AppIcons.NewAdded
     "history" -> AppIcons.History
@@ -237,6 +299,7 @@ private fun tileLabel(id: String): String = when (id) {
     "artists" -> S(R.string.artists)
     "songs" -> S(R.string.songs)
     "favorites" -> S(R.string.favorites)
+    "check" -> S(R.string.sound_check)
     "playlists" -> S(R.string.playlists)
     "recent" -> S(R.string.recently_added)
     "history" -> S(R.string.recently_played)
@@ -260,6 +323,13 @@ private fun tileOrder(setting: String): List<Pair<String, Boolean>> {
 
 private fun encodeTiles(list: List<Pair<String, Boolean>>): String =
     list.joinToString(",") { (if (it.second) "" else "-") + it.first }
+
+/**
+ * トップにジャケットの列(最近追加・最近再生)を出すか。カテゴリーと同じ設定の文字列に「-strip:recent」のように書く
+ * (書いていなければ出す)
+ */
+private fun stripOn(setting: String, id: String): Boolean =
+    setting.split(',').none { it.trim() == "-strip:$id" }
 
 @Composable
 private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
@@ -285,18 +355,23 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
             "folders" to "${albums.flatMap { a -> a.tracks.map { trackFolder(it) } }.distinct().size}",
         )
     }
-    val counts = remember(libCounts, store.favTracks, store.favAlbums, store.playlists, store.history) {
+    val counts = remember(libCounts, store.favTracks, store.favAlbums, store.checkTracks, store.playlists, store.history) {
         libCounts + mapOf(
             "favorites" to "${store.favTracks.size + store.favAlbums.size}",
+            "check" to "${store.checkTracks.size}",
             "playlists" to "${store.playlists.size}",
             "history" to "${store.history.size}",
         )
     }
     val tiles = remember(s.libTiles) { tileOrder(s.libTiles).filter { it.second }.map { it.first } }
-    val recentAlbums = remember(albums) { albums.sortedByDescending { it.added }.take(15) }
+    // ジャケットの列は、そのカテゴリーを表示していて、列もオフにしていないときだけ出す
+    val showRecent = "recent" in tiles && stripOn(s.libTiles, "recent")
+    val showPlayed = "history" in tiles && stripOn(s.libTiles, "history")
+    val recentAlbums = remember(albums, showRecent) { if (showRecent) albums.sortedByDescending { it.added }.take(15) else emptyList() }
     // 曲が変わるたびに作り直すので、アルバムはキーの表で引き、15 枚そろったらやめる
     val albumByKey = remember(albums) { albums.associateBy { it.key } }
-    val playedAlbums = remember(albumByKey, store.history) {
+    val playedAlbums = remember(albumByKey, store.history, showPlayed) {
+        if (!showPlayed) return@remember emptyList()
         store.history.asSequence().mapNotNull { vm.albumKeyOf(it.uri) }.distinct().mapNotNull { k -> albumByKey[k] }.take(15).toList()
     }
     val full: androidx.compose.foundation.lazy.grid.LazyGridItemSpanScope.() -> GridItemSpan = { GridItemSpan(maxLineSpan) }
@@ -436,6 +511,8 @@ private fun CategoryTile(icon: ImageVector, label: String, count: String, onClic
 @Composable
 private fun TileEditDialog(vm: MainViewModel, s: AppSettings, onDismiss: () -> Unit) {
     val list = remember { mutableStateListOf<Pair<String, Boolean>>().apply { addAll(tileOrder(s.libTiles)) } }
+    var recentStrip by remember { mutableStateOf(stripOn(s.libTiles, "recent")) }
+    var playedStrip by remember { mutableStateOf(stripOn(s.libTiles, "history")) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(S(R.string.reorder_categories_2)) },
@@ -455,9 +532,31 @@ private fun TileEditDialog(vm: MainViewModel, s: AppSettings, onDismiss: () -> U
                         }
                     }
                 }
+                // ---- トップのジャケットの列(カテゴリーをオフにすると、列も出なくなる) ----
+                item(key = "strips") {
+                    Column(Modifier.padding(top = 12.dp)) {
+                        Text(S(R.string.show_as_artwork_rows), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                        val recentTile = list.firstOrNull { it.first == "recent" }?.second == true
+                        val playedTile = list.firstOrNull { it.first == "history" }?.second == true
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(recentStrip && recentTile, { recentStrip = it }, enabled = recentTile)
+                            Text(S(R.string.recently_added_2))
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(playedStrip && playedTile, { playedStrip = it }, enabled = playedTile)
+                            Text(S(R.string.recently_played_2))
+                        }
+                    }
+                }
             }
         },
-        confirmButton = { TextButton({ vm.set(Keys.libTiles, encodeTiles(list)); onDismiss() }) { Text(S(R.string.save)) } },
+        confirmButton = {
+            TextButton({
+                val strips = (if (recentStrip) "" else ",-strip:recent") + (if (playedStrip) "" else ",-strip:history")
+                vm.set(Keys.libTiles, encodeTiles(list) + strips)
+                onDismiss()
+            }) { Text(S(R.string.save)) }
+        },
         dismissButton = {
             Row {
                 TextButton({ vm.set(Keys.libTiles, ""); onDismiss() }) { Text(S(R.string.reset_2)) }
@@ -484,6 +583,7 @@ private fun CategoryPage(vm: MainViewModel, s: AppSettings, id: String) {
         "artists" -> ArtistsPage(vm)
         "songs" -> SongsPage(vm)
         "favorites" -> FavoritesPage(vm)
+        "check" -> SoundCheckPage(vm)
         "playlists" -> PlaylistsPage(vm)
         "history" -> HistoryPage(vm)
         "top" -> TopPage(vm)
@@ -687,8 +787,9 @@ private fun SongsPage(vm: MainViewModel) {
         }
         listOf(all.firstOrNull()?.let(lab).orEmpty()) + all.map(lab)
     }
+    SelectionPool(vm, all)
     Column(Modifier.fillMaxSize()) {
-        PageTop(vm, tileLabel("songs"), remember(all) { countText(all) })
+        PageTop(vm, tileLabel("songs"), remember(all) { countText(all) }) { SelectButton(vm) }
         Box(Modifier.fillMaxSize()) {
             val st = rememberLazyListState()
             LazyColumn(state = st, contentPadding = PaddingValues(start = 8.dp, end = 24.dp, bottom = 24.dp)) {
@@ -702,7 +803,10 @@ private fun SongsPage(vm: MainViewModel) {
                     }
                 }
                 itemsIndexed(all, key = { _, t -> t.uri }) { i, t ->
-                    TrackRow(vm, t, { vm.playTracks(all, i) }, sub = t.artist + S(R.string.separator) + t.album)
+                    TrackRow(
+                        vm, t, { vm.playTracks(all, i) },
+                        sub = t.artist + S(R.string.separator) + t.album,
+                    )
                 }
             }
             FastScroller(st) { labels.getOrElse(it) { "" } }
@@ -717,8 +821,9 @@ private fun GroupedTracks(vm: MainViewModel, title: String, tracks: List<LibTrac
         tracks.groupBy { vm.albumKeyOf(it.uri) ?: it.album }.toList()
     }
     val flat = remember(groups) { groups.flatMap { it.second } }
+    SelectionPool(vm, flat)
     Column(Modifier.fillMaxSize()) {
-        PageTop(vm, title, countText(tracks))
+        PageTop(vm, title, countText(tracks)) { SelectButton(vm) }
         LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp)) {
             item(key = "controls") {
                 PlayShuffleButtons(
@@ -1031,6 +1136,45 @@ private fun FavoritesPage(vm: MainViewModel) {
     }
 }
 
+/**
+ * 音質チェック用の曲。イヤホン・DAC・設定を変えたときに聴き比べる決まった曲を、お気に入りと同じ手軽さで集めておく
+ */
+@Composable
+private fun SoundCheckPage(vm: MainViewModel) {
+    val map = vm.trackMap
+    val songs = remember(vm.store.checkTracks, map) { vm.store.checkTracks.mapNotNull { map[it] } }
+    var confirm by remember { mutableStateOf(false) }
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text(S(R.string.clear_sound_check_title)) },
+            text = { Text(S(R.string.clear_sound_check_body)) },
+            confirmButton = { TextButton({ vm.setCheck(songs, false); confirm = false }) { Text(S(R.string.clear)) } },
+            dismissButton = { TextButton({ confirm = false }) { Text(S(R.string.cancel)) } },
+        )
+    }
+    Column(Modifier.fillMaxSize()) {
+        PageTop(vm, tileLabel("check"), S(R.string.sound_check_desc)) {
+            if (songs.isNotEmpty()) {
+                IconButton({ confirm = true }) { Icon(Icons.Filled.Delete, S(R.string.clear_sound_check_title)) }
+            }
+        }
+        if (songs.isEmpty()) {
+            EmptyState(AppIcons.Headphones, S(R.string.no_sound_check_songs_yet), S(R.string.add_sound_check_hint))
+            return@Column
+        }
+        LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp)) {
+            item(key = "controls") {
+                PlayShuffleButtons(
+                    { vm.playTracks(songs, 0) }, { vm.playTracks(songs, 0, shuffle = true) },
+                    Modifier.padding(start = 8.dp, top = 8.dp, bottom = 8.dp),
+                )
+            }
+            itemsIndexed(songs, key = { _, t -> t.uri }) { i, t -> TrackRow(vm, t, { vm.playTracks(songs, i) }) }
+        }
+    }
+}
+
 @Composable
 private fun HistoryPage(vm: MainViewModel) {
     val map = vm.trackMap
@@ -1297,6 +1441,7 @@ private fun AlbumDetail(vm: MainViewModel, a: LibAlbum) {
     if (editing) EditTagsDialog(vm, a) { editing = false }
     if (lookup) LookupSheet(vm, a) { lookup = false }
     val discs = remember(a) { a.tracks.groupBy { it.disc }.toList().sortedBy { it.first } }
+    SelectionPool(vm, a.tracks)
     val multiDisc = discs.size > 1
     val fav = vm.store.isFavAlbum(a.key)
     val land = isLandscape()

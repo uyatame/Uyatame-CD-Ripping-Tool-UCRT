@@ -166,7 +166,7 @@ object ExternalMedia {
             title = title,
             artist = artist,
             album = md.getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty(),
-            art = art(md),
+            art = hiArt(md) ?: art(md),
             durationMs = md.getLong(MediaMetadata.METADATA_KEY_DURATION).coerceAtLeast(0),
             playing = st?.state == PlaybackState.STATE_PLAYING,
             posMs = st?.position?.coerceAtLeast(0) ?: 0L,
@@ -176,6 +176,93 @@ object ExternalMedia {
             canPrev = actions and PlaybackState.ACTION_SKIP_TO_PREVIOUS != 0L,
             canNext = actions and PlaybackState.ACTION_SKIP_TO_NEXT != 0L,
         )
+    }
+
+    // ---- 高画質のジャケット ----
+    // メディアセッションに入っている画像は小さく縮められていることが多い(Android が大きさを制限する)ので、
+    // アプリが画像の URI(URL)を示していれば、そちらから元の大きさで読み直す
+
+    private val artLoader = java.util.concurrent.Executors.newSingleThreadExecutor()
+    /** 読み込んだ高画質の画像(元の URI と組で持つ) */
+    @Volatile private var hiArtFor: String? = null
+    @Volatile private var hiArtImage: ImageBitmap? = null
+    /** 読み込み中・読み込みに失敗した URI(同じものを何度も読みに行かない) */
+    private var hiArtTried: String? = null
+
+    private fun artUri(md: MediaMetadata): String? =
+        listOf(MediaMetadata.METADATA_KEY_ALBUM_ART_URI, MediaMetadata.METADATA_KEY_ART_URI, MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+            .firstNotNullOfOrNull { md.getString(it)?.trim()?.takeIf { s -> s.isNotEmpty() } }
+
+    /** 高画質の画像があればそれ。まだなら読み込みを始めて null(読み終わったら表示を更新する) */
+    private fun hiArt(md: MediaMetadata): ImageBitmap? {
+        val uri = artUri(md) ?: return null
+        if (uri == hiArtFor) return hiArtImage
+        if (uri == hiArtTried) return null
+        hiArtTried = uri
+        val c = app ?: return null
+        artLoader.execute {
+            val img = runCatching { loadArt(c, uri) }.getOrNull()
+            main.post {
+                if (img != null) {
+                    hiArtFor = uri
+                    hiArtImage = img
+                    // 曲が変わっていなければ表示を差し替える
+                    if (controller?.metadata?.let { artUri(it) } == uri) update()
+                }
+            }
+        }
+        return null
+    }
+
+    /** 画像を読む(大きすぎる画像は 1600px 程度に縮める) */
+    private fun loadArt(ctx: Context, uri: String): ImageBitmap? {
+        for (u in ArtUrls.candidates(uri)) {
+            val bytes = runCatching { readBytes(ctx, u) }.getOrNull() ?: continue
+            val bmp = decode(bytes) ?: continue
+            return bmp.asImageBitmap()
+        }
+        return null
+    }
+
+    private fun readBytes(ctx: Context, u: String): ByteArray? {
+        val max = 16 shl 20
+        if (u.startsWith("http://") || u.startsWith("https://")) {
+            val conn = java.net.URL(u).openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 8000
+            conn.readTimeout = 15000
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", "UCRT")
+            return try {
+                if (conn.responseCode !in 200..299) null
+                else conn.inputStream.use { it.readLimited(max) }
+            } finally {
+                conn.disconnect()
+            }
+        }
+        // content:// など(読む許可が無ければ例外になり、元の小さな画像のままにする)
+        return ctx.contentResolver.openInputStream(android.net.Uri.parse(u))?.use { it.readLimited(max) }
+    }
+
+    private fun java.io.InputStream.readLimited(max: Int): ByteArray? {
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(16 * 1024)
+        while (true) {
+            val n = read(buf)
+            if (n < 0) break
+            out.write(buf, 0, n)
+            if (out.size() > max) return null
+        }
+        return out.toByteArray()
+    }
+
+    private fun decode(bytes: ByteArray): Bitmap? {
+        val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, o)
+        if (o.outWidth <= 0 || o.outHeight <= 0) return null
+        var sample = 1
+        while (maxOf(o.outWidth, o.outHeight) / (sample * 2) >= 1600) sample *= 2
+        val d = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+        return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, d)
     }
 
     /** ジャケット(同じ画像なら変換し直さない) */
@@ -229,6 +316,38 @@ object ExternalMedia {
         for (i in listOfNotNull(detail, list)) {
             if (runCatching { ctx.startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return
         }
+    }
+}
+
+/** ほかのアプリが示したジャケットの URL を、より大きな画像の URL に書き換える */
+internal object ArtUrls {
+    /** 試す URL の順番: できるだけ大きい画像の URL を先に、だめなら元の URL */
+    fun candidates(uri: String): List<String> {
+        val out = ArrayList<String>()
+        var u = uri
+        // Spotify: spotify:image:<id> は画像サーバーの URL にする
+        if (u.startsWith("spotify:image:")) u = "https://i.scdn.co/image/" + u.removePrefix("spotify:image:")
+        if (u.contains("i.scdn.co/image/")) {
+            // 大きさは ID の先頭で決まる(ab67616d00001e02 = 300px、0000b273 = 640px、000082c1 = 最大)
+            val m = Regex("""ab67616d0000[0-9a-f]{4}""").find(u)
+            if (m != null) {
+                out += u.replaceRange(m.range, "ab67616d000082c1")
+                out += u.replaceRange(m.range, "ab67616d0000b273")
+            }
+        }
+        // YouTube Music などの Google の画像(…=w120-h120… / …=s120)
+        if (u.contains("googleusercontent.com") || u.contains("ggpht.com")) {
+            val big = u.replace(Regex("""=w\d+-h\d+"""), "=w1200-h1200").replace(Regex("""=s\d+(?=[-?]|$)"""), "=s1200")
+            if (big != u) out += big
+        }
+        // Apple Music(…/100x100bb.jpg)
+        Regex("""/\d+x\d+(bb|cc)?\.(jpg|png|webp)""").find(u)?.let { m ->
+            out += u.replaceRange(m.range, "/1200x1200" + m.groupValues[1] + "." + m.groupValues[2])
+        }
+        // Amazon(…._SL300_.jpg や ._SX300_.jpg)
+        Regex("""\._S[LXY]\d+_""").find(u)?.let { m -> out += u.replaceRange(m.range, "._SL1200_") }
+        out += u
+        return out.distinct()
     }
 }
 

@@ -31,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -55,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import com.uyatame.ucrt.data.AppSettings
 import com.uyatame.ucrt.data.Keys
 import com.uyatame.ucrt.data.eqBandList
+import com.uyatame.ucrt.data.eqSimpleList
 import com.uyatame.ucrt.player.EqBand
 import com.uyatame.ucrt.player.EqBands
 import com.uyatame.ucrt.player.EqType
@@ -127,11 +129,16 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
     var preamp by remember(s.eqPreamp) { mutableFloatStateOf(s.eqPreamp) }
     var preset by remember(s.eqPreset, s.eqBands) { mutableIntStateOf(s.eqPreset) }
     var sel by remember { mutableIntStateOf(-1) }
+    // シンプル(10 バンド)の値。PRO の帯域とは別に覚えておく(切り替えても、もう片方の設定は消えない)
+    var simple by remember(s.eqSimpleGains, s.eqGains) { mutableStateOf(s.eqSimpleList) }
+    val pro = s.eqMode == 1
     val on = s.eqEnabled
-    fun preview() = vm.previewEq(bands.toList(), preamp)
+    fun preview() = vm.previewEq(if (pro) bands.toList() else ParamEq.fromGains(simple), preamp)
     fun save() {
-        preset = matchPreset(bands)
-        vm.saveEq(bands.toList(), preamp, preset)
+        if (pro) {
+            preset = matchPreset(bands)
+            vm.saveEq(bands.toList(), preamp, preset)
+        } else vm.saveSimpleEq(simple, preamp)
     }
 
     Section(S(R.string.equalizer)) {
@@ -142,23 +149,19 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
             )
         }
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EqBands.PRESETS.forEachIndexed { i, p ->
-                FilterChip(
-                    selected = preset == i,
-                    onClick = {
-                        bands.clear()
-                        bands.addAll(ParamEq.fromGains(p.gains))
-                        sel = -1
-                        preview()
-                        save()
-                    },
-                    label = { Text(p.label()) },
-                    enabled = on,
-                )
-            }
-            if (preset < 0) FilterChip(true, {}, label = { Text(S(R.string.custom)) }, enabled = on)
+        // シンプル: 10 バンドを上下に動かすだけ。PRO: 帯域の数・種類・周波数・幅まで自由に決める(パラメトリック EQ)
+        Segmented(S(R.string.eq_type), listOf(S(R.string.eq_simple), "PRO"), s.eqMode) { m ->
+            vm.set(Keys.eqMode, m)
+            vm.previewEq(if (m == 1) bands.toList() else ParamEq.fromGains(simple), preamp)
         }
+        if (!pro) {
+            GraphicEq(
+                simple, on,
+                onChange = { simple = it; preview() },
+                onDone = { save() },
+            )
+        }
+        if (pro) {
         // 横向き: 左に曲線、右に帯域の一覧と選んだ帯域の設定を並べ、点を動かしながら値も見えるようにする
         val land = isLandscape()
         val screenH = LocalConfiguration.current.screenHeightDp
@@ -254,6 +257,7 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
             hint()
             bandList()
         }
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(S(R.string.preamp), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
             Slider(
@@ -275,13 +279,56 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
             s.eqAutoPreamp,
         ) { vm.set(Keys.eqAutoPreamp, it) }
         TextButton({
-            bands.clear()
-            bands.addAll(ParamEq.fromGains(EqBands.PRESETS[0].gains))
-            sel = -1
+            if (pro) {
+                bands.clear()
+                bands.addAll(ParamEq.fromGains(EqBands.PRESETS[0].gains))
+                sel = -1
+            } else simple = FloatArray(EqBands.FREQS.size)
             preamp = 0f
             preview()
             save()
         }, enabled = on) { Text(S(R.string.reset)) }
+    }
+    // ---- プリセット(標準のものと、保存したもの)。波形の絵付きの縦の一覧 ----
+    Section(S(R.string.eq_presets)) {
+        EqPresetList(
+            vm, s, on,
+            onApplyBuiltIn = { g ->
+                if (pro) {
+                    bands.clear()
+                    bands.addAll(ParamEq.fromGains(g))
+                    sel = -1
+                } else simple = g.copyOf()
+                preview()
+                save()
+            },
+            onApplyCustom = { c ->
+                preamp = c.preamp
+                if (c.pro) {
+                    // PRO で作ったものは PRO で読み込む(シンプルの 10 バンドでは表せないため)
+                    bands.clear()
+                    bands.addAll(c.bands())
+                    sel = -1
+                    if (!pro) vm.set(Keys.eqMode, 1)
+                    vm.previewEq(bands.toList(), preamp)
+                    vm.saveEq(bands.toList(), preamp, matchPreset(bands))
+                } else if (pro) {
+                    bands.clear()
+                    bands.addAll(c.bands())
+                    sel = -1
+                    preview()
+                    save()
+                } else {
+                    simple = c.gains()
+                    preview()
+                    save()
+                }
+            },
+            current = {
+                if (pro) EqCustom("", true, ParamEq.encode(bands.toList()), preamp)
+                else EqCustom("", false, EqBands.encode(simple), preamp)
+            },
+        )
     }
 }
 

@@ -34,7 +34,9 @@ import com.uyatame.ucrt.data.SettingsRepository
 import com.uyatame.ucrt.data.outputMode
 import com.uyatame.ucrt.data.eqActive
 import com.uyatame.ucrt.data.eqBandList
+import com.uyatame.ucrt.data.eqCurrentBands
 import com.uyatame.ucrt.data.darEffective
+import com.uyatame.ucrt.data.rgEffective
 import com.uyatame.ucrt.tags.TagEditor
 import com.uyatame.ucrt.tags.TagValues
 import com.uyatame.ucrt.tags.prepareCoverImage
@@ -134,6 +136,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun openRoute(route: String) {
         libPush(route)
         libNavEvent++
+    }
+
+    // ---- 曲を選ぶ(まとめてプレイリストに入れる) ----
+
+    /** 曲を選んでいるか(選んでいる間は、ライブラリの曲をタップすると選ぶ) */
+    var selecting by mutableStateOf(false)
+        private set
+    /** 選んだ曲(選んだ順。プレイリストにもこの順で入れる) */
+    val selectedSongs = androidx.compose.runtime.mutableStateListOf<String>()
+    /** 今のページで「すべて選択」の対象になる曲(そのページが出している間だけ) */
+    var selectionPool by mutableStateOf<List<com.uyatame.ucrt.library.LibTrack>?>(null)
+
+    /** 選ぶのを始める(first: 最初から選んでおく曲)。再生画面から始めたときも、ライブラリの画面に切り替える */
+    fun startSelection(first: String?) {
+        selecting = true
+        if (first != null && first !in selectedSongs) selectedSongs.add(first)
+        libNavEvent++
+    }
+
+    fun isSelected(uri: String) = uri in selectedSongs
+    fun toggleSelected(uri: String) { if (!selectedSongs.remove(uri)) selectedSongs.add(uri) }
+    fun selectAll(list: List<com.uyatame.ucrt.library.LibTrack>) { list.forEach { if (it.uri !in selectedSongs) selectedSongs.add(it.uri) } }
+    fun unselectAll(list: List<com.uyatame.ucrt.library.LibTrack>) {
+        val drop = list.mapTo(HashSet()) { it.uri }
+        selectedSongs.removeAll { it in drop }
+    }
+
+    fun endSelection() {
+        selecting = false
+        selectedSongs.clear()
+    }
+
+    /** 選んだ曲をプレイリストに入れる(新しく作るか、あるプレイリストを選ぶ) */
+    fun addSelectedToPlaylist() {
+        if (selectedSongs.isEmpty()) return
+        playlistPick = selectedSongs.toList()
+        endSelection()
     }
 
     // ---- どの画面からでも開くメニュー ----
@@ -327,14 +366,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             var lastMode: Int? = null
             var lastEq: Boolean? = null
             settings.collect { s ->
-                com.uyatame.ucrt.player.AudioEngine.setEq(s.eqActive, s.eqBandList, s.eqPreamp, s.eqAutoPreamp)
+                com.uyatame.ucrt.player.AudioEngine.setEq(s.eqActive, s.eqCurrentBands, s.eqPreamp, s.eqAutoPreamp)
                 val mode = s.outputMode
                 com.uyatame.ucrt.player.AudioEngine.setOutputMode(mode)
                 // ビットパーフェクト再生がオンなら、USB DAC の使用許可を先にもらっておく
                 if (mode == 2 && lastMode != 2) com.uyatame.ucrt.player.usb.UsbDac.requestPermissionIfNeeded()
                 player.setUsbVolume(s.usbVolume)
                 com.uyatame.ucrt.player.ExternalMedia.setEnabled(ctx, s.externalMedia)
+                val keep = com.uyatame.ucrt.player.DacKeepAlive
+                keep.target = s.dacKeepAliveTarget
+                if (s.dacKeepAlive && !keep.running) keep.start(ctx) else if (!s.dacKeepAlive && keep.running) keep.stop(ctx)
+                val stab = com.uyatame.ucrt.player.usb.UsbStabilizer
+                if (stab.enabled != s.usbStabilize) {
+                    stab.enabled = s.usbStabilize
+                    if (!s.usbStabilize) stab.stop() else if (com.uyatame.ucrt.player.usb.UsbDac.streaming) stab.start(ctx)
+                }
                 player.gapless = s.gapless
+                val rg = com.uyatame.ucrt.player.ReplayGain
+                val rgMode = s.rgEffective
+                // 使う・使わない、曲ごと・アルバムごとを変えたら、今の曲の値を読み直す(足す量などはすぐに効く)
+                val rgReload = rg.mode != rgMode && (rg.mode == 0 || rgMode == 0)
+                rg.mode = rgMode
+                rg.preampDb = s.rgPreamp.toFloat()
+                rg.preventClipping = s.rgNoClip
                 val dsdChanged = com.uyatame.ucrt.player.AudioEngine.dsdMode != s.dsdMode ||
                     com.uyatame.ucrt.player.AudioEngine.dsdSwap != s.dsdSwap
                 com.uyatame.ucrt.player.AudioEngine.dsdMode = s.dsdMode
@@ -354,7 +408,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // USB DAC 直接出力でイコライザーを入り切りしたときも、出力の状態(ビットパーフェクトか)を作り直す
                 val eqChanged = lastEq != null && lastEq != s.eqActive
                 val darReload = !player.isDsd && (darChanged || (mode == 2 && (eqChanged || (dsdChanged && dar == 2))))
-                if (lastMode != null && (lastMode != mode || (dsdChanged && player.isDsd) || (devChanged && mode != 2) || darReload)) player.reloadOutput()
+                if (lastMode != null && (lastMode != mode || (dsdChanged && player.isDsd) || (devChanged && mode != 2) || darReload || rgReload)) player.reloadOutput()
                 lastMode = mode
                 lastEq = s.eqActive
             }
@@ -480,6 +534,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (save) set(com.uyatame.ucrt.data.Keys.usbVolume, v)
     }
 
+    /** シンプルのイコライザー(10 バンド)を保存する */
+    fun saveSimpleEq(gains: FloatArray, preamp: Float) {
+        viewModelScope.launch {
+            repo.set(Keys.eqSimpleGains, com.uyatame.ucrt.player.EqBands.encode(gains))
+            repo.set(Keys.eqPreamp, preamp)
+        }
+    }
+
     fun saveEq(bands: List<com.uyatame.ucrt.player.EqBand>, preamp: Float, preset: Int) {
         viewModelScope.launch {
             repo.set(Keys.eqBands, com.uyatame.ucrt.player.ParamEq.encode(bands))
@@ -547,7 +609,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val bmp = withContext(Dispatchers.IO) {
                 runCatching {
                     if (cur.cdTrack != null) coverBytes?.let { ArtLoader.decode(it, 512) }
-                    else cur.artKey?.let { ArtLoader.load(ctx, it, cur.artTrackUri, cur.artCoverUri, 512)?.asAndroidBitmap() }
+                    else cur.artKey?.let { ArtLoader.load(ctx, it, cur.artTrackUri, cur.artCoverUri, 512, cur.artFallbackUri)?.asAndroidBitmap() }
                 }.getOrNull()
             }
             if (player.current == cur) {
@@ -2010,6 +2072,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 ArtLoader.forget(a.key)
+                // 曲ごとのジャケットも読み直す
+                a.tracks.forEach { ArtLoader.forget("t:" + it.uri) }
                 snack = buildString {
                     append(S(R.string.saved_track_info_for_tracks, ok))
                     if (skipped > 0) append(S(R.string.skipped_tracks_in_formats_that, skipped))
@@ -2026,13 +2090,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ================= 再生 =================
 
+    /** ジャケットの読み方(キャッシュの名前・読む曲・フォルダの画像・代わりに読む曲) */
+    class ArtRef(val key: String, val trackUri: String, val coverUri: String?, val fallbackUri: String?)
+
+    /**
+     * 曲のジャケット。perTrack なら曲ごとに読む(曲に埋め込まれた画像 → アルバムの最初の曲の画像 → フォルダの画像)。
+     * そうでなければアルバムのジャケットを使う
+     */
+    fun artRef(t: com.uyatame.ucrt.library.LibTrack, perTrack: Boolean = settings.value.trackArt): ArtRef {
+        val album = albumKeyOf(t.uri)
+        return if (perTrack) {
+            ArtRef("t:" + t.uri, t.uri, t.coverUri, albumByKey(album)?.first?.uri?.takeIf { it != t.uri })
+        } else ArtRef(album ?: t.uri, t.uri, t.coverUri, null)
+    }
+
     /** ライブラリの曲を、再生用の項目にする */
-    fun itemOf(t: com.uyatame.ucrt.library.LibTrack): PlayItem =
-        PlayItem(
+    fun itemOf(t: com.uyatame.ucrt.library.LibTrack): PlayItem {
+        val r = artRef(t)
+        return PlayItem(
             t.title, t.artist, t.album, t.durationMs, Uri.parse(t.uri), null,
-            albumKeyOf(t.uri) ?: t.uri, t.uri, t.coverUri, t.folderId,
-            startMs = t.startMs, endMs = t.endMs,
+            r.key, r.trackUri, r.coverUri, t.folderId,
+            startMs = t.startMs, endMs = t.endMs, artFallbackUri = r.fallbackUri,
         )
+    }
 
     fun playAlbum(a: LibAlbum, start: Int, shuffle: Boolean = false) = playTracks(a.tracks, start, shuffle)
 
@@ -2083,6 +2163,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val on = !store.isFavAlbum(key)
         store.toggleFavAlbum(key)
         snack = if (on) S(R.string.album_added_to_favorites) else S(R.string.removed_from_favorites)
+    }
+
+    /** 音質チェック用の曲に入れる・外す */
+    fun toggleCheck(uri: String) {
+        val on = !store.isCheck(uri)
+        store.setCheck(listOf(uri), on)
+        snack = if (on) S(R.string.added_to_sound_check) else S(R.string.removed_from_sound_check)
+    }
+
+    fun setCheck(list: List<com.uyatame.ucrt.library.LibTrack>, on: Boolean) {
+        store.setCheck(list.map { it.uri }, on)
+        snack = if (on) S(R.string.added_songs_to_sound_check, list.size) else S(R.string.removed_from_sound_check)
     }
 
     fun addToPlaylist(id: String, uris: List<String>) {

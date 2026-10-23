@@ -47,6 +47,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
@@ -82,10 +85,11 @@ fun SettingsScreen(vm: MainViewModel, s: AppSettings, page: Int, onPage: (Int) -
     WideCenter {
     when (page) {
         1 -> SettingsPage(S(R.string.saving_ripping), back) { RipPage(vm, s) }
-        2 -> SettingsPage(S(R.string.quality), back) { QualityPage(vm, s) }
+        2 -> SettingsPage(S(R.string.rip_quality), back) { QualityPage(vm, s) }
         3 -> SettingsPage(S(R.string.cd_drive), back) { DrivePage(vm, s) }
         4 -> SettingsPage(S(R.string.library), back) { LibraryFoldersPage(vm, s) }
         5 -> SettingsPage(S(R.string.display), back) { DisplayPage(vm, s) }
+        9 -> SettingsPage(S(R.string.player_screen), back) { PlayerScreenPage(vm, s) }
         6 -> LogPage(vm, s, back)
         7 -> LicensePage(vm, s, back)
         8 -> SettingsPage(SoundPage.title(SoundPage.MAIN), back) { SoundMain(vm, s) { onPage(80 + it) } }
@@ -151,20 +155,25 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ScreenHeader(S(R.string.settings))
+        // ---- CD の取り込み ----
+        GroupLabel(S(R.string.settings_group_rip))
         Card(Modifier.fillMaxWidth()) {
             CategoryRow(
                 AppIcons.Download, S(R.string.saving_ripping),
                 folderLabel(s.outputUri) + S(R.string.auto_track_info) + if (s.autoMeta) "ON" else "OFF",
             ) { onPage(1) }
             HorizontalDivider()
-            CategoryRow(AppIcons.MusicNote, S(R.string.quality), s.qualityLabel()) { onPage(2) }
+            CategoryRow(AppIcons.MusicNote, S(R.string.rip_quality), s.qualityLabel()) { onPage(2) }
             HorizontalDivider()
             CategoryRow(
                 AppIcons.Album, S(R.string.cd_drive),
                 S(R.string.read_speed) + (if (s.speedX == 0) S(R.string.max) else "${s.speedX}x") +
                     S(R.string.retries_2, s.retries),
             ) { onPage(3) }
-            HorizontalDivider()
+        }
+        // ---- 音楽プレーヤー ----
+        GroupLabel(S(R.string.settings_group_player))
+        Card(Modifier.fillMaxWidth()) {
             CategoryRow(
                 AppIcons.Library, S(R.string.library),
                 S(R.string.folders_add_music_from_your, folders.coerceAtLeast(0)),
@@ -178,12 +187,20 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
             ) { onPage(8) }
             HorizontalDivider()
             CategoryRow(
-                Icons.Filled.PlayArrow, S(R.string.display),
+                Icons.Filled.PlayArrow, S(R.string.player_screen),
+                S(R.string.ambient_mode) + " " + (if (s.ambientPlayer) "ON" else "OFF") +
+                    S(R.string.separator) + S(R.string.other_music_apps) + " " + (if (s.externalMedia) "ON" else "OFF"),
+            ) { onPage(9) }
+        }
+        // ---- 全般 ----
+        GroupLabel(S(R.string.settings_group_general))
+        Card(Modifier.fillMaxWidth()) {
+            CategoryRow(
+                AppIcons.Smartphone, S(R.string.display),
                 listOf(S(R.string.auto), S(R.string.light), S(R.string.dark))[s.themeMode.coerceIn(0, 2)] +
                     (if (AppLanguage.supported) S(R.string.separator) + languageLabel(AppLanguage.current(ctx)) else ""),
             ) { onPage(5) }
-        }
-        Card(Modifier.fillMaxWidth()) {
+            HorizontalDivider()
             CategoryRow(Icons.Filled.Build, S(R.string.log), S(R.string.activity_log_for_troubleshooting)) { onPage(6) }
             HorizontalDivider()
             CategoryRow(
@@ -192,6 +209,15 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
             ) { onPage(7) }
         }
     }
+}
+
+/** 設定のトップの、カテゴリーのまとまりの見出し */
+@Composable
+private fun GroupLabel(text: String) {
+    Text(
+        text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 8.dp, top = 8.dp),
+    )
 }
 
 private fun languageLabel(tag: String): String = when {
@@ -428,18 +454,35 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
         if (!s.dynamicColor || android.os.Build.VERSION.SDK_INT < 31) {
             ThemeColorPicker(s.themeColor) { vm.set(Keys.themeColor, it) }
         }
+        TextColorPicker(s.textColor) { vm.set(Keys.textColor, it) }
         SwitchRow(
             S(R.string.show_artwork_in_lists),
             S(R.string.turn_off_to_skip_loading),
             s.listArt,
         ) { vm.set(Keys.listArt, it) }
+        SwitchRow(
+            S(R.string.show_artwork_per_song),
+            S(R.string.when_a_song_has_its_own_artwork),
+            s.trackArt,
+        ) { vm.set(Keys.trackArt, it) }
+        SwitchRow(
+            S(R.string.hide_navigation_bar),
+            S(R.string.hides_navigation_bar_at_bottom),
+            s.hideNavBar,
+        ) { vm.set(Keys.hideNavBar, it) }
         Segmented(S(R.string.tablet_mode), listOf(S(R.string.auto), S(R.string.on), S(R.string.off)), s.tabletMode) { vm.set(Keys.tabletMode, it) }
         Text(
             S(R.string.moves_tabs_to_left_side),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-    Section(S(R.string.player)) {
+    LanguageSection()
+}
+
+/** 再生画面の設定(アンビエントモード・ほかの音楽アプリ) */
+@Composable
+private fun PlayerScreenPage(vm: MainViewModel, s: AppSettings) {
+    Section(S(R.string.ambient_mode)) {
         SwitchRow(
             S(R.string.ambient_mode),
             S(R.string.tints_player_background_to_match),
@@ -455,6 +498,11 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
         }
     }
     ExternalMediaSection(vm, s)
+}
+
+/** 表示言語(Android 13 から) */
+@Composable
+private fun LanguageSection() {
     if (AppLanguage.supported) {
         val ctx = LocalContext.current
         var lang by remember { mutableStateOf(AppLanguage.current(ctx)) }
@@ -706,12 +754,13 @@ private fun LicensePage(vm: MainViewModel, s: AppSettings, onBack: () -> Unit) {
 @Composable
 private fun ThemeColorPicker(value: Int, onChange: (Int) -> Unit) {
     val std = 0xFF6750A4.toInt()
-    // 動かしている間は手元の値で見せ、指を離したら保存する
-    val start = ThemeColors.hueSat(if (value == 0) std else value)
-    var hue by remember(value) { mutableStateOf(start.first) }
-    var sat by remember(value) { mutableStateOf(start.second) }
-    // まだ動かしていなければ、選んでいる色そのものを見本に出す
-    var moved by remember(value) { mutableStateOf(false) }
+    var picking by remember { mutableStateOf(false) }
+    if (picking) {
+        ColorPickerDialog(
+            S(R.string.theme_color), if (value == 0) std else value, { picking = false }, onChange,
+            onReset = { onChange(0) },
+        )
+    }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(S(R.string.theme_color), style = MaterialTheme.typography.bodyLarge)
         Text(
@@ -734,15 +783,48 @@ private fun ThemeColorPicker(value: Int, onChange: (Int) -> Unit) {
                 }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(28.dp).clip(CircleShape).background(Color(if (moved) ThemeColors.fromHue(hue, sat) else if (value == 0) std else value)))
-            Spacer(Modifier.width(12.dp))
-            Text(S(R.string.fine_tune_hue_and_saturation), style = MaterialTheme.typography.bodyMedium)
-        }
-        val save = { onChange(ThemeColors.fromHue(hue, sat)) }
-        Slider(hue, { hue = it; moved = true }, valueRange = 0f..360f, onValueChangeFinished = save)
-        Slider(sat, { sat = it; moved = true }, valueRange = 0.1f..1f, onValueChangeFinished = save)
+        // 見本にない色は、カラーピッカーで自由に選ぶ
+        val custom = value != 0 && value !in ThemeColors.presets
+        ColorSettingRow(
+            S(R.string.pick_any_color), if (custom) hexOf(value) else S(R.string.pick_any_color_desc),
+            Color(if (value == 0) std else value), false,
+        ) { picking = true }
     }
+}
+
+/** 文字の色(カラーピッカーで選ぶ。背景と近くて読みにくいときは知らせる) */
+@Composable
+private fun TextColorPicker(value: Int, onChange: (Int) -> Unit) {
+    var picking by remember { mutableStateOf(false) }
+    val scheme = MaterialTheme.colorScheme
+    if (picking) {
+        ColorPickerDialog(
+            S(R.string.text_color), if (value == 0) scheme.onSurface.toArgb() else value, { picking = false }, onChange,
+            onReset = { onChange(0) },
+            preview = { c ->
+                // 今の背景の上での見え方
+                Box(
+                    Modifier.clip(RoundedCornerShape(8.dp)).background(scheme.surface)
+                        .border(1.dp, scheme.outline, RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 6.dp),
+                ) { Text(S(R.string.text_sample), color = Color(c), style = MaterialTheme.typography.titleMedium) }
+            },
+        )
+    }
+    ColorSettingRow(
+        S(R.string.text_color),
+        if (value == 0) S(R.string.text_color_default) else hexOf(value),
+        if (value == 0) scheme.onSurface else Color(value), value == 0,
+    ) { picking = true }
+    if (value != 0 && contrast(Color(value), scheme.surface) < 3f) {
+        Text(S(R.string.text_color_low_contrast), style = MaterialTheme.typography.bodySmall, color = scheme.error)
+    }
+}
+
+/** 2 つの色の明るさの比(1〜21。4.5 以上なら本文として読みやすい) */
+private fun contrast(a: Color, b: Color): Float {
+    val la = a.luminance() + 0.05f
+    val lb = b.luminance() + 0.05f
+    return maxOf(la, lb) / minOf(la, lb)
 }
 
 /** ほかの音楽アプリ(ストリーミングサービスなど)の再生の表示・操作と、「通知へのアクセス」の許可 */

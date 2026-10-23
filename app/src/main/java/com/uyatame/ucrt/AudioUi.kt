@@ -96,9 +96,42 @@ fun BitPerfectPanel(vm: MainViewModel, s: AppSettings) {
             )
         }
         if (mode == 2) {
+            SwitchRow(S(R.string.usb_stabilize), S(R.string.usb_stabilize_desc), s.usbStabilize) {
+                vm.set(com.uyatame.ucrt.data.Keys.usbStabilize, it)
+            }
             Text(
                 S(R.string.for_details_see_settings_log),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * DAC を常に起こしておく(試験的)。ほかのアプリの再生にも効く。
+ * 対象の機器に無音を流し続けて、省電力で眠らないようにする
+ */
+@Composable
+fun DacKeepAliveSection(vm: MainViewModel, s: AppSettings) {
+    val keep = com.uyatame.ucrt.player.DacKeepAlive
+    Section(S(R.string.dac_keepalive)) {
+        SwitchRow(S(R.string.dac_keepalive_switch), S(R.string.dac_keepalive_desc), s.dacKeepAlive) {
+            vm.set(com.uyatame.ucrt.data.Keys.dacKeepAlive, it)
+        }
+        if (s.dacKeepAlive) {
+            Segmented(
+                S(R.string.dac_keepalive_target),
+                listOf(S(R.string.auto), "USB DAC", S(R.string.headphone_jack)),
+                s.dacKeepAliveTarget,
+            ) { vm.set(com.uyatame.ucrt.data.Keys.dacKeepAliveTarget, it) }
+            Text(
+                when {
+                    keep.activeDevice.isNotEmpty() -> S(R.string.dac_keepalive_active, keep.activeDevice)
+                    UsbDac.active -> S(R.string.dac_keepalive_direct)
+                    else -> S(R.string.dac_keepalive_waiting)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (keep.activeDevice.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -163,6 +196,33 @@ fun DarPanel(vm: MainViewModel, s: AppSettings) {
             S(R.string.dar_applies_to_pcm_tracks),
             style = MaterialTheme.typography.bodySmall,
             color = if (s.darMode != 0 && (s.sourceDirect || (s.darMode == 2 && s.outputMode != 2))) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** ReplayGain(曲に書かれた値で、曲ごとの音の大きさの違いをそろえる) */
+@Composable
+fun ReplayGainPanel(vm: MainViewModel, s: AppSettings) {
+    Section("ReplayGain") {
+        SwitchRow("ReplayGain", S(R.string.uses_replaygain_values_written), s.rgEnabled) { vm.set(Keys.rgEnabled, it) }
+        if (s.rgEnabled) {
+            Segmented(S(R.string.rg_based_on), listOf(S(R.string.rg_track), S(R.string.rg_album)), s.rgMode) { vm.set(Keys.rgMode, it) }
+            Text(
+                S(R.string.rg_album_keeps_differences),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(S(R.string.rg_preamp, (if (s.rgPreamp > 0) "+" else "") + s.rgPreamp), style = MaterialTheme.typography.labelLarge)
+            androidx.compose.material3.Slider(
+                value = s.rgPreamp.toFloat(),
+                onValueChange = { vm.set(Keys.rgPreamp, it.roundToInt()) },
+                valueRange = -12f..12f, steps = 23,
+            )
+            SwitchRow(S(R.string.prevent_clipping), S(R.string.limits_gain_using_peak), s.rgNoClip) { vm.set(Keys.rgNoClip, it) }
+        }
+        Text(
+            S(R.string.rg_notes),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (s.rgEnabled && s.sourceDirect) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

@@ -83,11 +83,23 @@ data class AppSettings(
     val dynamicColor: Boolean = true,
     /** ダイナミックカラーを使わないときのテーマの色(ARGB。0 = 標準の紫) */
     val themeColor: Int = 0,
+    /** 文字の色(ARGB。0 = テーマの標準の色) */
+    val textColor: Int = 0,
     val ambientPlayer: Boolean = true,
     /** アンビエントモードで背景のジャケットをぼかす(オフならぼかさずに薄く敷く) */
     val ambientBlur: Boolean = true,
+    /** 画面下のナビゲーションバーを隠す(画面の下の端からスワイプすると一時的に出る) */
+    val hideNavBar: Boolean = false,
+    /** 曲ごとに埋め込まれたジャケットがあれば、曲の一覧と再生画面でそちらを出す */
+    val trackArt: Boolean = true,
     /** ほかの音楽アプリ(ストリーミングサービスなど)の再生を表示・操作する(「通知へのアクセス」の許可も要る) */
     val externalMedia: Boolean = true,
+    /** USB DAC 直接出力の音切れ対策(試験的。端末の省電力で転送が遅れるのを防ぐ) */
+    val usbStabilize: Boolean = true,
+    /** DAC を常に起こしておく(ほかのアプリの再生にも効く。試験的) */
+    val dacKeepAlive: Boolean = false,
+    /** 起こしておく機器: 0 = 自動、1 = USB DAC、2 = イヤホン端子 */
+    val dacKeepAliveTarget: Int = 0,
     val bitPerfect: Boolean = false,
     val usbDirect: Boolean = false,
     /** -1 = 自動(USB から音量を変えられる DAC は 50、変えられない DAC は 100) */
@@ -107,6 +119,11 @@ data class AppSettings(
     val libTiles: String = "",
     /** ギャップレス再生 */
     val gapless: Boolean = true,
+    /** ReplayGain(曲ごとの音の大きさをそろえる)。rgMode: 0 = 曲ごと、1 = アルバムごと。rgPreamp: 足す量(dB) */
+    val rgEnabled: Boolean = false,
+    val rgMode: Int = 0,
+    val rgPreamp: Int = 0,
+    val rgNoClip: Boolean = true,
     /** ソースダイレクト: オンなら、イコライザーと DAR を使わずに音源のまま出す */
     val sourceDirect: Boolean = false,
     /** 起動したときに、新しい版が出ていないか確かめる */
@@ -115,6 +132,12 @@ data class AppSettings(
     val updateSkip: String = "",
     /** イコライザーの帯域(パラメトリック EQ。空なら以前の 10 バンドの eqGains から作る) */
     val eqBands: String = "",
+    /** イコライザーの種類: 0 = シンプル(10 バンド)、1 = PRO(パラメトリック) */
+    val eqMode: Int = 0,
+    /** シンプルの 10 バンドの値(dB、カンマ区切り) */
+    val eqSimpleGains: String = "",
+    /** 保存したイコライザー(1 行に 1 つ。EqCustom.encode の形) */
+    val eqCustom: String = "",
     /** DAR: 0 = オフ, 1 = PCM アップサンプリング, 2 = DSD に変換 */
     val darMode: Int = 0,
     /** DAR の PCM アップサンプリングの上限: 0 = DAC の最大, 1 = 2 倍, 2 = 4 倍, 3 = 8 倍, 4 = 16 倍 */
@@ -130,11 +153,22 @@ val AppSettings.eqBandList: List<com.uyatame.ucrt.player.EqBand>
     get() = if (eqBands.isNotEmpty()) com.uyatame.ucrt.player.ParamEq.decode(eqBands)
     else com.uyatame.ucrt.player.ParamEq.fromGains(com.uyatame.ucrt.player.EqBands.decode(eqGains))
 
+/** シンプルのイコライザーの 10 バンドの値(保存されていなければ、以前の 10 バンドの設定) */
+val AppSettings.eqSimpleList: FloatArray
+    get() = com.uyatame.ucrt.player.EqBands.decode(eqSimpleGains.ifEmpty { eqGains })
+
+/** 今の種類(シンプル・PRO)で実際に掛けるイコライザーの帯域 */
+val AppSettings.eqCurrentBands: List<com.uyatame.ucrt.player.EqBand>
+    get() = if (eqMode == 0) com.uyatame.ucrt.player.ParamEq.fromGains(eqSimpleList) else eqBandList
+
 /** 実際にイコライザーを掛けるか(ソースダイレクトのときは掛けない) */
 val AppSettings.eqActive: Boolean get() = eqEnabled && !sourceDirect
 
 /** 実際に使う DAR の方式(ソースダイレクトのときはオフ) */
 val AppSettings.darEffective: Int get() = if (sourceDirect) 0 else darMode
+
+/** 実際に使う ReplayGain(0 = 使わない、1 = 曲ごと、2 = アルバムごと。ソースダイレクトでは使わない) */
+val AppSettings.rgEffective: Int get() = if (sourceDirect || !rgEnabled) 0 else rgMode + 1
 
 /** 出力方式: 0 = 通常, 2 = ビットパーフェクト(USB DAC 直接出力)。以前の版の bitPerfect もこちらに移す */
 val AppSettings.outputMode: Int get() = if (usbDirect || bitPerfect) 2 else 0
@@ -186,8 +220,14 @@ object Keys {
     val dynamicColor = booleanPreferencesKey("dynamicColor")
     val ambientPlayer = booleanPreferencesKey("ambientPlayer")
     val themeColor = intPreferencesKey("themeColor")
+    val textColor = intPreferencesKey("textColor")
     val ambientBlur = booleanPreferencesKey("ambientBlur")
+    val hideNavBar = booleanPreferencesKey("hideNavBar")
+    val trackArt = booleanPreferencesKey("trackArt")
     val externalMedia = booleanPreferencesKey("externalMedia")
+    val usbStabilize = booleanPreferencesKey("usbStabilize")
+    val dacKeepAlive = booleanPreferencesKey("dacKeepAlive")
+    val dacKeepAliveTarget = intPreferencesKey("dacKeepAliveTarget")
     val bitPerfect = booleanPreferencesKey("bitPerfect")
     val usbDirect = booleanPreferencesKey("usbDirect")
     val usbVolume = intPreferencesKey("usbVolume")
@@ -203,10 +243,17 @@ object Keys {
     val verboseLog = booleanPreferencesKey("verboseLog")
     val libTiles = stringPreferencesKey("libTiles")
     val gapless = booleanPreferencesKey("gapless")
+    val rgEnabled = booleanPreferencesKey("rgEnabled")
+    val rgMode = intPreferencesKey("rgMode")
+    val rgPreamp = intPreferencesKey("rgPreamp")
+    val rgNoClip = booleanPreferencesKey("rgNoClip")
     val sourceDirect = booleanPreferencesKey("sourceDirect")
     val updateCheck = booleanPreferencesKey("updateCheck")
     val updateSkip = stringPreferencesKey("updateSkip")
     val eqBands = stringPreferencesKey("eqBands")
+    val eqMode = intPreferencesKey("eqMode")
+    val eqSimpleGains = stringPreferencesKey("eqSimpleGains")
+    val eqCustom = stringPreferencesKey("eqCustom")
     val darMode = intPreferencesKey("darMode")
     val darPcm = intPreferencesKey("darPcm")
     val darDsd = intPreferencesKey("darDsd")
@@ -250,8 +297,14 @@ class SettingsRepository(private val context: Context) {
             dynamicColor = p[Keys.dynamicColor] ?: d.dynamicColor,
             ambientPlayer = p[Keys.ambientPlayer] ?: d.ambientPlayer,
             themeColor = p[Keys.themeColor] ?: d.themeColor,
+            textColor = p[Keys.textColor] ?: d.textColor,
             ambientBlur = p[Keys.ambientBlur] ?: d.ambientBlur,
+            hideNavBar = p[Keys.hideNavBar] ?: d.hideNavBar,
+            trackArt = p[Keys.trackArt] ?: d.trackArt,
             externalMedia = p[Keys.externalMedia] ?: d.externalMedia,
+            usbStabilize = p[Keys.usbStabilize] ?: d.usbStabilize,
+            dacKeepAlive = p[Keys.dacKeepAlive] ?: d.dacKeepAlive,
+            dacKeepAliveTarget = p[Keys.dacKeepAliveTarget] ?: d.dacKeepAliveTarget,
             bitPerfect = p[Keys.bitPerfect] ?: d.bitPerfect,
             usbDirect = p[Keys.usbDirect] ?: d.usbDirect,
             usbVolume = p[Keys.usbVolume] ?: d.usbVolume,
@@ -267,10 +320,18 @@ class SettingsRepository(private val context: Context) {
             verboseLog = p[Keys.verboseLog] ?: d.verboseLog,
             libTiles = p[Keys.libTiles] ?: d.libTiles,
             gapless = p[Keys.gapless] ?: d.gapless,
+            rgEnabled = p[Keys.rgEnabled] ?: d.rgEnabled,
+            rgMode = p[Keys.rgMode] ?: d.rgMode,
+            rgPreamp = p[Keys.rgPreamp] ?: d.rgPreamp,
+            rgNoClip = p[Keys.rgNoClip] ?: d.rgNoClip,
             sourceDirect = p[Keys.sourceDirect] ?: d.sourceDirect,
             updateCheck = p[Keys.updateCheck] ?: d.updateCheck,
             updateSkip = p[Keys.updateSkip] ?: d.updateSkip,
             eqBands = p[Keys.eqBands] ?: d.eqBands,
+            // 以前の版で PRO のイコライザーを作っていた人は、そのまま PRO で始める
+            eqMode = p[Keys.eqMode] ?: if ((p[Keys.eqBands] ?: "").isNotEmpty()) 1 else 0,
+            eqSimpleGains = p[Keys.eqSimpleGains] ?: d.eqSimpleGains,
+            eqCustom = p[Keys.eqCustom] ?: d.eqCustom,
             darMode = p[Keys.darMode] ?: d.darMode,
             darPcm = p[Keys.darPcm] ?: d.darPcm,
             darDsd = p[Keys.darDsd] ?: d.darDsd,

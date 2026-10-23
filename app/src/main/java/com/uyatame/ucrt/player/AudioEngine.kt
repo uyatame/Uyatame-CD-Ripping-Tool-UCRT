@@ -37,6 +37,8 @@ object EqBands {
         EqPreset({ S(R.string.jazz) }, floatArrayOf(3f, 2f, 1f, 2f, -1f, -1f, 0f, 1f, 2f, 3f)),
         EqPreset({ S(R.string.classical) }, floatArrayOf(4f, 3f, 2f, 1f, -1f, -1f, 0f, 2f, 3f, 4f)),
         EqPreset({ S(R.string.loudness) }, floatArrayOf(5f, 4f, 1f, 0f, -1f, 0f, 0f, 1f, 4f, 5f)),
+        // iTunes の「Perfect」として広まった設定(全体に持ち上げるので、音割れを防ぐ自動の音量調整と合わせて使う)
+        EqPreset({ S(R.string.perfect) }, floatArrayOf(3f, 6f, 9f, 7f, 6f, 5f, 7f, 9f, 11f, 8f)),
     )
 
     fun encode(g: FloatArray): String = g.joinToString(",") { "%.1f".format(java.util.Locale.US, it) }
@@ -113,6 +115,9 @@ object AudioEngine {
     @Volatile var darDsdLimit = 0
     /** DAR の PCM アップサンプリングを整数倍だけで行うか(通常の出力) */
     @Volatile var darInteger = true
+
+    /** 通常の出力で、その周波数の AudioTrack を作れるか(出力先の id と周波数ごとに、試した結果を覚えておく) */
+    internal val rateProbe = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
     /** DAR の PCM アップサンプリングで目指す周波数の上限(DAR を使わないなら 0) */
     fun darMaxRate(srcRate: Int): Int {
@@ -365,7 +370,11 @@ class AudioOutput(
     private val exact: Boolean = false,
     /** DAR の PCM アップサンプリングを使ってよいか(DSD を変換した音などには使わない) */
     dar: Boolean = false,
+    /** 最初の曲の ReplayGain の値(ギャップレスで次の曲に移ったら rg を差し替える) */
+    rg: RgInfo? = null,
 ) : PcmOut {
+    /** 今書き込んでいる曲の ReplayGain の値。掛ける倍率は設定(ReplayGain.mode など)から毎回求める(設定の変更がすぐ効くように) */
+    @Volatile var rg: RgInfo? = rg
     /** 加工せずに出力しているか(画面表示用) */
     val bitPerfect: Boolean
     /** exact を指定したとき、加工なしの出力を確保できたか */
@@ -394,7 +403,8 @@ class AudioOutput(
     private var bbuf = ByteArray(0)
     private val frameTmp = IntArray(8)
     private var warned = -1
-    private var routing: android.media.AudioRouting.OnRoutingChangedListener? = null
+    /** 出力先が変わったときの知らせを受け取るもの(Android 7.0 から。型は AudioRouting.OnRoutingChangedListener) */
+    private var routing: Any? = null
     /** 書き込んだフレーム数(再生の終わりを判定する) */
     @Volatile override var framesWritten = 0L
         private set
@@ -440,7 +450,7 @@ class AudioOutput(
             exactOk = up == null
             val softVol = !usbDac.hwVolume && usbDac.volume() < 100
             val eqOn = !exact && AudioEngine.eqEnabled
-            val perfect = up == null && !softVol && !eqOn
+            val perfect = up == null && !softVol && !eqOn && ReplayGain.linear(rg) == 1f
             val title = when {
                 perfect -> S(R.string.bit_perfect)
                 eqOn && up == null -> S(R.string.usb_dac_direct_output_equalizer)
@@ -521,11 +531,14 @@ class AudioOutput(
             // 選ばれている出力先があれば、そこへ出す
             OutputDevices.find(ctx, AudioEngine.preferredKey)?.let { dev -> runCatching { t.setPreferredDevice(dev) } }
             // 実際に音が出ている先を画面に出す
-            val rl = android.media.AudioRouting.OnRoutingChangedListener { r ->
-                if (!released) r.routedDevice?.let { AudioEngine.setOutput(OutputDevices.describe(it)) }
+            // (出力先が変わったときの知らせは Android 7.0 から)
+            if (android.os.Build.VERSION.SDK_INT >= 24) {
+                val rl = android.media.AudioRouting.OnRoutingChangedListener { r ->
+                    if (!released) r.routedDevice?.let { AudioEngine.setOutput(OutputDevices.describe(it)) }
+                }
+                routing = rl
+                runCatching { t.addOnRoutingChangedListener(rl, android.os.Handler(android.os.Looper.getMainLooper())) }
             }
-            routing = rl
-            runCatching { t.addOnRoutingChangedListener(rl, android.os.Handler(android.os.Looper.getMainLooper())) }
             AudioEngine.setOutput(OutputDevices.find(ctx, AudioEngine.preferredKey)?.let { OutputDevices.describe(it) } ?: OutputDevices.defaultDevice(ctx))
             track = t
             outEnc = enc
@@ -567,7 +580,12 @@ class AudioOutput(
         val sdkCap = if (android.os.Build.VERSION.SDK_INT >= 31) 768000L else 192000L
         // 倍率の上限は、44.1 kHz の系統から 48 kHz の系統へ移るときは、その分(160/147)だけ広げる(例: ×4 なら 176.4 → 192 kHz まで)
         val maxL = max.toLong()
-        val ok = rates.filter { it > sampleRate && it <= sdkCap }
+        // Android 12 以降でも、端末によっては 192 kHz を超える周波数を受け付けないので、実際に受け付けるかも確かめる
+        // (Android 7 以前は、出力先の周波数の 2 倍までしか受け付けないなど、一覧どおりには使えない。96 kHz を超えるものは試しに作って確かめる)
+        val ok = rates.filter {
+            it > sampleRate && it <= sdkCap && runCatching { AFormat.Builder().setSampleRate(it) }.isSuccess &&
+                (it <= 96000 || trackAccepts(dev, it))
+        }
         val integer = ok.filter { it % sampleRate == 0 && it <= maxL }.maxOrNull()
         val other = ok.filter { it % sampleRate != 0 && it >= sampleRate * 2L && it <= maxL * 160 / 147 }.maxOrNull()
         forcedFrac = false
@@ -578,6 +596,28 @@ class AudioOutput(
             else -> listOfNotNull(integer, other).maxOrNull() ?: sampleRate
         }
     }
+
+    /** 通常の出力で、その周波数の AudioTrack を本当に作れるか(作ってすぐ捨てる。結果は覚えておく) */
+    private fun trackAccepts(dev: android.media.AudioDeviceInfo, rate: Int): Boolean =
+        AudioEngine.rateProbe.getOrPut("${dev.id}:$rate") {
+            val ok = runCatching {
+                val mask = AFormat.CHANNEL_OUT_STEREO
+                val enc = AFormat.ENCODING_PCM_FLOAT
+                val min = AudioTrack.getMinBufferSize(rate, mask, enc)
+                if (min <= 0) return@runCatching false
+                val t = AudioTrack.Builder()
+                    .setAudioAttributes(attrs)
+                    .setAudioFormat(AFormat.Builder().setSampleRate(rate).setChannelMask(mask).setEncoding(enc).build())
+                    .setBufferSizeInBytes(min)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+                val inited = t.state == AudioTrack.STATE_INITIALIZED
+                t.release()
+                inited
+            }.getOrDefault(false)
+            if (!ok) AudioEngine.log("dar: ${khz(rate)} is not accepted by the standard output (${dev.productName}, type ${dev.type})")
+            ok
+        }
 
     /** DAR(通常の出力): 整数倍で上げた音を、必要なら出力先の周波数に合わせてから書き込む */
     private fun writeFrac(buf: FloatArray, frames: Int, stop: () -> Boolean = { false }) {
@@ -596,13 +636,26 @@ class AudioOutput(
         val min = AudioTrack.getMinBufferSize(rate, f.channelMask.takeIf { it != 0 } ?: AFormat.CHANNEL_OUT_STEREO, enc)
             .coerceAtLeast(4096)
         val bytesPerFrame = channels * pcmBytes(enc).coerceAtLeast(2)
-        // 約 1.5 秒分のバッファ(ほかの処理で読み込みが遅れても途切れないように)
-        return AudioTrack.Builder()
-            .setAudioAttributes(attrs)
-            .setAudioFormat(f)
-            .setBufferSizeInBytes(max(min * 2, rate * bytesPerFrame * 3 / 2))
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
+        // 約 1.5 秒分のバッファ(ほかの処理で読み込みが遅れても途切れないように)。
+        // 古い Android では大きなバッファを作れないことがある(192 kHz の float で約 2.3 MB)ので、そのときは小さくして作り直す
+        val sizes = listOf(max(min * 2, rate * bytesPerFrame * 3 / 2), max(min * 2, rate * bytesPerFrame / 2), min * 2).distinct()
+        var last: Exception? = null
+        for ((i, size) in sizes.withIndex()) {
+            try {
+                val t = AudioTrack.Builder()
+                    .setAudioAttributes(attrs)
+                    .setAudioFormat(f)
+                    .setBufferSizeInBytes(size)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+                if (i > 0) AudioEngine.log("track: created with a smaller buffer ($size bytes)")
+                return t
+            } catch (e: Exception) {
+                last = e
+                AudioEngine.log("track: cannot create with $size bytes (${e.javaClass.simpleName}: ${e.message})")
+            }
+        }
+        throw last ?: IllegalStateException("cannot create AudioTrack")
     }
 
     private val usbDac get() = com.uyatame.ucrt.player.usb.UsbDac
@@ -628,7 +681,9 @@ class AudioOutput(
             return
         }
         val t = track ?: return
-        routing?.let { l -> runCatching { t.removeOnRoutingChangedListener(l) } }
+        if (android.os.Build.VERSION.SDK_INT >= 24) {
+            (routing as? android.media.AudioRouting.OnRoutingChangedListener)?.let { l -> runCatching { t.removeOnRoutingChangedListener(l) } }
+        }
         runCatching { t.pause() }
         runCatching { t.flush() }
         runCatching { t.release() }
@@ -669,8 +724,8 @@ class AudioOutput(
 
     /** USB DAC 直接出力への書き込み */
     private fun writeUsb(d: com.uyatame.ucrt.player.usb.DacFormat, src: ByteBuffer, srcEnc: Int, frames: Int, stop: () -> Boolean) {
-        // DoP のときは音量を一切掛けない(目印のバイトが壊れるため)
-        val gain = if (exact) 1.0 else usbDac.softGain
+        // DoP のときは音量を一切掛けない(目印のバイトが壊れるため)。ReplayGain も音量と一緒に掛ける
+        val gain = if (exact) 1.0 else usbDac.softGain * ReplayGain.linear(rg)
         val slot = d.subslot
         val dch = d.channels
         val up = up
@@ -780,6 +835,8 @@ class AudioOutput(
             val g = AudioEngine.preampGain()
             if (g != 1f) for (k in 0 until samples) fbuf[k] *= g
         }
+        val rgGain = ReplayGain.linear(rg)
+        if (rgGain != 1f) for (k in 0 until samples) fbuf[k] *= rgGain
         // 3ch 以上(5.1ch など)は、通常の出力ではステレオにまとめて出す
         if (channels > 2) {
             if (mixBuf.size < frames * 2) mixBuf = FloatArray(frames * 2)
@@ -883,6 +940,7 @@ class AudioOutput(
         val now = android.os.SystemClock.uptimeMillis()
         if (now < underrunCheckAt) return
         underrunCheckAt = now + 2000
+        if (android.os.Build.VERSION.SDK_INT < 24) return
         val u = runCatching { t.underrunCount }.getOrDefault(0)
         if (u > lastUnderrun) {
             AudioEngine.log("underrun: +${u - lastUnderrun} (total $u)")

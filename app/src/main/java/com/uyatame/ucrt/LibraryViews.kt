@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Info
@@ -136,21 +137,28 @@ fun TrackRow(
     handle: (@Composable () -> Unit)? = null,
 ) {
     val playing = vm.player.current?.uri?.toString() == t.uri
+    // 曲を選んでいる間は、タップ・長押しで選ぶ(再生しない)
+    val selected: Boolean? = if (vm.selecting) vm.isSelected(t.uri) else null
+    val tap: () -> Unit = if (selected != null) ({ vm.toggleSelected(t.uri) }) else onClick
     Row(
         modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
             .background(if (playing) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-            .combinedClickable(onClick = onClick, onLongClick = { vm.showTrackMenu(t, playlist) })
+            .combinedClickable(onClick = tap, onLongClick = { if (selected != null) tap() else vm.showTrackMenu(t, playlist) })
             .padding(start = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (handle != null) handle()
+        if (selected != null) {
+            androidx.compose.material3.Checkbox(selected, { tap() })
+            Spacer(Modifier.width(4.dp))
+        }
         when {
             number != null -> Box(Modifier.width(30.dp), contentAlignment = Alignment.CenterEnd) {
                 if (playing) Icon(AppIcons.Bars, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                 else Text(number, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             showArt -> Box {
-                ArtImage(vm.albumKeyOf(t.uri) ?: t.uri, t.uri, t.coverUri, Modifier.size(48.dp), 6.dp, 48.dp)
+                TrackArt(vm, t, Modifier.size(48.dp), 6.dp, 48.dp)
                 if (playing) {
                     Box(
                         Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.45f)),
@@ -496,7 +504,7 @@ private fun TrackMenuSheet(vm: MainViewModel) {
     ModalBottomSheet(onDismissRequest = close, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = land)) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Row(Modifier.padding(horizontal = 24.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                ArtImage(vm.albumKeyOf(t.uri) ?: t.uri, t.uri, t.coverUri, Modifier.size(56.dp), 8.dp, 56.dp)
+                TrackArt(vm, t, Modifier.size(56.dp), 8.dp, 56.dp)
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(t.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -515,7 +523,12 @@ private fun TrackMenuSheet(vm: MainViewModel) {
                 if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                 if (fav) S(R.string.remove_from_favorites) else S(R.string.add_to_favorites),
             ) { vm.toggleFav(t.uri); close() }
+            val check = vm.store.isCheck(t.uri)
+            SheetAction(AppIcons.Headphones, if (check) S(R.string.remove_from_sound_check) else S(R.string.add_to_sound_check)) {
+                vm.toggleCheck(t.uri); close()
+            }
             SheetAction(AppIcons.PlaylistAdd, S(R.string.add_to_playlist)) { vm.playlistPick = listOf(t.uri); close() }
+            SheetAction(Icons.Filled.CheckCircle, S(R.string.select_multiple_add_to_playlist)) { close(); vm.startSelection(t.uri) }
             if (ctxPl != null) {
                 SheetAction(Icons.Filled.Delete, S(R.string.remove_from_this_playlist)) {
                     vm.store.removeFromPlaylist(ctxPl.first, ctxPl.second); close()
@@ -563,6 +576,10 @@ private fun AlbumMenuSheet(vm: MainViewModel) {
                 if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                 if (fav) S(R.string.remove_from_favorites) else S(R.string.add_album_to_favorites),
             ) { vm.toggleFavAlbum(a.key); close() }
+            val allCheck = a.tracks.all { vm.store.isCheck(it.uri) }
+            SheetAction(AppIcons.Headphones, if (allCheck) S(R.string.remove_album_from_sound_check) else S(R.string.add_album_to_sound_check)) {
+                vm.setCheck(a.tracks, !allCheck); close()
+            }
             SheetAction(AppIcons.PlaylistAdd, S(R.string.add_to_playlist)) { vm.playlistPick = a.tracks.map { it.uri }; close() }
             SheetAction(Icons.Filled.Person, S(R.string.go_to_artist)) { close(); vm.openRoute("artist:" + a.artist) }
             if (vm.libStack.lastOrNull() != "album:" + a.key) {

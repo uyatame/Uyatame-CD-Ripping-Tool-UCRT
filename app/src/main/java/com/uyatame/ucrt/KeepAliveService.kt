@@ -80,7 +80,8 @@ class KeepAliveService : Service() {
         @Volatile private var channelReady = false
 
         fun build(ctx: Context, info: NotifInfo): Notification {
-            if (!channelReady) {
+            // 通知チャンネルは Android 8.0 から
+            if (!channelReady && android.os.Build.VERSION.SDK_INT >= 26) {
                 ctx.getSystemService(NotificationManager::class.java).createNotificationChannel(
                     NotificationChannel("work", S(R.string.playback_and_ripping), NotificationManager.IMPORTANCE_LOW),
                 )
@@ -91,7 +92,7 @@ class KeepAliveService : Service() {
                 Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 PendingIntent.FLAG_IMMUTABLE,
             )
-            val b = Notification.Builder(ctx, "work")
+            val b = (if (android.os.Build.VERSION.SDK_INT >= 26) Notification.Builder(ctx, "work") else @Suppress("DEPRECATION") Notification.Builder(ctx))
                 .setContentTitle(info.title)
                 .setContentText(info.text)
                 .setSmallIcon(R.drawable.ic_stat_ucrt)
@@ -126,7 +127,11 @@ class KeepAliveService : Service() {
             if (MediaBridge.running) {
                 runCatching { ctx.getSystemService(NotificationManager::class.java).notify(ID, build(ctx, info)) }
             } else {
-                runCatching { ctx.startForegroundService(Intent(ctx, KeepAliveService::class.java)) }
+                runCatching {
+                    // 前面サービスとして始めるのは Android 8.0 から。それより前は普通に始める
+                    val i = Intent(ctx, KeepAliveService::class.java)
+                    if (android.os.Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i)
+                }
             }
         }
 

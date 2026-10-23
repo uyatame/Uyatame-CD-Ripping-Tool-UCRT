@@ -1,6 +1,7 @@
 package com.uyatame.ucrt.player
 
 import android.content.BroadcastReceiver
+import com.uyatame.ucrt.player.cast.CastManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -48,6 +49,8 @@ data class PlayItem(
     val startMs: Long = 0,
     /** CUE シートで分けた曲の終わり(0 ならファイルの終わりまで) */
     val endMs: Long = 0,
+    /** 曲ごとのジャケットを使うとき、その曲に画像が無ければ代わりに読む曲(アルバムの最初の曲) */
+    val artFallbackUri: String? = null,
     /** 再生リストの中で 1 曲ずつ区別するための番号(同じ曲を 2 回入れても別物として扱う) */
     val id: Long = PlayItem.nextId(),
 ) {
@@ -142,15 +145,14 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
         .build()
     private val am = ctx.getSystemService(AudioManager::class.java)
-    private val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { ch ->
+        if (ch == AudioManager.AUDIOFOCUS_LOSS || ch == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) main.post { pause() }
+    }
+    /** 音声フォーカスの要求(Android 8.0 から。それより前は古い方法で要求する) */
+    private val focus: Any? = if (android.os.Build.VERSION.SDK_INT >= 26) AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
         .setAudioAttributes(attrs)
-        .setOnAudioFocusChangeListener(
-            AudioManager.OnAudioFocusChangeListener { ch ->
-                if (ch == AudioManager.AUDIOFOCUS_LOSS || ch == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) pause()
-            },
-            main,
-        )
-        .build()
+        .setOnAudioFocusChangeListener(focusListener, main)
+        .build() else null
 
     private var file: PlayStream? = null
     private var cd: CdStream? = null
@@ -177,6 +179,82 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
 
     /** 音量を変えられない DAC で DSD を再生することを、もう知らせたか(アプリを起動している間に 1 回だけ) */
     @Volatile private var dsdVolumeWarned = false
+
+    private fun requestFocus() {
+        if (android.os.Build.VERSION.SDK_INT >= 26) am.requestAudioFocus(focus as AudioFocusRequest)
+        else @Suppress("DEPRECATION") am.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+    }
+
+    private fun abandonFocus() {
+        if (android.os.Build.VERSION.SDK_INT >= 26) am.abandonAudioFocusRequest(focus as AudioFocusRequest)
+        else @Suppress("DEPRECATION") am.abandonAudioFocus(focusListener)
+    }
+
+    // ---------------- Chromecast ----------------
+
+    /** Chromecast で再生しているか */
+    val casting: Boolean get() = CastManager.active
+
+    private fun initCast() {
+        CastManager.onFinished = { if (casting && current != null) next(auto = true) }
+        CastManager.onConnectionChanged = { on -> castChanged(on) }
+        CastManager.onError = { reason ->
+            onNotice?.invoke(
+                when (reason) {
+                    "cd" -> S(R.string.cast_unsupported_cd)
+                    "dsd" -> S(R.string.cast_unsupported_dsd)
+                    "cue", "format" -> S(R.string.cast_unsupported_format)
+                    "connect", "timeout" -> S(R.string.cast_connect_failed)
+                    else -> S(R.string.cast_load_failed)
+                },
+            )
+            if (casting && isPlaying) {
+                isPlaying = false
+                changed()
+            }
+        }
+    }
+
+    /** Chromecast につないだ・切れたとき: 今の曲を、つないだ先(または端末)で同じ位置から続ける */
+    private fun castChanged(on: Boolean) {
+        val pos = positionMs
+        val play = isPlaying
+        if (on) {
+            setCastVolumeRouting(true)
+            if (current != null) startCurrent(pos, play)
+        } else {
+            setCastVolumeRouting(false)
+            // 端末に戻ったら、一時停止した状態で同じ位置に戻す
+            if (current != null) startCurrent(pos, false)
+        }
+    }
+
+    /** Chromecast につないでいる間は、音量キーで Chromecast の音量を変える */
+    private fun setCastVolumeRouting(on: Boolean) {
+        if (!on) {
+            setVolumeRouting(UsbDac.active)
+            return
+        }
+        val vp = object : android.media.VolumeProvider(
+            android.media.VolumeProvider.VOLUME_CONTROL_ABSOLUTE, 100, (CastManager.volume * 100).toInt(),
+        ) {
+            override fun onSetVolumeTo(volume: Int) {
+                CastManager.changeVolume(volume / 100f)
+                currentVolume = volume.coerceIn(0, 100)
+            }
+            override fun onAdjustVolume(direction: Int) {
+                val v = when (direction) {
+                    AudioManager.ADJUST_RAISE -> currentVolume + 5
+                    AudioManager.ADJUST_LOWER -> currentVolume - 5
+                    AudioManager.ADJUST_MUTE -> 0
+                    else -> return
+                }.coerceIn(0, 100)
+                CastManager.changeVolume(v / 100f)
+                currentVolume = v
+            }
+        }
+        runCatching { session.setPlaybackToRemote(vp) }
+    }
 
     /** ミュートする前の DAC の音量(ミュート中でなければ -1) */
     private var mutedFrom = -1
@@ -236,12 +314,15 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             onNotice?.invoke(msg)
             if (lowered && AudioEngine.wantUsbDirect && current != null) reloadOutput()
         }
+        initCast()
         scope.launch {
             while (true) {
                 delay(250)
                 val c = cd
                 val f = file
-                if (c != null) {
+                if (casting) {
+                    if (current != null) positionMs = CastManager.positionMs().coerceIn(0L, durationMs.takeIf { it > 0 } ?: Long.MAX_VALUE)
+                } else if (c != null) {
                     applySwitches(c, c.seg, c.head())
                     if (cd === c) positionMs = c.positionMs()
                 } else if (f != null) {
@@ -564,7 +645,23 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     private fun startCurrent(fromMs: Long, play: Boolean) {
         val item = current ?: return
         halt()
-        if (play) am.requestAudioFocus(focus)
+        if (casting) {
+            // Chromecast で再生中: 曲を読み込ませるだけ(この端末からは音を出さない)
+            durationMs = item.durationMs
+            positionMs = fromMs
+            if (item.cdTrack != null) {
+                onNotice?.invoke(S(R.string.cast_unsupported_cd))
+                CastManager.stopMedia()
+                isPlaying = false
+            } else {
+                isPlaying = play
+                if (play) started = true
+                CastManager.load(ctx, item, fromMs, play)
+            }
+            changed()
+            return
+        }
+        if (play) requestFocus()
         durationMs = item.durationMs
         positionMs = fromMs
         isPlaying = play
@@ -595,12 +692,29 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
      * DAR の DSD 変換がオンで、USB DAC へ DSD で送れるならその出力、そうでなければ通常の出力(PCM アップサンプリングを含む)。
      * 再生スレッドから呼ぶ
      */
-    private fun openOutput(rate: Int, channels: Int, bits: Int): PcmOut {
+    private fun openOutput(rate: Int, channels: Int, bits: Int, rg: RgInfo? = null): PcmOut {
+        awaitRetired()
         if (AudioEngine.wantUsbDirect && AudioEngine.darMode == 2 && channels in 1..2) {
             com.uyatame.ucrt.player.dar.DsdConvertOutput.open(ctx, attrs, rate, channels)?.let { return it }
             AudioEngine.log("dar: DSD conversion not available for ${AudioEngine.khz(rate)}, playing as PCM")
         }
-        return AudioOutput(ctx, attrs, rate, channels, bits, dar = true)
+        // DAR 付きで出力を作れなければ(古い Android が高い周波数を受け付けないなど)、曲を飛ばさずに DAR なしで鳴らす
+        return try {
+            AudioOutput(ctx, attrs, rate, channels, bits, dar = true, rg = rg)
+        } catch (e: Exception) {
+            if (AudioEngine.darMode != 1 || AudioEngine.wantUsbDirect) throw e
+            AudioEngine.log("dar: cannot open the output (${e.javaClass.simpleName}: ${e.message}); playing without DAR")
+            AudioOutput(ctx, attrs, rate, channels, bits, rg = rg)
+        }
+    }
+
+    /** 曲の ReplayGain の値(使わない設定なら読まない) */
+    private fun rgOf(item: PlayItem): RgInfo? {
+        if (ReplayGain.mode == 0) return null
+        val u = item.uri ?: return null
+        return ReplayGain.read(ctx, u).also { r ->
+            AudioEngine.log("replaygain: ${r?.let { "track ${it.trackGain} dB (peak ${it.trackPeak}), album ${it.albumGain} dB (peak ${it.albumPeak})" } ?: "no tags"}")
+        }
     }
 
     private var failAt = 0L
@@ -632,6 +746,12 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
 
     fun pause() {
         if (!isPlaying) return
+        if (casting) {
+            CastManager.pause()
+            isPlaying = false
+            changed()
+            return
+        }
         syncSwitches()
         file?.pauseAudio()
         cd?.pauseAudio()
@@ -640,8 +760,16 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     }
 
     fun resume() {
-        if (current == null) return
-        am.requestAudioFocus(focus)
+        val item = current ?: return
+        if (casting) {
+            if (CastManager.isLoaded(item.id)) {
+                CastManager.play()
+                isPlaying = true
+                changed()
+            } else startCurrent(positionMs, true)
+            return
+        }
+        requestFocus()
         val f = file
         val c = cd
         when {
@@ -702,6 +830,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     }
 
     fun stop() {
+        if (casting) CastManager.stopMedia()
         halt()
         sleepAtMs = 0L
         stopAfterTrack = false
@@ -711,7 +840,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         isPlaying = false
         positionMs = 0
         durationMs = 0
-        runCatching { am.abandonAudioFocusRequest(focus) }
+        runCatching { abandonFocus() }
         AudioEngine.release(am, attrs)
         changed()
     }
@@ -721,11 +850,49 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         runCatching { session.release() }
     }
 
+    /** 続けて再生できなかった曲の数(3 曲続いたら、キューを次々に飛ばさずに止める) */
+    private var errorRun = 0
+
+    /** 再生できなかった: 理由を画面に出して次の曲へ。続くときは止める(メインスレッドで呼ぶ) */
+    private fun skipAfterError(reason: String) {
+        errorRun++
+        if (errorRun >= 3) {
+            errorRun = 0
+            halt()
+            isPlaying = false
+            changed()
+            onNotice?.invoke(S(R.string.stopped_after_playback_errors, reason))
+            return
+        }
+        onNotice?.invoke(S(R.string.couldnt_play_this_track, reason))
+        next(true)
+    }
+
+    /**
+     * 止めた再生スレッド(出力を手放し終わるまで生きている)。
+     * 新しい出力はこれが終わってから作る。古い Android では、前の出力が残っている間は新しい出力を作れないことがある
+     * (アプリごとの出力用のメモリが足りなくなる。Android 7 で DAR の設定を変えたときなど)
+     */
+    private val retiring = java.util.concurrent.CopyOnWriteArrayList<Thread>()
+
     private fun halt() {
-        file?.halt()
+        retiring.removeAll { !it.isAlive }
+        file?.let { it.halt(); retiring.add(it) }
         file = null
-        cd?.halt()
+        cd?.let { it.halt(); retiring.add(it) }
         cd = null
+    }
+
+    /** 止めた再生スレッドが出力を手放し終わるのを待つ(再生スレッドから、出力を作る前に呼ぶ。長くても 2 秒) */
+    private fun awaitRetired() {
+        val me = Thread.currentThread()
+        val until = android.os.SystemClock.elapsedRealtime() + 2000
+        for (t in retiring) {
+            if (t === me) continue
+            val left = until - android.os.SystemClock.elapsedRealtime()
+            if (left > 0) runCatching { t.join(left) }
+            if (!t.isAlive) retiring.remove(t)
+        }
     }
 
     /** 端末内のファイルを、OS内蔵のデコーダで PCM にして再生する */
@@ -813,6 +980,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 val start = (fromMs * info.rate / 8000L) and 7L.inv()
                 reader.seek(start)
                 baseMs = start * 8000L / info.rate
+                awaitRetired()
                 val s = openSink(info, ch)
                 sink = s
                 if (stopFlag) return
@@ -848,7 +1016,8 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 if (!stopFlag) main.post { if (file === this) next(true) }
             } catch (e: Throwable) {
                 AudioEngine.log("dsd: playback error: ${e.javaClass.simpleName}: ${e.message}")
-                if (!stopFlag) main.post { if (file === this) next(true) }
+                val reason = "${e.javaClass.simpleName}: ${e.message ?: ""}"
+                if (!stopFlag) main.post { if (file === this) skipAfterError(reason) }
             } finally {
                 sink?.release()
                 rf.close()
@@ -1330,7 +1499,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 src = cur
                 val d0 = cur.durationMs
                 if (d0 > 0) main.post { if (file === this) { durationMs = d0; publish() } }
-                val o = openOutput(cur.rate, cur.channels, cur.bits)
+                val o = openOutput(cur.rate, cur.channels, cur.bits, rgOf(item))
                 out = o
                 if (stopFlag) return
                 if (!paused) o.play()
@@ -1343,6 +1512,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                         if (firstData && cur.firstPtsUs >= 0) {
                             firstData = false
                             segs.baseMs = cur.firstPtsUs / 1000
+                            main.post { errorRun = 0 }
                         }
                         if (!more) break
                     }
@@ -1364,6 +1534,8 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                         break
                     }
                     cur.close()
+                    // 次の曲の ReplayGain(ここから書き込む分に掛かる)
+                    (o as? AudioOutput)?.rg = rgOf(nx)
                     segs.pending.add(Switch(nx, o.framesWritten, 0L, ns.durationMs))
                     AudioEngine.log("gapless: next track joined")
                     cur = ns
@@ -1380,10 +1552,10 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             } catch (e: Throwable) {
                 // Exception だけでなく、壊れたファイルで起きうる OutOfMemoryError なども受け止めて次の曲へ(アプリごと落ちないように)
                 AudioEngine.log("playback error: ${e.javaClass.simpleName}: ${e.message}")
-                if (e is Unsupported) main.post { onNotice?.invoke(e.message ?: "") }
+                val reason = if (e is Unsupported) e.message ?: "" else "${e.javaClass.simpleName}: ${e.message ?: ""}"
                 // 書き込み済みの分(前の曲の終わり)は鳴らし切ってから次へ
                 out?.let { o -> while (!stopFlag && o.headFrames() < o.framesWritten) Thread.sleep(50) }
-                if (!stopFlag) main.post { if (file === this) { applySwitches(this, segs, Long.MAX_VALUE); next(true) } }
+                if (!stopFlag) main.post { if (file === this) { applySwitches(this, segs, Long.MAX_VALUE); skipAfterError(reason) } }
             } finally {
                 src?.close()
                 discardPrefetch()

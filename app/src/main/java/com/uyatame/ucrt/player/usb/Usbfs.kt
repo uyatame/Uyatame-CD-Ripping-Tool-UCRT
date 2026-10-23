@@ -92,6 +92,7 @@ internal class IsoUrb(val endpoint: Int, val packets: Int, val maxBytes: Int, va
     }
 
     fun status(): Int = urb.getInt(Usbfs.OFF_STATUS.toLong())
+    fun packetLength(i: Int): Int = urb.getInt((Usbfs.URB_SIZE + i * Usbfs.ISO_DESC_SIZE).toLong())
     fun packetActual(i: Int): Int = urb.getInt((Usbfs.URB_SIZE + i * Usbfs.ISO_DESC_SIZE + 4).toLong())
     fun packetStatus(i: Int): Int = urb.getInt((Usbfs.URB_SIZE + i * Usbfs.ISO_DESC_SIZE + 8).toLong())
 }

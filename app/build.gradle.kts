@@ -15,7 +15,8 @@ android {
     defaultConfig {
         // アプリ ID は公開済みの版から変えない(変えると別のアプリ扱いになり、上書き更新や設定の引き継ぎができなくなる)
         applicationId = "com.uyatame.cdripper"
-        minSdk = 26
+        // Android 6.0 から(Android 6.0・7.x は試験的な対応)
+        minSdk = 23
         targetSdk = 36
         versionCode = 43
         // 次にリリースする版。テスト用のビルド(tools/termux-build.sh)では、後ろに ".test<テスト版>" が付く

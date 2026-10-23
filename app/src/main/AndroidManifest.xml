@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- USB DAC への直接出力中に CPU が眠って音が途切れないように(音切れ対策の設定がオンのとき) -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 任意: 「すべてのファイルへのアクセス」を許可すると、ライブラリの読み込みが速くなる -->
     <uses-permission
@@ -71,6 +73,12 @@
             android:name=".KeepAliveService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice|mediaPlayback" />
+
+        <!-- DAC を常に起こしておく(試験的。ほかのアプリの再生にも効く) -->
+        <service
+            android:name=".player.DacKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!-- ほかの音楽アプリの再生を表示・操作するため(「通知へのアクセス」の許可に使う。通知の中身は読まない) -->
         <service

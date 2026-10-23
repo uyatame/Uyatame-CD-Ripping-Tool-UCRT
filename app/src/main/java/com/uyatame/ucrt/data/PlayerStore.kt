@@ -53,6 +53,11 @@ class PlayerStore(ctx: Context) {
     /** 再生履歴(新しいものが先頭。同じ曲は 1 件にまとめる) */
     var history by mutableStateOf<List<PlayRecord>>(emptyList())
         private set
+    /** 音質チェック用の曲(試聴に使う決まった曲。新しく追加したものが先頭) */
+    var checkTracks by mutableStateOf<List<String>>(emptyList())
+        private set
+    var checkTrackSet by mutableStateOf<Set<String>>(emptySet())
+        private set
     /** 曲ごとの再生回数 */
     var counts by mutableStateOf<Map<String, Int>>(emptyMap())
         private set
@@ -64,6 +69,8 @@ class PlayerStore(ctx: Context) {
         fun strings(a: JSONArray?): List<String> = if (a == null) emptyList() else (0 until a.length()).map { a.optString(it) }.filter { it.isNotEmpty() }
         favTracks = strings(o.optJSONArray("favTracks"))
         favTrackSet = favTracks.toHashSet()
+        checkTracks = strings(o.optJSONArray("checkTracks"))
+        checkTrackSet = checkTracks.toHashSet()
         favAlbums = strings(o.optJSONArray("favAlbums"))
         favAlbumSet = favAlbums.toHashSet()
         playlists = o.optJSONArray("playlists")?.let { a ->
@@ -89,6 +96,7 @@ class PlayerStore(ctx: Context) {
         val o = JSONObject()
         o.put("favTracks", JSONArray(favTracks))
         o.put("favAlbums", JSONArray(favAlbums))
+        o.put("checkTracks", JSONArray(checkTracks))
         o.put("playlists", JSONArray().apply {
             playlists.forEach { p -> put(JSONObject().put("id", p.id).put("name", p.name).put("uris", JSONArray(p.uris))) }
         })
@@ -128,6 +136,22 @@ class PlayerStore(ctx: Context) {
     fun moveFav(from: Int, to: Int) {
         if (from !in favTracks.indices || to !in favTracks.indices) return
         favTracks = favTracks.toMutableList().apply { add(to, removeAt(from)) }
+        save()
+    }
+
+    // ---------- 音質チェック用の曲 ----------
+
+    fun isCheck(uri: String?) = uri != null && uri in checkTrackSet
+
+    fun setCheck(uris: List<String>, on: Boolean) {
+        checkTracks = if (on) uris.filter { it !in checkTrackSet }.reversed() + checkTracks else checkTracks.filter { it !in uris }
+        checkTrackSet = checkTracks.toHashSet()
+        save()
+    }
+
+    fun moveCheck(from: Int, to: Int) {
+        if (from !in checkTracks.indices || to !in checkTracks.indices) return
+        checkTracks = checkTracks.toMutableList().apply { add(to, removeAt(from)) }
         save()
     }
 

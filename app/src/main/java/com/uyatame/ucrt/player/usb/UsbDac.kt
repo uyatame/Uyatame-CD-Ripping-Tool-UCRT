@@ -260,14 +260,19 @@ object UsbDac {
 
     /** DAC を開く(まだなら)。使えなければ false */
     private fun ensureOpen(): Boolean {
-        if (!inited) return false
+        if (!inited) {
+            AudioEngine.log("usb dac: not initialized")
+            return false
+        }
         val dev = findDac()
         if (dev == null) {
+            AudioEngine.log("usb dac: no USB DAC found")
             AudioEngine.report(false, S(R.string.usb_dac_not_found_using))
             close(reattach = true)
             return false
         }
         if (!usb().hasPermission(dev)) {
+            AudioEngine.log("usb dac: no permission for ${dev.deviceName}")
             if (asked.add(dev.deviceName)) {
                 val pi = PendingIntent.getBroadcast(
                     app, 7, Intent(ACTION_PERMISSION).setPackage(app.packageName),
@@ -599,6 +604,12 @@ object UsbDac {
             return false
         }
         if (!uac2 && !setRate(alt, fmt.rate)) AudioEngine.log("usb dac: set rate failed")
+        // 診断: DAC 側で本当にその代替設定になったかを聞き直す(GET_INTERFACE。答えない DAC もある)
+        runCatching {
+            val r = ByteArray(1)
+            val n = c.controlTransfer(0x81, 0x0A, 0, alt.iface, r, 1, 500)
+            AudioEngine.log("usb dac: if${alt.iface} now alt ${if (n == 1) r[0].toInt() and 0xFF else "? ($n)"} (asked alt${alt.alt})")
+        }
         // DAC によっては、周波数や代替設定を切り替えると音量が初期値(最大のことが多い)に戻るので、送り直す
         if (hwVolume) applyVolume()
         val st = StreamThread(c.fileDescriptor, alt, fmt, speed)
@@ -606,11 +617,13 @@ object UsbDac {
         format = fmt
         curAlt = alt
         st.start()
+        UsbStabilizer.start(app)
         AudioEngine.log("usb dac: streaming ${khz(fmt.rate)} ${fmt.channels}ch ${fmt.bits}bit (slot ${fmt.subslot * 8})")
         return true
     }
 
     private fun stopStream() {
+        UsbStabilizer.stop()
         stream?.let {
             // いきなり止めると DAC から雑音が出ることがあるので、少しのあいだ無音を送ってから止める
             if (it.isAlive) {
@@ -949,6 +962,10 @@ object UsbDac {
             var lastReap = t0
             var stPackets = 0L; var stFrames = 0L; var stData = 0L; var stUrbs = 0
             var stShortPk = 0; var stFb = 0; var stalls = 0
+            // 診断: 送り切れなかったパケット(実際に送れた長さが、頼んだ長さより短い)の数と、無音でない音を送ったか
+            var stShortTx = 0
+            var stAudible = false
+            var scan = ByteArray(0)
             val stErr = HashMap<Int, Int>()
             // 取りこぼし(パケットの失敗)が続いているかを 2 秒ごとに見る
             var missWinAt = t0
@@ -1003,9 +1020,18 @@ object UsbDac {
                 } else {
                     stUrbs++
                     stPackets += u.packets
+                    var sent = 0
                     for (k in 0 until u.packets) {
                         val ps = u.packetStatus(k)
                         if (ps != 0) { stErr[1000 + ps] = (stErr[1000 + ps] ?: 0) + 1; missWin++ }
+                        if (u.packetActual(k) < u.packetLength(k)) stShortTx++
+                        sent += u.packetLength(k)
+                    }
+                    // (無音が続く間も重くならないよう、16 回に 1 回だけ、まとめて読み出して調べる)
+                    if (!stAudible && u.dataFrames > 0 && (stUrbs and 15) == 0 && sent > 0) {
+                        if (scan.size < sent) scan = ByteArray(sent)
+                        u.buf.read(0, scan, 0, sent)
+                        for (j in 0 until sent) if (scan[j].toInt() != 0) { stAudible = true; break }
                     }
                     ring.addPlayed(u.epoch, u.dataFrames)
                     hint?.tick()
@@ -1037,10 +1063,11 @@ object UsbDac {
                     AudioEngine.log(
                         "usb dac: stat ${span}ms urbs=$stUrbs packets/s=${stPackets * 1000 / span} frames/s=${stFrames * 1000 / span} " +
                             "data/s=${stData * 1000 / span} underrun=$stShortPk fb=$stFb fbval=${"%.4f".format(freqm / 65536.0)} " +
-                            "ring=${ring.level()} paused=${ring.paused} stalls=$stalls err=$stErr",
+                            "ring=${ring.level()} paused=${ring.paused} stalls=$stalls err=$stErr short=$stShortTx audible=$stAudible",
                     )
                     lastStat = now
                     stPackets = 0; stFrames = 0; stData = 0; stUrbs = 0; stShortPk = 0; stFb = 0
+                    stShortTx = 0; stAudible = false
                     stErr.clear()
                 }
             }

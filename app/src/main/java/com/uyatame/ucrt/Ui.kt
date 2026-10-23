@@ -120,7 +120,7 @@ import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @Composable
-fun AppTheme(mode: Int, dynamic: Boolean, seed: Int, content: @Composable () -> Unit) {
+fun AppTheme(mode: Int, dynamic: Boolean, seed: Int, text: Int = 0, content: @Composable () -> Unit) {
     val dark = when (mode) { 1 -> false; 2 -> true; else -> isSystemInDarkTheme() }
     val ctx = LocalContext.current
     val scheme = if (dynamic && android.os.Build.VERSION.SDK_INT >= 31) {
@@ -130,18 +130,31 @@ fun AppTheme(mode: Int, dynamic: Boolean, seed: Int, content: @Composable () -> 
     } else {
         if (dark) darkColorScheme() else lightColorScheme()
     }
-    MaterialTheme(colorScheme = scheme, content = content)
+    // 文字の色を選んでいれば、本文の文字と、控えめな文字(説明など。背景の色に少し寄せる)をその色にする
+    val withText = if (text == 0) scheme else remember(scheme, text) {
+        val c = androidx.compose.ui.graphics.Color(text)
+        scheme.copy(
+            onBackground = c, onSurface = c,
+            onSurfaceVariant = androidx.compose.ui.graphics.lerp(c, scheme.surface, 0.3f),
+        )
+    }
+    MaterialTheme(colorScheme = withText, content = content)
 }
 
 @Composable
 fun App(vm: MainViewModel) {
     val s by vm.settings.collectAsState()
-    AppTheme(s.themeMode, s.dynamicColor, s.themeColor) {
+    AppTheme(s.themeMode, s.dynamicColor, s.themeColor, s.textColor) {
         val view = LocalView.current
         val keep = vm.busy && s.keepScreenOn
         DisposableEffect(keep) {
             view.keepScreenOn = keep
             onDispose { view.keepScreenOn = false }
+        }
+        // ナビゲーションバーを隠す(設定)。ほかのアプリから戻ったときなどに出てしまう分は MainActivity でかけ直す
+        DisposableEffect(s.hideNavBar) {
+            (view.context as? android.app.Activity)?.let { applyNavBar(it, view, s.hideNavBar) }
+            onDispose {}
         }
         var tab by rememberSaveable { mutableIntStateOf(0) }
         var settingsPage by rememberSaveable { mutableIntStateOf(0) }
@@ -213,6 +226,9 @@ fun App(vm: MainViewModel) {
         // タブレットモードで幅が広ければ、再生画面を右に出したままにする
         val pane = tablet && conf.screenWidthDp >= 840 && vm.player.current != null
         val paneWidth = (conf.screenWidthDp * 0.36f).coerceIn(340f, 440f).dp
+        // 全画面の再生画面(UCRT の曲・ほかのアプリの曲)を出しているか。出している間は、お知らせが再生画面に隠れないように上に重ねる
+        val playerOverlay = (showPlayer && vm.player.current != null && !pane) ||
+            (vm.externalPlayerOpen && com.uyatame.ucrt.player.ExternalMedia.now != null)
         // ライブラリを表示中にもう一度押すと、ライブラリのトップへ戻る
         val onTab: (Int) -> Unit = { t -> if (t == 0 && tab == 0) vm.libHome() else tab = t }
         val tabs = listOf(
@@ -220,7 +236,7 @@ fun App(vm: MainViewModel) {
             Triple(AppIcons.Album, S(R.string.disc), 1),
             Triple(Icons.Filled.Settings, S(R.string.settings), 2),
         )
-        CompositionLocalProvider(LocalTablet provides tablet, LocalShowArt provides s.listArt) {
+        CompositionLocalProvider(LocalTablet provides tablet, LocalShowArt provides s.listArt, LocalTrackArt provides s.trackArt) {
         Box(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxSize()) {
         if (land) {
@@ -239,7 +255,8 @@ fun App(vm: MainViewModel) {
         }
         Scaffold(
             modifier = Modifier.weight(1f),
-            snackbarHost = { SnackbarHost(snackHost) },
+            // 全画面の再生画面を出している間は、お知らせをその上に出す(下の重ね書きを参照)
+            snackbarHost = { if (!playerOverlay) SnackbarHost(snackHost) },
             // 横向き: 左の端はレールが受け持つので、中身は上・右・下だけ避ける
             contentWindowInsets = if (land) {
                 WindowInsets.systemBars.union(WindowInsets.displayCutout)
@@ -304,6 +321,12 @@ fun App(vm: MainViewModel) {
         ) {
             ExternalPlayerScreen(vm, s) { vm.externalPlayerOpen = false }
         }
+        if (playerOverlay) {
+            SnackbarHost(
+                snackHost,
+                Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = 16.dp),
+            )
+        }
         }
         }
         GlobalSheets(vm)
@@ -311,6 +334,17 @@ fun App(vm: MainViewModel) {
 }
 
 // ---------------- 共通部品 ----------------
+
+/** ナビゲーションバーを隠す・出す。隠している間も、画面の下の端からスワイプすると一時的に出る */
+fun applyNavBar(activity: android.app.Activity, view: android.view.View, hide: Boolean) {
+    val c = androidx.core.view.WindowCompat.getInsetsController(activity.window, view)
+    if (hide) {
+        c.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        c.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
+    } else {
+        c.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
+    }
+}
 
 /** タブレットモードか(設定と画面の大きさで決まる) */
 val LocalTablet = androidx.compose.runtime.compositionLocalOf { false }
@@ -504,7 +538,10 @@ fun CoverBox(img: ImageBitmap?, modifier: Modifier, corner: Dp = 8.dp) {
         contentAlignment = Alignment.Center,
     ) {
         if (img != null) {
-            Image(img, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            // 正方形に近い画像は枠いっぱいに切り抜く。8cm CD の縦長の短冊ジャケットなど、縦横の比率が大きく違う画像は、
+            // 切り抜くと絵の大部分が隠れるので、全体が収まるように縮めて出す
+            val r = img.width.toFloat() / img.height.coerceAtLeast(1)
+            Image(img, null, Modifier.fillMaxSize(), contentScale = if (r in 0.8f..1.25f) ContentScale.Crop else ContentScale.Fit)
         } else {
             Icon(AppIcons.Album, null, Modifier.fillMaxSize(0.45f), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -516,7 +553,10 @@ fun CoverBox(img: ImageBitmap?, modifier: Modifier, corner: Dp = 8.dp) {
  * 設定で「一覧にジャケットを表示」がオフなら、画像を読まずに目印だけ出す(性能の低い端末向け)
  */
 @Composable
-fun ArtImage(key: String?, trackUri: String?, coverUri: String?, modifier: Modifier, corner: Dp = 8.dp, size: Dp? = null) {
+fun ArtImage(
+    key: String?, trackUri: String?, coverUri: String?, modifier: Modifier, corner: Dp = 8.dp, size: Dp? = null,
+    fallbackUri: String? = null,
+) {
     if (!LocalShowArt.current) {
         CoverBox(null, modifier, corner)
         return
@@ -524,7 +564,7 @@ fun ArtImage(key: String?, trackUri: String?, coverUri: String?, modifier: Modif
     if (size != null) {
         // 大きさが決まっているとき(一覧の行など)は、BoxWithConstraints(行ごとに subcompose して重い)を使わない
         val px = with(androidx.compose.ui.platform.LocalDensity.current) { size.roundToPx() }
-        ArtImageAt(key, trackUri, coverUri, ArtLoader.bucketOf(px), modifier, corner)
+        ArtImageAt(key, trackUri, coverUri, ArtLoader.bucketOf(px), modifier, corner, fallbackUri)
         return
     }
     androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
@@ -532,12 +572,12 @@ fun ArtImage(key: String?, trackUri: String?, coverUri: String?, modifier: Modif
         val w = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
         val h = if (constraints.hasBoundedHeight) constraints.maxHeight else 0
         val px = maxOf(w, h).takeIf { it > 0 } ?: with(density) { 96.dp.roundToPx() }
-        ArtImageAt(key, trackUri, coverUri, ArtLoader.bucketOf(px), Modifier.fillMaxSize(), corner)
+        ArtImageAt(key, trackUri, coverUri, ArtLoader.bucketOf(px), Modifier.fillMaxSize(), corner, fallbackUri)
     }
 }
 
 @Composable
-private fun ArtImageAt(key: String?, trackUri: String?, coverUri: String?, bucket: Int, modifier: Modifier, corner: Dp) {
+private fun ArtImageAt(key: String?, trackUri: String?, coverUri: String?, bucket: Int, modifier: Modifier, corner: Dp, fallbackUri: String? = null) {
     val ctx = LocalContext.current
     val gen = ArtLoader.generation
     val img by produceState(remember(key, bucket) { ArtLoader.peek(key, bucket) }, key, trackUri, coverUri, gen, bucket) {
@@ -545,7 +585,7 @@ private fun ArtImageAt(key: String?, trackUri: String?, coverUri: String?, bucke
         value = ArtLoader.peek(key, bucket)
         if (key != null) {
             // 画面から外れたら(取り消されたら)、読み込みの順番待ちもやめる
-            value = kotlinx.coroutines.runInterruptible(Dispatchers.IO) { ArtLoader.load(ctx, key, trackUri, coverUri, bucket) } ?: value
+            value = kotlinx.coroutines.runInterruptible(Dispatchers.IO) { ArtLoader.load(ctx, key, trackUri, coverUri, bucket, fallbackUri) } ?: value
         }
     }
     CoverBox(img, modifier, corner)
@@ -554,10 +594,20 @@ private fun ArtImageAt(key: String?, trackUri: String?, coverUri: String?, bucke
 /** 一覧にジャケットを表示するか(設定) */
 val LocalShowArt = androidx.compose.runtime.compositionLocalOf { true }
 
+/** 曲の一覧で、曲ごとに埋め込まれたジャケットを出すか(設定。オフならアルバムのジャケット) */
+val LocalTrackArt = androidx.compose.runtime.compositionLocalOf { true }
+
+/** 曲の一覧に出すジャケット(曲ごと、またはアルバムのもの) */
+@Composable
+fun TrackArt(vm: MainViewModel, t: com.uyatame.ucrt.library.LibTrack, modifier: Modifier, corner: Dp, size: Dp) {
+    val r = vm.artRef(t, LocalTrackArt.current)
+    ArtImage(r.key, r.trackUri, r.coverUri, modifier, corner, size, r.fallbackUri)
+}
+
 @Composable
 fun PlayArt(vm: MainViewModel, item: PlayItem, modifier: Modifier, corner: Dp = 8.dp, size: Dp? = null) {
     if (item.cdTrack != null) CoverBox(vm.cdCover, modifier, corner)
-    else ArtImage(item.artKey, item.artTrackUri, item.artCoverUri, modifier, corner, size)
+    else ArtImage(item.artKey, item.artTrackUri, item.artCoverUri, modifier, corner, size, item.artFallbackUri)
 }
 
 // ---------------- プレイヤー ----------------

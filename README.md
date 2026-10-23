@@ -12,10 +12,13 @@
 - **CDの書き込み**: 音楽CDのコピー（曲順・曲間もそのまま）、ライブラリの曲からの音楽CD作成（CD-R / CD-RW、SAO / TAO、テスト書き込み）
 - **曲情報の自動取得**: CDを入れるとMusicBrainzから曲名・アーティスト・ジャケットを取得。候補からの選択や名前での検索にも対応
 - **正確な読み取り**: リトライ、C2エラー検出、読み取りオフセット補正、読み取り速度の指定
-- **ライブラリ**: 取り込んだ曲と端末内の音楽フォルダの曲を、トップ画面のカテゴリー（アルバム・アーティスト・全曲・お気に入り・プレイリスト・最近追加・最近再生・よく聴く曲・音質別・ジャンル・発売年・フォルダ）から探せます。横断検索、形式と音質の表示（ハイレゾは金色）、長押しメニュー（次に再生・再生リストに追加・プレイリストに追加など）、高速スクロール
+- **ライブラリ**: 取り込んだ曲と端末内の音楽フォルダの曲を、トップ画面のカテゴリー（アルバム・アーティスト・全曲・お気に入り・プレイリスト・最近追加・最近再生・よく聴く曲・音質別・ジャンル・発売年・フォルダ）から探せます。横断検索、形式と音質の表示（ハイレゾは金色）、長押しメニュー（次に再生・再生リストに追加・プレイリストに追加など）、曲を複数選んでまとめてプレイリストへ、曲ごとのジャケットの表示、高速スクロール
 - **再生できる形式**: FLAC / ALAC / WAV / AIFF / WavPack / APE（アプリ内蔵のデコーダーで再生。端末やAndroidの版に左右されず、元の音とビット単位で一致）、DSD（DSF / DFF）、MP3 / AAC / Ogg Vorbis / Opus / MPEG-H（端末のデコーダー）
 - **プレイヤー**: CDの直接再生、全画面プレイヤー（左右のページでお気に入り・再生リスト、ジャケットのスワイプで曲送り、アンビエントモード、形式・音質表示）、再生リストの並べ替え、歌詞表示（LRC・埋め込み歌詞）、スリープタイマー、前回の続きから再生、ホーム画面のウィジェット（縦長・横長）、シャッフル・リピート、通知とロック画面からの操作
-- **音響**: ビットパーフェクト再生（独自のUSBオーディオドライバーでUSB DACを直接駆動、UAC1/UAC2、PCM 768 kHz / 32bit）、DSD再生（DSF / DFF、ネイティブDSD512・DoP・PCM変換）、DAR（PCMアップサンプリング・DSDへの変換）、曲線で自由に調整できるパラメトリックイコライザー（最大16バンド）、ソースダイレクト
+- **音響**: ビットパーフェクト再生（独自のUSBオーディオドライバーでUSB DACを直接駆動、UAC1/UAC2、PCM 768 kHz / 32bit）、DSD再生（DSF / DFF、ネイティブDSD512・DoP・PCM変換）、DAR（PCMアップサンプリング・DSDへの変換）、イコライザー（WALKMANのような10バンドのシンプルと、曲線で自由に調整できる最大16バンドのPRO。設定に名前を付けて保存）、ReplayGain（曲ごと・アルバムごと）、ソースダイレクト
+- **音質チェック**: 聴き比べに使う決まった曲を、お気に入りと同じ手軽さで集められます（再生画面のヘッドホンのボタン・曲の長押しメニューから追加）
+- **DACを常に起こしておく（試験的）**: USB DACやイヤホン端子（端末の内蔵DAC）に無音を流し続けて、DACが省電力で眠らないようにします。ほかのアプリの再生でも、音切れ・再生の始まりの欠け・切り替えの雑音が減ることがあります
+- **キャスト（試験的）**: 同じWi-FiネットワークのChromecastなど、Google Cast対応の機器で再生できます（ALAC・AIFF・WavPack・APEはWAVにして送ります。DSDとCDの直接再生は対象外）
 - **ほかの音楽アプリの操作**: Spotify・Qobuz・Amazon Musicなどのストリーミングアプリで再生中の曲をライブラリの上部に表示し、このアプリと同じ再生画面（アンビエントモードを含む）で再生・一時停止・曲送り・シークを操作できます（「通知へのアクセス」の許可が必要。音はそのアプリからAndroid経由で再生されます）
 - **曲情報の編集**: 曲名・アーティスト・アルバム・年・ジャケットの変更（FLAC / MP3 / M4A / WAV / DSF）、取り込み済みの曲への曲情報の後付け
 - **CUEシート**: 1つのWAV / FLACをCUEシートで曲ごとに分けて表示・再生（Shift_JIS / UTF-8）
@@ -23,7 +26,7 @@
 
 ## 動作環境
 
-- Android 8.0以上（ダイナミックカラーはAndroid 12以上、すべてのファイルへのアクセスはAndroid 11以上、アプリ別の表示言語はAndroid 13以上。Android 11以前の通常の出力は192 kHzまで）
+- Android 6.0以上（Android 6.0〜7.1は試験的な対応。ダイナミックカラーはAndroid 12以上、すべてのファイルへのアクセスはAndroid 11以上、アプリ別の表示言語はAndroid 13以上。Android 11以前の通常の出力は192 kHzまで）
 - USB OTG（USBホスト）に対応した端末
 - USB接続の光学ドライブ（Bulk-Only Transport対応のもの。動作確認: Pioneer BDR-XS07JL）
 - スマートフォンからの給電で動かないドライブには、セルフパワーのUSBハブを使ってください
@@ -85,11 +88,18 @@ keyAlias=ucrt
 keyPassword=********
 ```
 
+## キャスト（試験的）について
+
+- キャスト先のテレビなどに表示される画面は、Googleが用意している標準の受信画面（Default Media Receiver）です。ジャケット・曲名・アーティスト・アルバム名・再生位置が表示されますが、並びや色はUCRTからは変えられず、機器やGoogle側の更新によって変わります。
+- UCRT専用の受信画面を作れば見た目を自由に決められますが、そのためにはGoogle Castの開発者登録（登録料5米ドル、一度だけ）が必要です。キャストはまだ試験的な機能のため、専用の受信画面は作っていません。
+
 ## 通信とプライバシー
 
 インターネットに接続するのは、曲情報とジャケット画像を取得するときだけです（MusicBrainzとCover Art Archive）。送信するのは、CDの目次から計算したディスクIDと、検索欄に入力した文字だけです。利用状況の収集や広告はありません。
 
-「通知へのアクセス」を許可した場合も、使うのはほかの音楽アプリの再生状態（曲名・ジャケット・再生位置）だけで、通知の内容は読み取りません。この情報が端末の外に送られることもありません。
+「通知へのアクセス」を許可した場合も、使うのはほかの音楽アプリの再生状態（曲名・ジャケット・再生位置）だけで、通知の内容は読み取りません。この情報が端末の外に送られることもありません。ジャケットを高画質で表示するために、そのアプリが示した画像のURL（各サービスの画像サーバー）から画像を読み込むことがあります。
+
+キャストを使うときは、Chromecastが曲を読み込めるよう、再生する曲とジャケットだけを、同じネットワークに推測できないURLで一時的に公開します（端末の中の小さなHTTPサーバー）。キャストをやめると公開も終わります。
 
 ### 「通知へのアクセス」を許可できないとき
 
@@ -97,7 +107,7 @@ Android 13以降では、Google Play以外（GitHubなど）からインスト�
 
 1. 端末の設定で「アプリ」→「UCRT」を開く
 2. 右上の「︙」をタップし、「制限付き設定を許可」を選ぶ
-3. UCRTの「設定」→「表示」→「ほかの音楽アプリ」から、もう一度「許可する」を押す
+3. UCRTの「設定」→「再生画面」→「ほかの音楽アプリ」から、もう一度「許可する」を押す
 
 ### 商標について
 
@@ -125,10 +135,12 @@ UCRT turns an Android phone and a USB optical drive into a CD ripper and player.
 - CUE sheet support (one WAV / FLAC file split into tracks)
 - Full-screen player with ambient mode and audio format details, direct CD playback and lock screen controls
 - Tag editing for ripped and existing files
+- Sound check: collect reference tracks for comparing gear and settings, as easily as adding favorites
+- Cast (experimental): play on a Chromecast or other Google Cast device on the same Wi-Fi network (ALAC, AIFF, WavPack and APE are sent as WAV; DSD and direct CD playback can't be cast). The TV shows Google's standard receiver screen; a custom UCRT receiver would require a Google Cast developer registration (a one-time US$5 fee), so it hasn't been made while casting is experimental
 - Shows and controls what's playing in other music apps such as Spotify, Qobuz and Amazon Music (requires notification access; the audio still plays from that app through Android). On Android 13 or later, apps installed from outside Google Play need "Allow restricted settings" in App info before notification access can be turned on
 
 To build it yourself, run `./gradlew assembleRelease` (JDK 17 and the Android SDK are required). Unit tests run with `./gradlew testDebugUnitTest`, and GitHub Actions runs them on every push and pull request. The latest source is on the `main` branch.
 
-Requires Android 8.0 or later and a device with USB OTG support. Licensed under GPL-3.0.
+Requires Android 6.0 or later (Android 6.0–7.1 support is experimental) and a device with USB OTG support. Licensed under GPL-3.0.
 
 Spotify, Qobuz, Amazon Music, YouTube Music and other service names mentioned here are trademarks of their respective owners. UCRT is not affiliated with or endorsed by these services.

@@ -268,8 +268,9 @@ class Library(private val ctx: Context) {
         next: MutableList<String>,
     ) {
         fun addCue(id: String) {
-            cues.computeIfAbsent(docId) { java.util.Collections.synchronizedList(ArrayList()) }
-                .add(DocumentsContract.buildDocumentUriUsingTree(tree, id).toString())
+            // (computeIfAbsent は Android 7.0 からなので使わない)
+            val list = cues[docId] ?: java.util.Collections.synchronizedList(ArrayList<String>()).let { cues.putIfAbsent(docId, it) ?: it }
+            list.add(DocumentsContract.buildDocumentUriUsingTree(tree, id).toString())
         }
         // 「すべてのファイルへのアクセス」があれば、フォルダの中身をファイルから直接読む(URI は同じものを作る)
         if (StorageAccess.isExternalTree(tree)) {
@@ -658,7 +659,11 @@ object ArtLoader {
         return null
     }
 
-    fun load(ctx: Context, key: String, trackUri: String?, coverUri: String?, size: Int = BUCKETS.last()): ImageBitmap? {
+    /**
+     * fallbackUri: 曲ごとのジャケットを読むとき、その曲に画像が埋め込まれていなければ代わりに使う曲(アルバムの最初の曲)。
+     * フォルダの画像より先に試す
+     */
+    fun load(ctx: Context, key: String, trackUri: String?, coverUri: String?, size: Int = BUCKETS.last(), fallbackUri: String? = null): ImageBitmap? {
         val b = bucketOf(size)
         for (x in BUCKETS) if (x >= b) cache.get("$key@$x")?.let { return it }
         synchronized(misses) { if (key in misses) return null }
@@ -667,7 +672,7 @@ object ArtLoader {
         gate.acquire()
         try {
             cache.get("$key@$b")?.let { return it }
-            return loadNow(ctx, key, trackUri, coverUri, b)
+            return loadNow(ctx, key, trackUri, coverUri, b, fallbackUri)
         } finally {
             gate.release()
         }
@@ -680,7 +685,7 @@ object ArtLoader {
         return File(dir, "${h}_$b.jpg")
     }
 
-    private fun loadNow(ctx: Context, key: String, trackUri0: String?, coverUri: String?, b: Int): ImageBitmap? {
+    private fun loadNow(ctx: Context, key: String, trackUri0: String?, coverUri: String?, b: Int, fallbackUri: String? = null): ImageBitmap? {
         // 一覧用の小さな画像は、保存したものがあればそれを使う
         if (b <= DISK_MAX) {
             val f = diskFile(ctx, key, b)
@@ -692,7 +697,8 @@ object ArtLoader {
         }
         var failed = false
         val bytes = try {
-            sourceBytes(ctx, trackUri0, coverUri)
+            sourceBytes(ctx, trackUri0, null) ?: fallbackUri?.takeIf { it != trackUri0 }?.let { sourceBytes(ctx, it, null) }
+                ?: sourceBytes(ctx, null, coverUri)
         } catch (e: Exception) {
             failed = true
             null

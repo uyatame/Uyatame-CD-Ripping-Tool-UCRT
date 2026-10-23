@@ -47,12 +47,14 @@ object SoundPage {
     const val DAR = 2
     const val OUTPUT = 3
     const val DSD = 4
+    const val RG = 5
 
     fun title(p: Int): String = when (p) {
         EQ -> S(R.string.equalizer)
         DAR -> "DAR"
         OUTPUT -> S(R.string.usb_dac_direct_output)
         DSD -> S(R.string.dsd_playback)
+        RG -> "ReplayGain"
         else -> S(R.string.sound_settings)
     }
 }
@@ -63,15 +65,18 @@ fun SoundSubPage(vm: MainViewModel, s: AppSettings, page: Int) {
     when (page) {
         SoundPage.EQ -> EqualizerPanel(vm, s)
         SoundPage.DAR -> DarPanel(vm, s)
-        SoundPage.OUTPUT -> BitPerfectPanel(vm, s)
+        SoundPage.OUTPUT -> {
+            BitPerfectPanel(vm, s)
+            DacKeepAliveSection(vm, s)
+        }
         SoundPage.DSD -> DsdPanel(vm, s)
+        SoundPage.RG -> ReplayGainPanel(vm, s)
     }
 }
 
 private fun eqSummary(s: AppSettings): String = when {
     !s.eqEnabled -> S(R.string.off)
-    else -> EqBands.PRESETS.getOrNull(s.eqPreset)?.let { it.label() }
-        ?: S(R.string.custom_bands, s.eqBandList.size)
+    else -> (if (s.eqMode == 1) "PRO · " else "") + (eqPresetName(s) ?: S(R.string.custom))
 }
 
 private fun darSummary(s: AppSettings): String = when (s.darMode) {
@@ -79,6 +84,12 @@ private fun darSummary(s: AppSettings): String = when (s.darMode) {
         listOf(S(R.string.dac_max), "×2", "×4", "×8", "×16").getOrElse(s.darPcm) { "" }
     2 -> S(R.string.convert_to_dsd) + " · " + listOf("DSD64", "DSD128", "DSD256").getOrElse(s.darDsd) { "" }
     else -> S(R.string.off)
+}
+
+private fun rgSummary(s: AppSettings): String = when {
+    !s.rgEnabled -> S(R.string.off)
+    else -> (if (s.rgMode == 1) S(R.string.rg_album) else S(R.string.rg_track)) +
+        (if (s.rgPreamp != 0) " · " + (if (s.rgPreamp > 0) "+" else "") + "${s.rgPreamp} dB" else "")
 }
 
 private fun dsdSummary(s: AppSettings): String = when (s.dsdMode) {
@@ -117,6 +128,13 @@ fun SoundMain(vm: MainViewModel, s: AppSettings, onOpen: (Int) -> Unit) {
             checked = s.darMode != 0, enabled = !direct,
             onToggle = { vm.set(Keys.darMode, if (it) 1 else 0) },
             onOpen = { onOpen(SoundPage.DAR) },
+        )
+        HorizontalDivider()
+        SoundRow(
+            "ReplayGain", S(R.string.evens_out_loudness) + " · " + rgSummary(s),
+            checked = s.rgEnabled, enabled = !direct,
+            onToggle = { vm.set(Keys.rgEnabled, it) },
+            onOpen = { onOpen(SoundPage.RG) },
         )
         if (direct) {
             Text(

@@ -43,7 +43,10 @@ object StorageAccess {
         val ctx = app
         if (ctx != null) {
             val sm = ctx.getSystemService(StorageManager::class.java)
-            val v = runCatching { sm.storageVolumes }.getOrNull()?.firstOrNull { it.uuid.equals(volId, ignoreCase = true) }
+            // 保存場所の一覧は Android 7.0 から
+            val v = if (android.os.Build.VERSION.SDK_INT >= 24) {
+                runCatching { sm.storageVolumes }.getOrNull()?.firstOrNull { it.uuid.equals(volId, ignoreCase = true) }
+            } else null
             if (v != null) {
                 val desc = runCatching { v.getDescription(ctx) }.getOrNull()?.trim().orEmpty()
                 if (desc.isNotEmpty()) return desc

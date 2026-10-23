@@ -63,6 +63,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -160,7 +161,7 @@ private fun rememberArt(vm: MainViewModel, item: PlayItem): ImageBitmap? {
         // 一覧で読んだ小さな画像があれば先に出し、再生画面用の元の大きさの画像に差し替える
         value = ArtLoader.peek(k)
         if (k != null) {
-            value = kotlinx.coroutines.runInterruptible(Dispatchers.IO) { ArtLoader.load(ctx, k, item.artTrackUri, item.artCoverUri) } ?: value
+            value = kotlinx.coroutines.runInterruptible(Dispatchers.IO) { ArtLoader.load(ctx, k, item.artTrackUri, item.artCoverUri, fallbackUri = item.artFallbackUri) } ?: value
         }
     }
     return img
@@ -291,6 +292,8 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
     var showTimer by remember { mutableStateOf(false) }
     var showGuide by remember { mutableStateOf(false) }
     var savingQueue by remember { mutableStateOf(false) }
+    var showCast by remember { mutableStateOf(false) }
+    if (showCast) CastSheet { showCast = false }
     if (showSound) AudioSettingsSheet(vm, s) { showSound = false }
     if (showOutput) OutputDeviceSheet(vm, s) { showOutput = false }
     if (showVolume) VolumeSheet(vm, { showVolume = false })
@@ -347,6 +350,14 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                             }
                         }
                     }
+                    // キャスト(Chromecast)
+                    val castTo = com.uyatame.ucrt.player.cast.CastManager.connected
+                    IconButton({ showCast = true }) {
+                        Icon(
+                            if (castTo != null) AppIcons.CastConnected else AppIcons.Cast, S(R.string.cast_title),
+                            tint = if (castTo != null) col.accent else col.content,
+                        )
+                    }
                     Box {
                         IconButton({ menu = true }) { Icon(Icons.Filled.MoreVert, S(R.string.menu), tint = col.content) }
                         DropdownMenu(menu, { menu = false }) {
@@ -383,6 +394,17 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                                     text = { Text(S(R.string.add_to_playlist_2)) },
                                     leadingIcon = { Icon(AppIcons.PlaylistAdd, null) },
                                     onClick = { menu = false; vm.playlistPick = listOf(lib.uri) },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(S(R.string.select_multiple_add_to_playlist)) },
+                                    leadingIcon = { Icon(Icons.Filled.CheckCircle, null) },
+                                    onClick = { menu = false; vm.startSelection(lib.uri) },
+                                )
+                                val check = vm.store.isCheck(lib.uri)
+                                DropdownMenuItem(
+                                    text = { Text(if (check) S(R.string.remove_from_sound_check) else S(R.string.add_to_sound_check)) },
+                                    leadingIcon = { Icon(AppIcons.Headphones, null) },
+                                    onClick = { menu = false; vm.toggleCheck(lib.uri) },
                                 )
                             }
                             DropdownMenuItem(
@@ -520,76 +542,34 @@ private fun PlayerPage(
                 )
             }
             Spacer(Modifier.height(if (compact) 2.dp else 6.dp))
-            // ---- 出力先・ビットパーフェクト・EQ ----
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val chipColors = if (col.ambient) {
-                    FilterChipDefaults.filterChipColors(labelColor = col.sub, selectedLabelColor = Color.Black, selectedContainerColor = col.accent)
-                } else FilterChipDefaults.filterChipColors()
-                val outDev = AudioEngine.output
-                FilterChip(
-                    selected = false,
-                    onClick = onOutput,
-                    label = { Text(outDev?.name ?: S(R.string.output), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    leadingIcon = {
-                        Icon(
-                            outputIcon(outDev?.kind ?: OutputKind.Auto), null,
-                            Modifier.size(18.dp), tint = if (col.ambient) col.sub else MaterialTheme.colorScheme.primary,
-                        )
-                    },
-                    colors = chipColors,
-                    border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = false),
-                    modifier = Modifier.widthIn(max = 180.dp),
-                )
-                val border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = true)
-                // 状態の表示は、実際にその状態のときだけ出す
-                val perfect = AudioEngine.bitPerfectActive
-                if (perfect) {
-                    FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_bit_perfect)) }, colors = chipColors, border = border)
-                } else if (s.sourceDirect) {
-                    FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_source_direct)) }, colors = chipColors, border = border)
-                }
-                if (!perfect && !s.sourceDirect && s.eqEnabled) {
-                    val name = EqBands.PRESETS.getOrNull(s.eqPreset)?.let { it.label() } ?: S(R.string.custom)
-                    FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_eq, name)) }, colors = chipColors, border = border)
-                }
-                // 音質設定を開く(いつでも開けるように、アイコンだけのボタン)
-                FilterChip(
-                    selected = false,
-                    onClick = onSound,
-                    label = { Icon(AppIcons.Tune, S(R.string.sound_settings), Modifier.size(18.dp)) },
-                    colors = chipColors,
-                    border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = false),
-                )
-            }
-            // ---- DAR が効いているときの中身(変換の方法と、実際に送っている周波数・ビットレート) ----
-            AudioEngine.darInfo.takeIf { it.isNotEmpty() }?.let { dar ->
-                Spacer(Modifier.height(if (compact) 2.dp else 6.dp))
-                Text(
-                    dar, style = MaterialTheme.typography.labelMedium, color = col.accent,
-                    maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onSound).padding(horizontal = 8.dp, vertical = 2.dp),
-                )
-            }
-            // 設定どおりにできなかったとき(整数倍だけの設定で、出力先に合わせて整数倍でない変換をしているなど)や、
-            // DSD を最大音量で出しているときの注意
-            AudioEngine.darWarn.takeIf { it.isNotEmpty() }?.let { w ->
-                Text(
-                    w, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error,
-                    maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 8.dp),
-                )
-            }
+            // ---- 出力先・ビットパーフェクト・EQ・DAR ----
+            SoundStatus(s, col, compact, onOutput, onSound)
             Spacer(Modifier.height(if (compact) 4.dp else 10.dp))
             // ---- 曲名(タップでアルバム・アーティストへ)とお気に入り ----
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 val fav = lib != null && vm.store.isFav(lib.uri)
-                IconButton({ lib?.let { vm.toggleFav(it.uri) } }, enabled = lib != null) {
-                    Icon(
-                        if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                        if (fav) S(R.string.remove_from_favorites) else S(R.string.add_to_favorites),
-                        tint = when { lib == null -> col.sub.copy(alpha = 0.3f); fav -> col.accent; else -> col.sub },
-                    )
+                // 音質チェックに入れる・外す(お気に入りと同じように 1 回押すだけ)
+                val check = lib != null && vm.store.isCheck(lib.uri)
+                val marks: @Composable () -> Unit = {
+                    IconButton({ lib?.let { vm.toggleFav(it.uri) } }, enabled = lib != null) {
+                        Icon(
+                            if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                            if (fav) S(R.string.remove_from_favorites) else S(R.string.add_to_favorites),
+                            tint = when { lib == null -> col.sub.copy(alpha = 0.3f); fav -> col.accent; else -> col.sub },
+                        )
+                    }
+                    IconButton({ lib?.let { vm.toggleCheck(it.uri) } }, enabled = lib != null) {
+                        Icon(
+                            AppIcons.Headphones,
+                            if (check) S(R.string.remove_from_sound_check) else S(R.string.add_to_sound_check),
+                            tint = when { lib == null -> col.sub.copy(alpha = 0.3f); check -> col.accent; else -> col.sub },
+                        )
+                    }
                 }
+                // 曲名が真ん中に来るように、左右のボタンの幅をそろえる:
+                // 通常はお気に入りと音質チェックを縦に重ねる(右の歌詞ボタンと同じ幅)。
+                // 高さに余裕がない画面では横に並べ、右にも同じ幅の空きを作る
+                if (compact) marks() else Column { marks() }
                 var related by remember { mutableStateOf(false) }
                 Box(Modifier.weight(1f)) {
                     Column(
@@ -627,6 +607,7 @@ private fun PlayerPage(
                         }
                     }
                 }
+                if (compact) Spacer(Modifier.width(48.dp))
                 IconButton(onToggleLyrics) {
                     Icon(
                         AppIcons.Lyrics, if (showLyrics) S(R.string.hide_lyrics) else S(R.string.show_lyrics),
@@ -731,6 +712,76 @@ private fun PlayerPage(
     }
 }
 
+/**
+ * 出力先・ビットパーフェクト・イコライザーのチップと、DAR の中身・注意の表示。
+ * 再生画面と、ほかのアプリの音を UCRT で鳴らしているときの画面で使う
+ */
+@Composable
+private fun SoundStatus(s: AppSettings, col: PlayerColors, compact: Boolean, onOutput: () -> Unit, onSound: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // ---- 出力先・ビットパーフェクト・EQ ----
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val chipColors = if (col.ambient) {
+                FilterChipDefaults.filterChipColors(labelColor = col.sub, selectedLabelColor = Color.Black, selectedContainerColor = col.accent)
+            } else FilterChipDefaults.filterChipColors()
+            val outDev = AudioEngine.output
+            val castTo = com.uyatame.ucrt.player.cast.CastManager.connected
+            FilterChip(
+                selected = false,
+                onClick = onOutput,
+                label = { Text(castTo?.name ?: outDev?.name ?: S(R.string.output), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                leadingIcon = {
+                    Icon(
+                        if (castTo != null) AppIcons.CastConnected else outputIcon(outDev?.kind ?: OutputKind.Auto), null,
+                        Modifier.size(18.dp), tint = if (col.ambient) col.sub else MaterialTheme.colorScheme.primary,
+                    )
+                },
+                colors = chipColors,
+                border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = false),
+                modifier = Modifier.widthIn(max = 180.dp),
+            )
+            val border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = true)
+            // 状態の表示は、実際にその状態のときだけ出す
+            val perfect = AudioEngine.bitPerfectActive
+            if (perfect) {
+                FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_bit_perfect)) }, colors = chipColors, border = border)
+            } else if (s.sourceDirect) {
+                FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_source_direct)) }, colors = chipColors, border = border)
+            }
+            if (!perfect && !s.sourceDirect && s.eqEnabled) {
+                val name = eqPresetName(s) ?: S(R.string.custom)
+                FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_eq, name)) }, colors = chipColors, border = border)
+            }
+            // 音質設定を開く(いつでも開けるように、アイコンだけのボタン)
+            FilterChip(
+                selected = false,
+                onClick = onSound,
+                label = { Icon(AppIcons.Tune, S(R.string.sound_settings), Modifier.size(18.dp)) },
+                colors = chipColors,
+                border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = false),
+            )
+        }
+        // ---- DAR が効いているときの中身(変換の方法と、実際に送っている周波数・ビットレート) ----
+        AudioEngine.darInfo.takeIf { it.isNotEmpty() }?.let { dar ->
+            Spacer(Modifier.height(if (compact) 2.dp else 6.dp))
+            Text(
+                dar, style = MaterialTheme.typography.labelMedium, color = col.accent,
+                maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onSound).padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        }
+        // 設定どおりにできなかったとき(整数倍だけの設定で、出力先に合わせて整数倍でない変換をしているなど)や、
+        // DSD を最大音量で出しているときの注意
+        AudioEngine.darWarn.takeIf { it.isNotEmpty() }?.let { w ->
+            Text(
+                w, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error,
+                maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+        }
+    }
+}
+
 /** 再生位置のバーと時刻。再生位置を読むのはここだけ(0.25 秒ごとに描き直すのを、この部分だけにする) */
 @Composable
 private fun SeekBar(
@@ -773,7 +824,11 @@ private fun SwipeCover(
     val prevNow by rememberUpdatedState(onPrev)
     val nextNow by rememberUpdatedState(onNext)
     Box(
-        Modifier.widthIn(max = 460.dp).aspectRatio(1f, matchHeightConstraintsFirst = true)
+        // 画像の縦横の比率のまま出す(正方形に切り抜かない。8cm CD の短冊ジャケット(約 1:2.5)も収まるよう、1:3〜3:1 まで)
+        Modifier.widthIn(max = 460.dp).aspectRatio(
+            art?.let { (it.width.toFloat() / it.height.coerceAtLeast(1)).coerceIn(0.33f, 3f) } ?: 1f,
+            matchHeightConstraintsFirst = true,
+        )
             .onSizeChanged { width = it.width.coerceAtLeast(1) }
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
@@ -1272,14 +1327,22 @@ fun ExternalPlayerScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit)
                         S(R.string.playing_in_app, n.appName), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                     )
-                    IconButton({ ext.openApp(ctx) }) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, S(R.string.open_app, n.appName), tint = col.content)
+                    var menu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton({ menu = true }) { Icon(Icons.Filled.MoreVert, S(R.string.menu), tint = col.content) }
+                        DropdownMenu(menu, { menu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(S(R.string.open_app, n.appName)) },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null) },
+                                onClick = { menu = false; ext.openApp(ctx) },
+                            )
+                        }
                     }
                 }
                 var drag by remember { mutableStateOf(0f) }
                 BoxWithConstraints(
                     Modifier.weight(1f).fillMaxWidth().pointerInput(Unit) {
-                        // 下へスワイプで閉じる
+                        // 下へスワイプで閉じる(いつもの再生画面と同じ)
                         detectVerticalDragGestures(
                             onDragEnd = {
                                 if (drag > 220f) onClose()
@@ -1310,20 +1373,22 @@ fun ExternalPlayerScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit)
                         val chipColors = if (col.ambient) {
                             FilterChipDefaults.filterChipColors(labelColor = col.sub)
                         } else FilterChipDefaults.filterChipColors()
-                        FilterChip(
-                            selected = false,
-                            onClick = { ext.openApp(ctx) },
-                            label = { Text(n.appName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            leadingIcon = {
-                                Icon(
-                                    AppIcons.MusicNote, null, Modifier.size(18.dp),
-                                    tint = if (col.ambient) col.sub else MaterialTheme.colorScheme.primary,
-                                )
-                            },
-                            colors = chipColors,
-                            border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = false),
-                            modifier = Modifier.widthIn(max = 220.dp),
-                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            FilterChip(
+                                selected = false,
+                                onClick = { ext.openApp(ctx) },
+                                label = { Text(n.appName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                leadingIcon = {
+                                    Icon(
+                                        AppIcons.MusicNote, null, Modifier.size(18.dp),
+                                        tint = if (col.ambient) col.sub else MaterialTheme.colorScheme.primary,
+                                    )
+                                },
+                                colors = chipColors,
+                                border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = false),
+                                modifier = Modifier.widthIn(max = 180.dp),
+                            )
+                        }
                         Spacer(Modifier.height(if (compact) 4.dp else 10.dp))
                         // ---- 曲名 ----
                         Text(

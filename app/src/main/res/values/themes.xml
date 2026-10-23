@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Android 8.0 からあるテーマ(画面は Compose で描くので、窓の基本の色だけ)。ダークモードは values-night -->
+    <!-- 画面は Compose で描くので、窓の基本の色だけ。ダークモードは values-night -->
     <style name="Theme.UCRT" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
