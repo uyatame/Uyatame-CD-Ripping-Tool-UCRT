@@ -19,9 +19,9 @@ android {
         // Android 6.0 から(Android 6.0・7.x は試験的な対応)
         minSdk = 23
         targetSdk = 36
-        versionCode = 43
+        versionCode = 44
         // 次にリリースする版。テスト用のビルド(tools/termux-build.sh)では、後ろに ".test<テスト版>" が付く
-        versionName = "0.5.2" + (findProperty("testVersion")?.let { ".test$it" } ?: "")
+        versionName = "0.6.0" + (findProperty("testVersion")?.let { ".test$it" } ?: "")
     }
 
     // 公開用の署名鍵。keystore.properties(Git には含めない)があればそれで署名し、無ければデバッグ鍵で署名する
