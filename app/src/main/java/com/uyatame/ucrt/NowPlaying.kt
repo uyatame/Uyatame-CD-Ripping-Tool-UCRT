@@ -170,7 +170,7 @@ private fun rememberArt(vm: MainViewModel, item: PlayItem): ImageBitmap? {
 /**
  * ジャケットの代表色。鮮やかな色を重く数えて平均し、背景に使いやすい明るさにそろえる。
  */
-private fun dominantColor(img: ImageBitmap): Color {
+internal fun dominantColor(img: ImageBitmap): Color {
     val src = img.asAndroidBitmap()
     val small = Bitmap.createScaledBitmap(src, 24, 24, true)
     val hsv = FloatArray(3)
@@ -240,12 +240,13 @@ private fun rememberTint(art: ImageBitmap?): Color {
  * 一時停止中は dim の分だけ暗くする。オフのときは上の方を薄く色付けする
  */
 @Composable
-private fun PlayerBackground(ambient: Boolean, blur: Boolean, art: ImageBitmap?, tint: Color, dim: Float) {
+private fun PlayerBackground(ambient: Boolean, blur: Boolean, blurLevel: Int, art: ImageBitmap?, tint: Color, dim: Float) {
     if (ambient) {
         if (art != null) {
             // ぼかさない設定では、ぼかしに対応していない端末(Android 11 以前)と同じく、そのまま薄く敷く
             Image(
-                art, null, if (blur) Modifier.fillMaxSize().blur(70.dp) else Modifier.fillMaxSize(),
+                // ぼかしの強さは設定で 1〜10(1 段階で半径 14dp。5 が以前と同じ 70dp)
+                art, null, if (blur) Modifier.fillMaxSize().blur((blurLevel * 14).dp) else Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop, alpha = 0.85f,
             )
         }
@@ -314,7 +315,7 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
 
     // 下にある画面へタッチが抜けないよう、空の pointerInput で受け止める
     Box(Modifier.fillMaxSize().background(if (ambient) Color.Black else MaterialTheme.colorScheme.surface).pointerInput(Unit) {}) {
-        PlayerBackground(ambient, s.ambientBlur, art, tint, dim)
+        PlayerBackground(ambient, s.ambientBlur, s.ambientBlurLevel, art, tint, dim)
         CompositionLocalProvider(LocalContentColor provides col.content) {
             // 横向きでは、カメラの切り欠きが左右に来るので、そこも避ける
             val bars = when {
@@ -1315,7 +1316,7 @@ fun ExternalPlayerScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit)
     val dur = n.durationMs.coerceAtLeast(1)
 
     Box(Modifier.fillMaxSize().background(if (ambient) Color.Black else MaterialTheme.colorScheme.surface).pointerInput(Unit) {}) {
-        PlayerBackground(ambient, s.ambientBlur, art, tint, dim)
+        PlayerBackground(ambient, s.ambientBlur, s.ambientBlurLevel, art, tint, dim)
         CompositionLocalProvider(LocalContentColor provides col.content) {
             val bars = if (isLandscape()) Modifier.windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
             else Modifier.systemBarsPadding()

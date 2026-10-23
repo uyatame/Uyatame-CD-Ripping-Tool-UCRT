@@ -1,4 +1,5 @@
 import java.net.URI
+import java.security.MessageDigest
 import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -57,6 +58,30 @@ kotlin {
     compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
 }
 
+// Spotify App Remote SDK(https://github.com/spotify/android-sdk のリリース v0.8.0)
+val spotifyAarName = "spotify-app-remote-release-0.8.0.aar"
+val spotifyAarUrl = "https://github.com/spotify/android-sdk/releases/download/v0.8.0-appremote_v2.1.0-auth/$spotifyAarName"
+val spotifyAarSha256 = "b5a6dd880eaf01f63a871cba9ef7af77c341f8a94ffc8fdf2e9021f9a9d4c198"
+val spotifyAar = layout.buildDirectory.file("spotify/$spotifyAarName")
+
+fun sha256Hex(b: ByteArray): String =
+    MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
+
+val fetchSpotifySdk = tasks.register("fetchSpotifySdk") {
+    val out = spotifyAar
+    outputs.file(out)
+    doLast {
+        val f = out.get().asFile
+        if (f.exists() && sha256Hex(f.readBytes()) == spotifyAarSha256) return@doLast
+        logger.lifecycle("Spotify App Remote SDK を取得: $spotifyAarUrl")
+        val bytes = downloadText(spotifyAarUrl)
+        val got = sha256Hex(bytes)
+        check(got == spotifyAarSha256) { "Spotify App Remote SDK の SHA-256 が一致しません: $got" }
+        f.parentFile.mkdirs()
+        f.writeBytes(bytes)
+    }
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.10.1")
@@ -72,6 +97,13 @@ dependencies {
     implementation("de.sciss:jump3r:1.0.5")
     // USB DAC 直接出力: usbfs の ioctl を呼ぶために使う JNA(Apache-2.0 / LGPL-2.1 のデュアルライセンス。Apache-2.0 を選択)
     implementation("net.java.dev.jna:jna:5.14.0@aar")
+    // Spotify: 公式 Spotify アプリでの再生を操作する App Remote SDK(Apache-2.0)。Maven で配られていないので、
+    // ビルド時に GitHub のリリースから取得して、ファイルの SHA-256 を確かめてから使う(リポジトリには入れない)
+    implementation(files(spotifyAar).builtBy(fetchSpotifySdk))
+    // Spotify へのログイン(Apache-2.0)。Spotify アプリが入っていれば Spotify アプリで許可するので、App Remote も使えるようになる
+    implementation("com.spotify.android:auth:5.0.0")
+    // App Remote SDK が Spotify アプリとのやり取りに使う JSON ライブラリ(Apache-2.0)
+    implementation("com.google.code.gson:gson:2.10.1")
 
     // 単体テスト(PC 上で動かす。内蔵デコーダーや文言のリソースなどを確かめる)
     testImplementation("junit:junit:4.13.2")

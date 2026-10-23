@@ -94,12 +94,16 @@ data class AppSettings(
     val trackArt: Boolean = true,
     /** ほかの音楽アプリ(ストリーミングサービスなど)の再生を表示・操作する(「通知へのアクセス」の許可も要る) */
     val externalMedia: Boolean = true,
+    /** ストリーミングのタブで Spotify の機能(ログインしてライブラリを探し、公式 Spotify アプリで再生)を使う */
+    val spotifyEnabled: Boolean = false,
     /** USB DAC 直接出力の音切れ対策(試験的。端末の省電力で転送が遅れるのを防ぐ) */
     val usbStabilize: Boolean = true,
     /** DAC を常に起こしておく(ほかのアプリの再生にも効く。試験的) */
     val dacKeepAlive: Boolean = false,
     /** 起こしておく機器: 0 = 自動、1 = USB DAC、2 = イヤホン端子 */
     val dacKeepAliveTarget: Int = 0,
+    /** 背景のぼかしの強さ(1〜10。1 段階で半径 14dp。5 が以前と同じ 70dp) */
+    val ambientBlurLevel: Int = 5,
     val bitPerfect: Boolean = false,
     val usbDirect: Boolean = false,
     /** -1 = 自動(USB から音量を変えられる DAC は 50、変えられない DAC は 100) */
@@ -225,9 +229,11 @@ object Keys {
     val hideNavBar = booleanPreferencesKey("hideNavBar")
     val trackArt = booleanPreferencesKey("trackArt")
     val externalMedia = booleanPreferencesKey("externalMedia")
+    val spotifyEnabled = booleanPreferencesKey("spotifyEnabled")
     val usbStabilize = booleanPreferencesKey("usbStabilize")
     val dacKeepAlive = booleanPreferencesKey("dacKeepAlive")
     val dacKeepAliveTarget = intPreferencesKey("dacKeepAliveTarget")
+    val ambientBlurLevel = intPreferencesKey("ambientBlurLevel")
     val bitPerfect = booleanPreferencesKey("bitPerfect")
     val usbDirect = booleanPreferencesKey("usbDirect")
     val usbVolume = intPreferencesKey("usbVolume")
@@ -302,9 +308,11 @@ class SettingsRepository(private val context: Context) {
             hideNavBar = p[Keys.hideNavBar] ?: d.hideNavBar,
             trackArt = p[Keys.trackArt] ?: d.trackArt,
             externalMedia = p[Keys.externalMedia] ?: d.externalMedia,
+            spotifyEnabled = p[Keys.spotifyEnabled] ?: d.spotifyEnabled,
             usbStabilize = p[Keys.usbStabilize] ?: d.usbStabilize,
             dacKeepAlive = p[Keys.dacKeepAlive] ?: d.dacKeepAlive,
             dacKeepAliveTarget = p[Keys.dacKeepAliveTarget] ?: d.dacKeepAliveTarget,
+            ambientBlurLevel = (p[Keys.ambientBlurLevel] ?: d.ambientBlurLevel).coerceIn(1, 10),
             bitPerfect = p[Keys.bitPerfect] ?: d.bitPerfect,
             usbDirect = p[Keys.usbDirect] ?: d.usbDirect,
             usbVolume = p[Keys.usbVolume] ?: d.usbVolume,

@@ -28,13 +28,14 @@ import androidx.compose.ui.unit.dp
 import com.uyatame.ucrt.player.ExternalMedia
 
 /**
- * ほかの音楽アプリ(ストリーミングサービスなど)で再生中の曲。ライブラリの上に出し、タップで再生画面を開く
+ * ほかの音楽アプリ(ストリーミングサービスなど)で再生中の曲。ストリーミングのタブに出し、タップで再生画面を開く
+ * (onOpen を渡せば、その画面を開く。Spotify の機能を使っているときの Spotify の再生画面など)
  */
 @Composable
-fun ExternalNowPlayingCard(vm: MainViewModel, modifier: Modifier = Modifier) {
+fun ExternalNowPlayingCard(vm: MainViewModel, modifier: Modifier = Modifier, onOpen: (() -> Unit)? = null) {
     val n = ExternalMedia.now ?: return
     Surface(
-        onClick = { vm.externalPlayerOpen = true },
+        onClick = { if (onOpen != null) onOpen() else vm.externalPlayerOpen = true },
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.secondaryContainer,
         modifier = modifier.fillMaxWidth(),

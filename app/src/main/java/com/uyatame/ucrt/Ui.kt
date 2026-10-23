@@ -144,6 +144,7 @@ fun AppTheme(mode: Int, dynamic: Boolean, seed: Int, text: Int = 0, content: @Co
 @Composable
 fun App(vm: MainViewModel) {
     val s by vm.settings.collectAsState()
+    val sp: com.uyatame.ucrt.spotify.SpotifyViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     AppTheme(s.themeMode, s.dynamicColor, s.themeColor, s.textColor) {
         val view = LocalView.current
         val keep = vm.busy && s.keepScreenOn
@@ -159,6 +160,9 @@ fun App(vm: MainViewModel) {
         var tab by rememberSaveable { mutableIntStateOf(0) }
         var settingsPage by rememberSaveable { mutableIntStateOf(0) }
         var showPlayer by rememberSaveable { mutableStateOf(false) }
+        var showSpotifyPlayer by rememberSaveable { mutableStateOf(false) }
+        // ストリーミングのタブで Spotify の画面を開いているか
+        var spotifyOpen by rememberSaveable { mutableStateOf(false) }
         // 再生画面やメニューから「アルバムを表示」などを選んだら、ライブラリのタブへ
         var seenNav by remember { mutableIntStateOf(vm.libNavEvent) }
         LaunchedEffect(vm.libNavEvent) {
@@ -228,12 +232,19 @@ fun App(vm: MainViewModel) {
         val paneWidth = (conf.screenWidthDp * 0.36f).coerceIn(340f, 440f).dp
         // 全画面の再生画面(UCRT の曲・ほかのアプリの曲)を出しているか。出している間は、お知らせが再生画面に隠れないように上に重ねる
         val playerOverlay = (showPlayer && vm.player.current != null && !pane) ||
-            (vm.externalPlayerOpen && com.uyatame.ucrt.player.ExternalMedia.now != null)
+            (vm.externalPlayerOpen && com.uyatame.ucrt.player.ExternalMedia.now != null) ||
+            (showSpotifyPlayer && sp.hasTrack && s.spotifyEnabled)
         // ライブラリを表示中にもう一度押すと、ライブラリのトップへ戻る
-        val onTab: (Int) -> Unit = { t -> if (t == 0 && tab == 0) vm.libHome() else tab = t }
+        // (ストリーミングのタブも同じく、表示中にもう一度押すと、Spotify の中のトップ → ストリーミングのトップの順に戻る)
+        val onTab: (Int) -> Unit = { t ->
+            if (t == 0 && tab == 0) vm.libHome()
+            else if (t == TAB_STREAMING && tab == TAB_STREAMING) { if (spotifyOpen && sp.stack.isNotEmpty()) sp.home() else spotifyOpen = false }
+            else tab = t
+        }
         val tabs = listOf(
             Triple(AppIcons.Library, S(R.string.library), 0),
             Triple(AppIcons.Album, S(R.string.disc), 1),
+            Triple(AppIcons.Cloud, S(R.string.streaming), TAB_STREAMING),
             Triple(Icons.Filled.Settings, S(R.string.settings), 2),
         )
         CompositionLocalProvider(LocalTablet provides tablet, LocalShowArt provides s.listArt, LocalTrackArt provides s.trackArt) {
@@ -273,6 +284,8 @@ fun App(vm: MainViewModel) {
                 ) {
                     if (vm.busy) RipBar(vm) { tab = 1 }
                     if (vm.player.current != null && !pane) MiniPlayer(vm) { showPlayer = true }
+                    // Spotify アプリで再生中の曲(Spotify の機能を使っているとき。ストリーミングのタブでは、一時停止中でも出す)
+                    if (s.spotifyEnabled && sp.connected && sp.hasTrack && (tab == TAB_STREAMING || !sp.paused)) SpotifyBar(sp) { showSpotifyPlayer = true }
                     if (!land) {
                         NavigationBar {
                             tabs.forEach { (icon, label, i) ->
@@ -290,6 +303,7 @@ fun App(vm: MainViewModel) {
                     when (tab) {
                         0 -> LibraryScreen(vm, s)
                         1 -> CdScreen(vm, s) { tab = 2; settingsPage = 0 }
+                        TAB_STREAMING -> StreamingScreen(vm, sp, s, spotifyOpen, { spotifyOpen = it }) { showSpotifyPlayer = true }
                         else -> SettingsScreen(vm, s, settingsPage) { settingsPage = it }
                     }
                 }
@@ -321,6 +335,18 @@ fun App(vm: MainViewModel) {
         ) {
             ExternalPlayerScreen(vm, s) { vm.externalPlayerOpen = false }
         }
+        // Spotify アプリで再生中の曲の全画面表示(下のバーをタップすると開く)
+        AnimatedVisibility(
+            visible = showSpotifyPlayer && sp.hasTrack && s.spotifyEnabled,
+            enter = slideInVertically { it },
+            exit = slideOutVertically { it },
+        ) {
+            SpotifyNowPlaying(sp, s, onClose = { showSpotifyPlayer = false }) {
+                showSpotifyPlayer = false
+                tab = TAB_STREAMING
+                spotifyOpen = true
+            }
+        }
         if (playerOverlay) {
             SnackbarHost(
                 snackHost,
@@ -330,6 +356,15 @@ fun App(vm: MainViewModel) {
         }
         }
         GlobalSheets(vm)
+        SpotifyDialogs(sp)
+        // Spotify のお知らせ(つながらない・キューに追加したなど)も、画面の下に出す
+        LaunchedEffect(Unit) {
+            androidx.compose.runtime.snapshotFlow { sp.message }.collect { m ->
+                if (m == null) return@collect
+                sp.message = null
+                snackHost.showSnackbar(m, withDismissAction = true)
+            }
+        }
     }
 }
 
