@@ -30,7 +30,7 @@
     <string name="add_lrc_file_with_same">"曲と同じフォルダに同名の.lrcファイルを置くか、曲に歌詞を埋め込むと表示されます"</string>
     <string name="add_music_folder">"音楽フォルダを追加"</string>
     <string name="add_songs_with_heart_button">"再生画面のハートボタンか、曲の長押しメニューから追加できます"</string>
-    <string name="add_sound_check_hint">"再生画面のヘッドホンのボタン（お気に入りのハートの隣）や、曲の長押しメニューから追加できます。毎回同じ曲で聴き比べると、違いが分かりやすくなります。"</string>
+    <string name="add_sound_check_hint">"再生画面のヘッドホンのボタンや、曲の長押しメニューから追加できます。毎回同じ曲で聴き比べると、違いが分かりやすくなります。"</string>
     <string name="add_to_favorites">"お気に入りに追加"</string>
     <string name="add_to_playlist">"プレイリストに追加…"</string>
     <string name="add_to_playlist_2">"プレイリストに追加"</string>
@@ -428,6 +428,15 @@
     <string name="prevent_clipping">"音割れを防ぐ"</string>
     <string name="limits_gain_using_peak">"曲のピークの値を使って、大きな音が割れない範囲までしか上げません"</string>
     <string name="rg_notes">"ReplayGainの値がない曲は、そのまま再生します。FLAC・MP3・M4A（AAC / ALAC）・WavPack・APE・AIFF・WAV・DSFのタグを読みます。DSDの再生・DARのDSD変換・CDには使いません。音量を変えている間はビットパーフェクトになりません。ソースダイレクトがオンのときは使いません"</string>
+    <string name="rg_analysis">"ライブラリの解析"</string>
+    <string name="rg_analyzed_count">"解析済み: %1$d / %2$d 曲"</string>
+    <string name="rg_analyze_new">"まだ解析していない曲を解析"</string>
+    <string name="rg_analyze_all">"すべて解析し直す"</string>
+    <string name="rg_clear_analyzed">"解析した値を消す"</string>
+    <string name="rg_analysis_notes">"曲ごとの音の大きさ（EBU R128）を測り、曲ごと・アルバムごとのReplayGainの値を求めます。値はReplayGainのタグがない曲にだけ使い、曲のファイルは書き換えません。曲が多いと時間がかかるので、アプリを開いたままにしてください。DSDのファイルは解析しません"</string>
+    <string name="rg_all_analyzed">"すべての曲を解析済みです"</string>
+    <string name="rg_cannot_analyze">"%1$s を解析できませんでした: %2$s"</string>
+    <string name="rg_analysis_finished">"ReplayGainの解析: %1$d 曲を解析、%2$d 曲は失敗"</string>
     <string name="select_multiple_add_to_playlist">"複数選択してプレイリストに追加"</string>
     <string name="pick_any_color">"好きな色を選ぶ"</string>
     <string name="pick_any_color_desc">"見本にない色を、カラーピッカーで選べます"</string>
@@ -454,6 +463,11 @@
     <string name="streaming_spotify_desc">"Spotifyのライブラリを探して、公式Spotifyアプリで再生します"</string>
     <string name="streaming_spotify_note">"Spotify Premiumと、Spotify Developer Dashboardでの自分用のアプリの登録が必要です（手順は設定の画面に表示します）。音はSpotifyアプリから出るため、UCRTのUSB DAC直接出力・イコライザー・DARは使われません"</string>
     <string name="streaming_tap_to_open">"タップで開く"</string>
+    <string name="release_usb_dac">"USB DACを解放"</string>
+    <string name="release_usb_dac_desc">"再生を一時停止して、USB DACをAndroidに返します。ほかのアプリの音もUSB DACから出るようになります（UCRTで再生を始めると、またUCRTが使います）"</string>
+    <string name="usb_dac_released">"USB DACをAndroidに返しました"</string>
+    <string name="quit_app">"終了"</string>
+    <string name="quit_app_desc">"再生を止め、USB DACをAndroidに返して、アプリを完全に終了します"</string>
     <string name="most_played">"よく聴く曲"</string>
     <string name="moves_tabs_to_left_side">"タブを画面の左側に並べ、広い画面では再生画面をライブラリの右に表示したままにします。「自動」では、タブレットなど画面の大きい端末で有効になります。"</string>
     <string name="mp3_bitrate">"MP3ビットレート"</string>

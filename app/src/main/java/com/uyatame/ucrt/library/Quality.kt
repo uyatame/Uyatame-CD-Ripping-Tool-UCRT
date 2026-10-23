@@ -70,9 +70,33 @@ object Quality {
     /** アルバムの表記(曲ごとに違えばいちばん良いもの) */
     fun badge(a: LibAlbum): String = a.badge
 
-    internal fun albumBadge(tracks: List<LibTrack>): String {
-        val best = tracks.maxWithOrNull(compareBy<LibTrack>({ -classOf(it).ordinal }, { it.rate }, { it.bits })) ?: return ""
-        return badge(best)
+    internal fun albumBadge(tracks: List<LibTrack>): String = bestTrack(tracks)?.let { badge(it) }.orEmpty()
+
+    /** アルバムの中でいちばん良い曲(区分、周波数、ビット数の順に比べる) */
+    internal fun bestTrack(tracks: List<LibTrack>): LibTrack? =
+        tracks.maxWithOrNull(compareBy<LibTrack>({ -classOf(it).ordinal }, { it.rate }, { it.bits }))
+
+    /**
+     * 区分の中の細かい分類(音質別の 2 段目の絞り込み)。
+     * ハイレゾは "DSD256" や "96kHz/24bit"、CD音質と圧縮音源は形式("FLAC"、"AAC" など)
+     */
+    fun detail(t: LibTrack): String {
+        val c = codec(t)
+        if (classOf(t) != QualityClass.HiRes) return c
+        if (c == "DSD") return badge(t)
+        return listOfNotNull(
+            t.rate.takeIf { it > 0 }?.let { "${khz(it)}kHz" },
+            t.bits.takeIf { it > 0 }?.let { "${it}bit" },
+        ).joinToString("/").ifEmpty { c }
+    }
+
+    fun detail(a: LibAlbum): String = a.detail
+
+    /** 細かい分類の並び順: ハイレゾは DSD → PCM の、周波数・ビット数の高い順。形式は多い順(呼ぶ側で) */
+    fun detailOrder(a: LibAlbum): Long {
+        val t = a.best ?: return 0
+        val dsd = if (codec(t) == "DSD") 0L else 1L
+        return (dsd shl 40) - t.rate.toLong() * 64 - t.bits
     }
 
     fun label(q: QualityClass): String = when (q) {

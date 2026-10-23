@@ -85,7 +85,9 @@ internal class FlacDecoder(private val src: RandomInput) : PcmDecoder {
     private fun bits(n: Int): Int {
         if (n == 0) return 0
         while (accBits < n) {
-            acc = (acc shl 8) or nextByte().toLong()
+            // 読み込み済みの範囲なら、関数を呼ばずにその場で読む(1 サンプルごとに通るので)
+            val b = if (idx < bufLen) buf[idx++].toInt() and 0xFF else nextByte()
+            acc = (acc shl 8) or b.toLong()
             accBits += 8
         }
         accBits -= n
@@ -111,7 +113,7 @@ internal class FlacDecoder(private val src: RandomInput) : PcmDecoder {
         var q = 0
         while (true) {
             if (accBits == 0) {
-                acc = nextByte().toLong()
+                acc = (if (idx < bufLen) buf[idx++].toInt() and 0xFF else nextByte()).toLong()
                 accBits = 8
             }
             val v = acc and ((1L shl accBits) - 1)
@@ -337,7 +339,9 @@ internal class FlacDecoder(private val src: RandomInput) : PcmDecoder {
                 if (shift < 0) throw BadFrame("FLAC: negative LPC shift")
                 val coef = IntArray(order) { signed(precision).toInt() }
                 residual(out, n, order)
-                lpc(out, n, order, coef, shift)
+                // 値の範囲が 32bit に収まるとき(libFLAC と同じ判定)は、32bit の整数で計算する(32bit の CPU では 64bit の計算が遅い)
+                if (bps + precision + (31 - Integer.numberOfLeadingZeros(order)) <= 32) lpc32(out, n, order, coef, shift)
+                else lpc(out, n, order, coef, shift)
             }
             else -> throw BadFrame("FLAC: reserved subframe $type")
         }
@@ -376,6 +380,15 @@ internal class FlacDecoder(private val src: RandomInput) : PcmDecoder {
             2 -> for (i in 2 until n) x[i] += 2 * x[i - 1] - x[i - 2]
             3 -> for (i in 3 until n) x[i] += 3 * (x[i - 1] - x[i - 2]) + x[i - 3]
             4 -> for (i in 4 until n) x[i] += 4 * (x[i - 1] + x[i - 3]) - 6 * x[i - 2] - x[i - 4]
+        }
+    }
+
+    /** lpc と同じ計算を 32bit の整数で(合計が 32bit に収まると分かっているときだけ使う) */
+    private fun lpc32(x: IntArray, n: Int, order: Int, c: IntArray, shift: Int) {
+        for (i in order until n) {
+            var sum = 0
+            for (j in 0 until order) sum += c[j] * x[i - 1 - j]
+            x[i] += sum shr shift
         }
     }
 

@@ -1,6 +1,8 @@
 package com.uyatame.ucrt.player.usb
 
 import android.app.PendingIntent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -214,10 +216,17 @@ object UsbDac {
 
     private fun suppressNoisy() { ignoreNoisyUntil = SystemClock.elapsedRealtime() + 4000 }
 
+    /** 画面表示用: DAC を使っているか(active と同じ。画面が変化を受け取れるように) */
+    var inUse by androidx.compose.runtime.mutableStateOf(false)
+        private set
+
     private fun updateActive(v: Boolean) {
         if (active == v) return
         active = v
-        main.post { onActiveChanged?.invoke(v) }
+        main.post {
+            inUse = v
+            onActiveChanged?.invoke(v)
+        }
     }
 
     /**
@@ -697,10 +706,25 @@ object UsbDac {
 
     internal fun played(id: Int): Long = if (id == session) stream?.ring?.played ?: 0L else 0L
 
-    internal fun setPaused(id: Int, p: Boolean) { if (id == session) stream?.ring?.paused = p }
+    /**
+     * 止めたまま 30 秒たったら、音切れ対策(無音の再生・CPU を起こしておく・画面の描画のタイミング)をやめる。
+     * DAC へは無音を送り続けるので DAC は眠らず、再生を始めればまた対策をかける(止めている間に電池と CPU を使わないように)
+     */
+    private val stabilizerIdle = Runnable { if (stream?.ring?.paused != false) UsbStabilizer.stop() }
+
+    private fun pausedChanged(p: Boolean) {
+        main.removeCallbacks(stabilizerIdle)
+        if (p) main.postDelayed(stabilizerIdle, 30_000) else if (streaming) UsbStabilizer.start(app)
+    }
+
+    internal fun setPaused(id: Int, p: Boolean) {
+        if (id != session) return
+        stream?.ring?.paused = p
+        pausedChanged(p)
+    }
 
     internal fun end(id: Int) {
-        if (id == session) stream?.ring?.let { it.reset(); it.paused = true }
+        if (id == session) stream?.ring?.let { it.reset(); it.paused = true; pausedChanged(true) }
     }
 
     internal val streaming: Boolean get() = stream?.isAlive == true
@@ -737,11 +761,21 @@ object UsbDac {
             0L
         }
 
+        /** 書き手が空きを待っているか(読み手は、空きがまとまったときだけ起こす) */
+        private var writerWaiting = false
+
         fun write(src: ByteArray, n: Int, stop: () -> Boolean): Boolean {
             var off = 0
             while (off < n) {
                 synchronized(lk) {
-                    while (count == buf.size && !stop()) lk.wait(50)
+                    // 満杯のときは、1/8 秒分(か残り全部)の空きができるまで待つ。
+                    // 1 パケットずつ起こすと、毎秒数千回スレッドが切り替わって重い
+                    val need = min(n - off, buf.size / 8).coerceAtLeast(1)
+                    while (buf.size - count < need && !stop()) {
+                        writerWaiting = true
+                        lk.wait(50)
+                    }
+                    writerWaiting = false
                     if (stop()) return false
                     val k = min(n - off, buf.size - count)
                     val first = min(k, buf.size - w)
@@ -769,12 +803,15 @@ object UsbDac {
             if (k > first) dst.write(dstOff + first, buf, 0, k - first)
             r = (r + k) % buf.size
             count -= k
-            lk.notifyAll()
+            if (writerWaiting && buf.size - count >= buf.size / 8) lk.notifyAll()
             k
         }
     }
 
     /** USB への等時転送を回し続けるスレッド */
+    /** 速さの報告の桁を探す順(毎回配列を作らないように) */
+    private val FB_SHIFTS = intArrayOf(0, -1, 1, -2, 2, -3, 3, -4, 4)
+
     private class StreamThread(val fd: Int, val alt: UacAlt, val fmt: DacFormat, speed: Int) : Thread("usb-dac") {
         @Volatile private var stopping = false
         // 1 秒分(アップサンプリングや DSD 変換で計算が一瞬遅れても、途切れないように)
@@ -833,19 +870,17 @@ object UsbDac {
         }
 
         private fun fill(u: IsoUrb) {
-            var off = 0L
-            var real = 0
-            val ok = warmedUp()
+            // パケットごとの長さを先に決めて、リングからは URB 1 回分をまとめて取り出す(鍵の出し入れを URB ごとに 1 回にする)。
+            // 足りない分は、URB の最後を無音で埋める(並びは同じ)
+            var total = 0
             for (p in 0 until u.packets) {
-                val frames = nextPacketFrames()
-                val bytes = frames * fmt.frameBytes
-                val got = if (ok) ring.read(u.buf, off, bytes) else 0
-                if (got < bytes) u.buf.setMemory(off + got, (bytes - got).toLong(), fmt.fill)
-                real += got / fmt.frameBytes
+                val bytes = nextPacketFrames() * fmt.frameBytes
                 lengths[p] = bytes
-                off += bytes
+                total += bytes
             }
-            u.dataFrames = real
+            val got = if (warmedUp()) ring.read(u.buf, 0L, total) else 0
+            if (got < total) u.buf.setMemory(got.toLong(), (total - got).toLong(), fmt.fill)
+            u.dataFrames = got / fmt.frameBytes
             u.epoch = ring.epoch
             u.prepare(lengths)
         }
@@ -877,7 +912,7 @@ object UsbDac {
             val tol = freqn / 50
             var picked = -1L
             var shiftUsed = 0
-            for (sft in intArrayOf(0, -1, 1, -2, 2, -3, 3, -4, 4)) {
+            for (sft in FB_SHIFTS) {
                 val v = if (sft >= 0) f shl sft else f shr -sft
                 if (v >= freqn - tol && v <= freqn + tol) { picked = v; shiftUsed = sft; break }
             }
@@ -987,7 +1022,8 @@ object UsbDac {
                             for (x in urbs) if (x.inFlight) runCatching { Usbfs.ioctl(fd, Usbfs.DISCARDURB, x.urb) }
                             lastReap = now
                         }
-                        Thread.sleep(1)
+                        // URB は 12 個(約 48ms 分)送ってあるので、2ms ごとに見れば十分(1ms ごとだと、待つだけで CPU が休めない)
+                        Thread.sleep(2)
                         continue
                     }
                     AudioEngine.log("usb dac: reap failed errno=$e")
@@ -1021,11 +1057,14 @@ object UsbDac {
                     stUrbs++
                     stPackets += u.packets
                     var sent = 0
+                    // パケットの状態は 1 回でまとめて読む(1 つずつ読むと、毎秒数万回ネイティブを呼ぶことになる)
+                    val desc = u.readDescriptors()
                     for (k in 0 until u.packets) {
-                        val ps = u.packetStatus(k)
+                        val len = desc[k * 3]
+                        val ps = desc[k * 3 + 2]
                         if (ps != 0) { stErr[1000 + ps] = (stErr[1000 + ps] ?: 0) + 1; missWin++ }
-                        if (u.packetActual(k) < u.packetLength(k)) stShortTx++
-                        sent += u.packetLength(k)
+                        if (desc[k * 3 + 1] < len) stShortTx++
+                        sent += len
                     }
                     // (無音が続く間も重くならないよう、16 回に 1 回だけ、まとめて読み出して調べる)
                     if (!stAudible && u.dataFrames > 0 && (stUrbs and 15) == 0 && sent > 0) {

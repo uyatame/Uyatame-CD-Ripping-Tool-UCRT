@@ -24,8 +24,8 @@ import androidx.compose.ui.graphics.asImageBitmap
  * 音はそのアプリから、いつもどおり Android を通して出る(このアプリの USB DAC 直接出力は通らない)。
  */
 object ExternalMedia {
-    /** 再生中(または最後に再生していた)ほかのアプリの曲 */
-    class NowPlaying(
+    /** 再生中(または最後に再生していた)ほかのアプリの曲(中身が同じなら等しいとみなし、画面を描き直さない) */
+    data class NowPlaying(
         val packageName: String,
         val appName: String,
         val title: String,
@@ -160,7 +160,7 @@ object ExternalMedia {
         val artist = md.getString(MediaMetadata.METADATA_KEY_ARTIST)
             ?: md.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
             ?: md.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE).orEmpty()
-        now = NowPlaying(
+        val n = NowPlaying(
             packageName = c.packageName,
             appName = appName(c.packageName),
             title = title,
@@ -176,6 +176,8 @@ object ExternalMedia {
             canPrev = actions and PlaybackState.ACTION_SKIP_TO_PREVIOUS != 0L,
             canNext = actions and PlaybackState.ACTION_SKIP_TO_NEXT != 0L,
         )
+        // 何も変わっていなければ入れ替えない(画面を描き直さない)
+        if (n != now) now = n
     }
 
     // ---- 高画質のジャケット ----
@@ -262,7 +264,14 @@ object ExternalMedia {
         var sample = 1
         while (maxOf(o.outWidth, o.outHeight) / (sample * 2) >= 1600) sample *= 2
         val d = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
-        return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, d)
+        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, d) ?: return null
+        // 間引いたあとでも 3200px 近く残ることがあるので、1600px までに縮める(見た目は変わらず、メモリーは 1/4 になる)
+        val m = maxOf(bmp.width, bmp.height)
+        if (m <= 1600) return bmp
+        val k = 1600f / m
+        val out = android.graphics.Bitmap.createScaledBitmap(bmp, (bmp.width * k).toInt().coerceAtLeast(1), (bmp.height * k).toInt().coerceAtLeast(1), true)
+        if (out !== bmp) bmp.recycle()
+        return out
     }
 
     /** ジャケット(同じ画像なら変換し直さない) */
@@ -274,16 +283,25 @@ object ExternalMedia {
             artKey = null; artCache = null
             return null
         }
-        if (b !== artKey) {
-            artKey = b
+        // 読み直すたびに画像は新しいものとして届くので、同じ曲で同じ大きさの画像なら、変換し直さずに前のものを使う
+        val key = listOf(
+            controller?.packageName, md.getString(MediaMetadata.METADATA_KEY_TITLE), md.getString(MediaMetadata.METADATA_KEY_ARTIST),
+            md.getString(MediaMetadata.METADATA_KEY_ALBUM), b.width, b.height,
+        ).joinToString("\u0000")
+        if (key != artKey) {
+            artKey = key
             artCache = runCatching { b.asImageBitmap() }.getOrNull()
         }
         return artCache
     }
 
-    private fun appName(pkg: String): String {
+    /** アプリの名前(調べるのに時間がかかるので、アプリごとに覚えておく) */
+    private val appNames = HashMap<String, String>()
+
+    private fun appName(pkg: String): String = appNames[pkg] ?: run {
         val pm = app?.packageManager ?: return pkg
-        return runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
+        runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrNull()
+            ?.also { appNames[pkg] = it } ?: pkg
     }
 
     // ---- 操作 ----

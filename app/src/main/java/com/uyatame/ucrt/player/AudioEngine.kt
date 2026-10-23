@@ -733,6 +733,16 @@ class AudioOutput(
         val useEq = !exact && AudioEngine.eqEnabled
         if (up == null && !useEq) {
             ensureB(frames * d.frameBytes)
+            // 音量を掛けず、チャンネル数と 1 サンプルのバイト数が DAC と同じなら、バイト列はそのまま同じになるので、まとめて写す
+            // (下の 1 サンプルずつの変換と結果は同じ。ビットパーフェクトで最もよく通る道を軽くする)
+            if (gain == 1.0 && channels == dch && srcEnc != AFormat.ENCODING_PCM_FLOAT && srcEnc != AFormat.ENCODING_PCM_8BIT &&
+                pcmBytes(srcEnc) == slot
+            ) {
+                val n = frames * d.frameBytes
+                src.get(bbuf, 0, n)
+                pushUsb(n, stop)
+                return
+            }
             var o = 0
             for (f in 0 until frames) {
                 for (c in 0 until channels) frameTmp[c] = readI32(src, srcEnc)

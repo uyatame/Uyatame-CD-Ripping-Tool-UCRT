@@ -57,8 +57,34 @@ object ReplayGain {
         BuiltinCodecs.openInput(ctx, u)?.use { read(it, ext) }
     }.getOrNull()?.takeIf { !it.isEmpty }
 
-    internal fun read(src: RandomInput, ext: String): RgInfo? {
-        if (ext == "flac") flacComments(src)?.let { return it }
+    /** 診断用: 最後に読んだ曲の形式と、見つかったタグの名前(値が無かったときに、ログで理由が分かるように) */
+    @Volatile var lastNote = ""
+        private set
+
+    /** ファイルの中身から形式を見分ける(拡張子が無い・違う URI でも読めるように)。見分けられなければ拡張子 */
+    private fun sniff(src: RandomInput, ext: String): Pair<String, Long> {
+        val h = readAt(src, 0, min(src.size, 12L).toInt()) ?: return ext to 0L
+        fun at(o: Int, s: String) = h.size >= o + s.length && String(h, o, s.length, Charsets.ISO_8859_1) == s
+        return when {
+            at(0, "fLaC") -> "flac" to 0L
+            at(4, "ftyp") -> "m4a" to 0L
+            at(0, "DSD ") -> "dsf" to 0L
+            at(0, "ID3") && h.size >= 10 -> {
+                // 先頭に ID3v2 が付いた FLAC もある
+                val size = ((h[6].toLong() and 0x7F) shl 21) or ((h[7].toLong() and 0x7F) shl 14) or
+                    ((h[8].toLong() and 0x7F) shl 7) or (h[9].toLong() and 0x7F)
+                val after = 10 + size
+                val m = readAt(src, after, 4)
+                if (m != null && String(m, Charsets.ISO_8859_1) == "fLaC") "flac" to after else "mp3" to 0L
+            }
+            else -> ext to 0L
+        }
+    }
+
+    internal fun read(src: RandomInput, ext0: String): RgInfo? {
+        val (ext, flacAt) = sniff(src, ext0)
+        lastNote = ext.ifEmpty { "?" }
+        if (ext == "flac") flacComments(src, flacAt)?.let { return it }
         val parts = ArrayList<ByteArray>()
         when (ext) {
             "mp3" -> id3v2AtStart(src)?.let { parts.add(it) }
@@ -161,10 +187,10 @@ object ReplayGain {
 
     // ---- FLAC: メタデータの Vorbis コメントの区画を探して読む(画像の区画が前にあって大きくても読めるように) ----
 
-    private fun flacComments(src: RandomInput): RgInfo? {
-        val head = readAt(src, 0, 4) ?: return null
+    private fun flacComments(src: RandomInput, start: Long = 0L): RgInfo? {
+        val head = readAt(src, start, 4) ?: return null
         if (String(head, Charsets.ISO_8859_1) != "fLaC") return null
-        var pos = 4L
+        var pos = start + 4
         while (pos + 4 <= src.size) {
             val h = readAt(src, pos, 4) ?: return null
             val type = h[0].toInt() and 0x7F
@@ -196,8 +222,14 @@ object ReplayGain {
             val s = String(b, p, n, Charsets.UTF_8)
             p += n
             val eq = s.indexOf('=')
-            if (eq > 0) map.putIfAbsent(s.substring(0, eq).lowercase(), s.substring(eq + 1))
+            if (eq > 0) {
+                // putIfAbsent は Android 7 から(6 では使えない)
+                val k = s.substring(0, eq).lowercase()
+                if (!map.containsKey(k)) map[k] = s.substring(eq + 1)
+            }
         }
+        // 診断用: どんなタグが入っていたか(ReplayGain の値が無いときに、ログで分かるように)
+        lastNote = "flac, vorbis comments: " + map.keys.take(16).joinToString(", ").ifEmpty { "(none)" }
         fun num(k: String) = map[k]?.let { NUMBER.find(it)?.value?.toFloatOrNull() }
         return RgInfo(num(KEY_TG), num(KEY_TP), num(KEY_AG), num(KEY_AP))
     }

@@ -113,17 +113,32 @@ object ParamEq {
         return db
     }
 
+    /**
+     * 周波数 freqs[i] それぞれでの、すべての帯域を合わせた利得(dB)。responseDb を点ごとに呼ぶのと同じ値になるが、
+     * 帯域の係数は 1 回だけ計算する(グラフは数百の点を描くので、点ごとに係数を作り直すと重い)
+     */
+    fun responseCurve(bands: List<EqBand>, freqs: DoubleArray, fs: Double = 48000.0): DoubleArray {
+        val cs = bands.mapNotNull { coefs(it, fs) }
+        return DoubleArray(freqs.size) { i ->
+            var db = 0.0
+            for (c in cs) db += bandDb(c, freqs[i], fs)
+            db
+        }
+    }
+
     /** 20 Hz〜20 kHz で、いちばん持ち上がっているところの dB(音割れを防ぐ自動の音量の下げ幅に使う) */
     fun maxBoostDb(bands: List<EqBand>): Float {
         if (bands.isEmpty()) return 0f
         var m = 0.0
+        for (db in responseCurve(bands, BOOST_FREQS)) m = max(m, db)
+        return m.toFloat()
+    }
+
+    /** maxBoostDb で調べる周波数(20 Hz〜20 kHz を対数で 161 点) */
+    private val BOOST_FREQS: DoubleArray by lazy {
         val n = 160
         val l0 = ln(MIN_FREQ.toDouble()); val l1 = ln(MAX_FREQ.toDouble())
-        for (i in 0..n) {
-            val f = kotlin.math.exp(l0 + (l1 - l0) * i / n)
-            m = max(m, responseDb(bands, f))
-        }
-        return m.toFloat()
+        DoubleArray(n + 1) { i -> kotlin.math.exp(l0 + (l1 - l0) * i / n) }
     }
 }
 
@@ -146,26 +161,40 @@ internal class ParamEqualizer(private val sampleRate: Int, private val channels:
 
     val active: Boolean get() = c.isNotEmpty()
 
+    /** 1 チャンネル分を double で持っておく作業用の場所 */
+    private var tmp = DoubleArray(0)
+
+    /**
+     * 帯域ごとに、まとめて計算する(係数と状態を手元の変数に置けるので速い)。
+     * 1 サンプルずつ全帯域を通す計算と、同じ値を同じ順に計算するので、結果はまったく同じ
+     */
     fun process(buf: FloatArray, samples: Int) {
         val n = c.size
         if (n == 0) return
-        var i = 0
-        while (i < samples) {
-            for (ch in 0 until channels) {
-                var x = buf[i + ch].toDouble()
-                val s1 = z1[ch]
-                val s2 = z2[ch]
-                for (k in 0 until n) {
-                    val k5 = c[k]
+        val frames = samples / channels
+        if (tmp.size < frames) tmp = DoubleArray(frames)
+        val t = tmp
+        for (ch in 0 until channels) {
+            for (f in 0 until frames) t[f] = buf[f * channels + ch].toDouble()
+            val s1 = z1[ch]
+            val s2 = z2[ch]
+            for (k in 0 until n) {
+                val k5 = c[k]
+                val b0 = k5[0]; val b1 = k5[1]; val b2 = k5[2]; val a1 = k5[3]; val a2 = k5[4]
+                var z1k = s1[k]
+                var z2k = s2[k]
+                for (f in 0 until frames) {
+                    val x = t[f]
                     // 転置直接形 II
-                    val y = k5[0] * x + s1[k]
-                    s1[k] = k5[1] * x - k5[3] * y + s2[k]
-                    s2[k] = k5[2] * x - k5[4] * y
-                    x = y
+                    val y = b0 * x + z1k
+                    z1k = b1 * x - a1 * y + z2k
+                    z2k = b2 * x - a2 * y
+                    t[f] = y
                 }
-                buf[i + ch] = x.toFloat()
+                s1[k] = z1k
+                s2[k] = z2k
             }
-            i += channels
+            for (f in 0 until frames) buf[f * channels + ch] = t[f].toFloat()
         }
     }
 }

@@ -219,11 +219,13 @@ fun GraphicEq(
                 val path = Path()
                 val steps = 120
                 val f0 = EqBands.FREQS.first().toDouble()
+                val curve = ParamEq.responseCurve(
+                    bands,
+                    DoubleArray(steps + 1) { k -> (f0 * Math.pow(2.0, (k.toFloat() / steps * w / colW - 0.5f).toDouble())).coerceIn(10.0, 22000.0) },
+                )
                 for (k in 0..steps) {
                     val x = k.toFloat() / steps * w
-                    val oct = x / colW - 0.5f
-                    val f = f0 * Math.pow(2.0, oct.toDouble())
-                    val db = ParamEq.responseDb(bands, f.coerceIn(10.0, 22000.0)).toFloat().coerceIn(-SIMPLE_EQ_MAX * 1.3f, SIMPLE_EQ_MAX * 1.3f)
+                    val db = curve[k].toFloat().coerceIn(-SIMPLE_EQ_MAX * 1.3f, SIMPLE_EQ_MAX * 1.3f)
                     val y = yOf(db)
                     if (k == 0) path.moveTo(x, y) else path.lineTo(x, y)
                 }
@@ -268,10 +270,8 @@ private fun CurveThumb(bands: List<EqBand>, modifier: Modifier) {
     val pts = remember(bands) {
         val lnMin = ln(20.0)
         val lnMax = ln(20000.0)
-        FloatArray(48) { k ->
-            val f = kotlin.math.exp(lnMin + (lnMax - lnMin) * k / 47.0)
-            ParamEq.responseDb(bands, f).toFloat()
-        }
+        val c = ParamEq.responseCurve(bands, DoubleArray(48) { k -> kotlin.math.exp(lnMin + (lnMax - lnMin) * k / 47.0) })
+        FloatArray(48) { c[it].toFloat() }
     }
     Canvas(modifier.clip(RoundedCornerShape(8.dp)).background(cs.surfaceContainerHighest)) {
         val w = size.width

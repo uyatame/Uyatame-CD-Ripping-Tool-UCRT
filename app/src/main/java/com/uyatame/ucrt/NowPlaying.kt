@@ -419,6 +419,13 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                                 onClick = { menu = false; showGuide = true },
                             )
                             HorizontalDivider()
+                            if (vm.usbDacInUse) {
+                                DropdownMenuItem(
+                                    text = { Text(S(R.string.release_usb_dac)) },
+                                    leadingIcon = { Icon(AppIcons.Usb, null) },
+                                    onClick = { menu = false; vm.releaseUsbDac() },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text(S(R.string.stop_playback)) },
                                 leadingIcon = { Icon(Icons.Filled.Close, null) },
@@ -1309,6 +1316,8 @@ fun ExternalPlayerScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit)
     LaunchedEffect(n) {
         while (true) {
             pos = n.positionNow()
+            // 止まっている間は位置が進まない(再生し直すと n が変わるので、ここからやり直す)
+            if (!n.playing) break
             delay(500)
         }
     }

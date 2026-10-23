@@ -13,6 +13,7 @@ import android.util.LruCache
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import org.json.JSONArray
 import org.json.JSONObject
@@ -60,6 +61,9 @@ data class LibAlbum(val key: String, val title: String, val artist: String, val 
     internal val quality: QualityClass by lazy { Quality.albumClass(tracks) }
     /** 形式と音質の表記 */
     internal val badge: String by lazy { Quality.albumBadge(tracks) }
+    /** いちばん良い曲と、その細かい分類(音質別の絞り込み) */
+    internal val best: LibTrack? by lazy { Quality.bestTrack(tracks) }
+    internal val detail: String by lazy { best?.let { Quality.detail(it) }.orEmpty() }
 }
 
 val UNKNOWN_ALBUM: String get() = S(R.string.unknown_album)
@@ -636,8 +640,18 @@ object ArtLoader {
     private val cache = object : LruCache<String, ImageBitmap>(
         (Runtime.getRuntime().maxMemory() / 8).coerceIn(8L shl 20, 96L shl 20).toInt(),
     ) {
-        override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
+        // 一覧用の小さな画像は 1 画素 2 バイト(RGB_565)なので、実際の大きさで数える(4 バイトで数えると半分しか置けない)
+        override fun sizeOf(key: String, value: ImageBitmap): Int =
+            runCatching { value.asAndroidBitmap().byteCount }.getOrDefault(value.width * value.height * 4)
     }
+
+    /**
+     * 再生画面用(いちばん大きい段階)で読む大きさの上限(px)。画面の長い辺より大きく読んでも見た目は変わらず、
+     * メモリーを大きく使う(3000px の画像は 36MB)ので、画面の大きさまでにする
+     */
+    @Volatile private var bigMax = 2048
+
+    private fun target(b: Int): Int = if (b > DISK_MAX) minOf(b, bigMax) else b
     /** 同時に読み込む数を絞る(一覧を速くスクロールしたときに、再生の読み込みを邪魔しないように) */
     private val gate = java.util.concurrent.Semaphore(3)
     /** 画像が無いと分かった曲・アルバム(読み込みに失敗しただけのものは入れない) */
@@ -668,7 +682,11 @@ object ArtLoader {
         for (x in BUCKETS) if (x >= b) cache.get("$key@$x")?.let { return it }
         synchronized(misses) { if (key in misses) return null }
         // 再生画面の大きな画像だけを読んだあとでも、forget で保存した小さな画像を消せるように
-        if (diskDir == null) diskDir = File(ctx.cacheDir, "art").also { it.mkdirs() }
+        if (diskDir == null) {
+            diskDir = File(ctx.cacheDir, "art").also { it.mkdirs() }
+            val dm = ctx.resources.displayMetrics
+            bigMax = maxOf(dm.widthPixels, dm.heightPixels).coerceIn(DISK_MAX * 2, 2048)
+        }
         gate.acquire()
         try {
             cache.get("$key@$b")?.let { return it }
@@ -707,7 +725,7 @@ object ArtLoader {
             failed = true
             null
         }
-        val bmp = bytes?.let { runCatching { decode(it, b) }.getOrNull() }
+        val bmp = bytes?.let { runCatching { decode(it, target(b)) }.getOrNull() }
         if (bmp == null) {
             // 画像が無いと分かったときだけ覚える(読み込みに失敗しただけなら、次にまた試す)
             if (!failed && bytes == null) synchronized(misses) { misses.add(key) }
@@ -805,9 +823,9 @@ object ArtLoader {
             if (size <= DISK_MAX) inPreferredConfig = Bitmap.Config.RGB_565
         }
         val bmp = BitmapFactory.decodeByteArray(b, 0, b.size, opt) ?: return null
-        // 一覧用は、表示する大きさの 1.5 倍を超えていればさらに縮める
+        // 一覧用は、表示する大きさの 1.5 倍を超えていればさらに縮める。再生画面用も、上限(画面の大きさ)を超えていれば縮める
         val m = maxOf(bmp.width, bmp.height)
-        if (size <= DISK_MAX && m > size * 3 / 2) {
+        if ((size <= DISK_MAX && m > size * 3 / 2) || (size > DISK_MAX && m > size)) {
             val k = size.toFloat() / m
             val out = Bitmap.createScaledBitmap(bmp, (bmp.width * k).toInt().coerceAtLeast(1), (bmp.height * k).toInt().coerceAtLeast(1), true)
             if (out !== bmp) bmp.recycle()

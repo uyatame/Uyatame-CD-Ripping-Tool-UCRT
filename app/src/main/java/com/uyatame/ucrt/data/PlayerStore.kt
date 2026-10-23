@@ -92,18 +92,41 @@ class PlayerStore(ctx: Context) {
         } ?: emptyMap()
     }
 
+    /** 保存する中身(どれも書き換えずに作り直す一覧なので、そのまま別のスレッドへ渡せる) */
+    private class Snapshot(
+        val favTracks: List<String>, val favAlbums: List<String>, val checkTracks: List<String>,
+        val playlists: List<Playlist>, val history: List<PlayRecord>, val counts: Map<String, Int>,
+    )
+
+    @Volatile private var pending: Snapshot? = null
+    private val saveQueued = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * 保存する。文字にする処理は書き込みのスレッドで行い(画面を止めない)、
+     * 続けて何度も呼ばれたとき(並べ替えのドラッグなど)は、最後の中身を 1 回だけ書く
+     */
     private fun save() {
-        val o = JSONObject()
-        o.put("favTracks", JSONArray(favTracks))
-        o.put("favAlbums", JSONArray(favAlbums))
-        o.put("checkTracks", JSONArray(checkTracks))
-        o.put("playlists", JSONArray().apply {
-            playlists.forEach { p -> put(JSONObject().put("id", p.id).put("name", p.name).put("uris", JSONArray(p.uris))) }
-        })
-        o.put("history", JSONArray().apply { history.forEach { h -> put(JSONObject().put("u", h.uri).put("t", h.time)) } })
-        o.put("counts", JSONObject().apply { counts.forEach { (k, v) -> put(k, v) } })
-        val text = o.toString()
-        writer.execute { writeAtomic(file, text) }
+        pending = Snapshot(favTracks, favAlbums, checkTracks, playlists, history, counts)
+        if (!saveQueued.compareAndSet(false, true)) return
+        writer.execute {
+            saveQueued.set(false)
+            val s = pending ?: return@execute
+            val o = JSONObject()
+            o.put("favTracks", JSONArray(s.favTracks))
+            o.put("favAlbums", JSONArray(s.favAlbums))
+            o.put("checkTracks", JSONArray(s.checkTracks))
+            o.put("playlists", JSONArray().apply {
+                s.playlists.forEach { p -> put(JSONObject().put("id", p.id).put("name", p.name).put("uris", JSONArray(p.uris))) }
+            })
+            o.put("history", JSONArray().apply { s.history.forEach { h -> put(JSONObject().put("u", h.uri).put("t", h.time)) } })
+            o.put("counts", JSONObject().apply { s.counts.forEach { (k, v) -> put(k, v) } })
+            writeAtomic(file, o.toString())
+        }
+    }
+
+    /** 書き込み待ちのものを書き終えるまで待つ(アプリを終了する前に。長くても 2 秒) */
+    fun flush() {
+        runCatching { writer.submit {}.get(2, java.util.concurrent.TimeUnit.SECONDS) }
     }
 
     private fun writeAtomic(f: File, text: String) {
@@ -216,15 +239,17 @@ class PlayerStore(ctx: Context) {
             writer.execute { runCatching { resumeFile.delete() } }
             return
         }
-        val o = JSONObject()
-            .put("uris", JSONArray(r.uris))
-            .put("index", r.index)
-            .put("pos", r.positionMs)
-            .put("shuffle", r.shuffle)
-            .put("repeat", r.repeat)
-            .put("orig", JSONArray(r.original))
-        val text = o.toString()
-        writer.execute { writeAtomic(resumeFile, text) }
+        // 再生リストが長いと文字にするのに時間がかかるので、書き込みのスレッドで行う(ResumeState は書き換えない)
+        writer.execute {
+            val o = JSONObject()
+                .put("uris", JSONArray(r.uris))
+                .put("index", r.index)
+                .put("pos", r.positionMs)
+                .put("shuffle", r.shuffle)
+                .put("repeat", r.repeat)
+                .put("orig", JSONArray(r.original))
+            writeAtomic(resumeFile, o.toString())
+        }
     }
 
     suspend fun loadResume(): ResumeState? = withContext(Dispatchers.IO) {

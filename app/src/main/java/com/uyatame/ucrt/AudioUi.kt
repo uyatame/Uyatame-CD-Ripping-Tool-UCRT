@@ -61,6 +61,11 @@ fun BitPerfectPanel(vm: MainViewModel, s: AppSettings) {
             S(R.string.controls_usb_dac_directly_with),
             mode == 2,
         ) { vm.setOutputMode(if (it) 2 else 0) }
+        // USB DAC を Android に返す(ほかのアプリの音を USB DAC から出したいとき)
+        if (vm.usbDacInUse) {
+            androidx.compose.material3.OutlinedButton({ vm.releaseUsbDac() }) { Text(S(R.string.release_usb_dac)) }
+            Text(S(R.string.release_usb_dac_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         val st = AudioEngine.outputStatus
         if (mode != 0 && st.isNotEmpty()) {
             Text(
@@ -211,10 +216,13 @@ fun ReplayGainPanel(vm: MainViewModel, s: AppSettings) {
                 S(R.string.rg_album_keeps_differences),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text(S(R.string.rg_preamp, (if (s.rgPreamp > 0) "+" else "") + s.rgPreamp), style = MaterialTheme.typography.labelLarge)
+            // 動かしている間は手元の値で見せ、指を離したら保存する(動かすたびに保存すると、設定を何度も書き直して重い)
+            var pre by remember(s.rgPreamp) { mutableIntStateOf(s.rgPreamp) }
+            Text(S(R.string.rg_preamp, (if (pre > 0) "+" else "") + pre), style = MaterialTheme.typography.labelLarge)
             androidx.compose.material3.Slider(
-                value = s.rgPreamp.toFloat(),
-                onValueChange = { vm.set(Keys.rgPreamp, it.roundToInt()) },
+                value = pre.toFloat(),
+                onValueChange = { pre = it.roundToInt() },
+                onValueChangeFinished = { vm.set(Keys.rgPreamp, pre) },
                 valueRange = -12f..12f, steps = 23,
             )
             SwitchRow(S(R.string.prevent_clipping), S(R.string.limits_gain_using_peak), s.rgNoClip) { vm.set(Keys.rgNoClip, it) }
@@ -224,6 +232,31 @@ fun ReplayGainPanel(vm: MainViewModel, s: AppSettings) {
             style = MaterialTheme.typography.bodySmall,
             color = if (s.rgEnabled && s.sourceDirect) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+    ReplayGainAnalysisPanel(vm)
+}
+
+/** ライブラリの曲をまとめて解析して、ReplayGain の値を求める */
+@Composable
+private fun ReplayGainAnalysisPanel(vm: MainViewModel) {
+    Section(S(R.string.rg_analysis)) {
+        val total = remember(vm.albums) { vm.albums.sumOf { it.tracks.size } }
+        Text(S(R.string.rg_analyzed_count, com.uyatame.ucrt.player.RgStore.count, total), style = MaterialTheme.typography.bodyMedium)
+        if (vm.rgAnalyzing) {
+            androidx.compose.material3.LinearProgressIndicator(progress = { vm.rgProgress }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+            Text(
+                "${(vm.rgProgress * 100).roundToInt()}%" + S(R.string.separator) + vm.rgStatus,
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+            )
+            androidx.compose.material3.OutlinedButton({ vm.cancelReplayGainAnalysis() }) { Text(S(R.string.cancel)) }
+        } else {
+            androidx.compose.material3.Button({ vm.analyzeReplayGain(false) }, Modifier.fillMaxWidth()) { Text(S(R.string.rg_analyze_new)) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.OutlinedButton({ vm.analyzeReplayGain(true) }) { Text(S(R.string.rg_analyze_all)) }
+                TextButton({ vm.clearAnalyzedReplayGain() }, enabled = com.uyatame.ucrt.player.RgStore.count > 0) { Text(S(R.string.rg_clear_analyzed)) }
+            }
+        }
+        Text(S(R.string.rg_analysis_notes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

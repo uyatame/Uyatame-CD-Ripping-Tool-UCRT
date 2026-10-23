@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -188,8 +189,7 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
             HorizontalDivider()
             CategoryRow(
                 Icons.Filled.PlayArrow, S(R.string.player_screen),
-                S(R.string.ambient_mode) + " " + (if (s.ambientPlayer) "ON" else "OFF") +
-                    S(R.string.separator) + S(R.string.other_music_apps) + " " + (if (s.externalMedia) "ON" else "OFF"),
+                S(R.string.ambient_mode) + " " + (if (s.ambientPlayer) "ON" else "OFF"),
             ) { onPage(9) }
         }
         // ---- 全般 ----
@@ -207,6 +207,16 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
                 Icons.Filled.Info, S(R.string.about_this_app),
                 S(R.string.version) + BuildConfigVersion.name(ctx) + S(R.string.licenses),
             ) { onPage(7) }
+        }
+        // ---- USB DAC の解放・アプリの終了 ----
+        Card(Modifier.fillMaxWidth()) {
+            if (vm.usbDacInUse) {
+                CategoryRow(AppIcons.Usb, S(R.string.release_usb_dac), S(R.string.release_usb_dac_desc)) { vm.releaseUsbDac() }
+                HorizontalDivider()
+            }
+            CategoryRow(Icons.AutoMirrored.Filled.ExitToApp, S(R.string.quit_app), S(R.string.quit_app_desc)) {
+                vm.quitApp { (ctx as? android.app.Activity)?.finishAndRemoveTask() }
+            }
         }
     }
 }
@@ -847,13 +857,9 @@ private fun contrast(a: Color, b: Color): Float {
 internal fun ExternalMediaSection(vm: MainViewModel, s: AppSettings) {
     val ctx = LocalContext.current
     val ext = com.uyatame.ucrt.player.ExternalMedia
-    // 設定画面から戻ってきたときに反映する
-    LaunchedEffect(s.externalMedia) {
-        while (true) {
-            ext.setEnabled(ctx, s.externalMedia)
-            kotlinx.coroutines.delay(1000)
-        }
-    }
+    // 許可の画面から戻ってきたときの反映は、MainActivity.onResume が行う(ここで 1 秒ごとに確かめると、
+    // 開いている間ずっと、ほかのアプリの再生の情報を読み直して画面を描き直すことになり重い)
+    LaunchedEffect(s.externalMedia) { ext.setEnabled(ctx, s.externalMedia) }
     Section(S(R.string.other_music_apps)) {
         SwitchRow(S(R.string.show_other_apps_playback), S(R.string.other_apps_playback_desc), s.externalMedia) {
             vm.set(Keys.externalMedia, it)

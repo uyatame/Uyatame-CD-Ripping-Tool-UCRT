@@ -135,8 +135,11 @@ fun SpotifyScreen(sp: SpotifyViewModel, onBack: () -> Unit, pauseLocal: () -> Un
         WideCenter { SpotifySetup(sp, onBack) }
         return
     }
-    // タブを開いたら Spotify アプリにつないでおく(再生中の曲を下に出すため)
-    LaunchedEffect(Unit) { if (sp.spotifyInstalled()) sp.connect(ctx, quiet = true) }
+    // 開いたら Spotify アプリにつないでおく(再生中の曲を下に出すため)。アカウントの情報もこのときに読む
+    LaunchedEffect(Unit) {
+        sp.ensureUser()
+        if (sp.spotifyInstalled()) sp.connect(ctx, quiet = true)
+    }
     val route = sp.stack.lastOrNull()
     BackHandler(enabled = route != null) { sp.pop() }
     val play = remember(sp) {
@@ -205,6 +208,8 @@ private fun SpHeader(onBack: () -> Unit, actions: @Composable androidx.compose.f
 @Composable
 private fun SpotifySetup(sp: SpotifyViewModel, onBack: () -> Unit) {
     val ctx = LocalContext.current
+    // Spotify アプリが入っているか(調べるのに時間がかかるので、画面を開いたときに 1 回だけ)
+    val installed = remember { sp.spotifyInstalled() }
     val login = rememberSpotifyLogin(sp)
     var id by rememberSaveable { mutableStateOf(sp.clientId) }
     Column(
@@ -216,7 +221,7 @@ private fun SpotifySetup(sp: SpotifyViewModel, onBack: () -> Unit) {
             S(R.string.spotify_setup_intro),
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (!sp.spotifyInstalled()) {
+        if (!installed) {
             Card(Modifier.fillMaxWidth()) {
                 Text(S(R.string.spotify_app_is_not_installed), Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
             }
@@ -285,6 +290,7 @@ private fun openUri(ctx: Context, uri: String) {
 @Composable
 private fun SpotifyHome(sp: SpotifyViewModel, play: SpPlay, onBack: () -> Unit) {
     val ctx = LocalContext.current
+    val installed = remember { sp.spotifyInstalled() }
     val login = rememberSpotifyLogin(sp)
     val focus = LocalFocusManager.current
     var menu by remember { mutableStateOf(false) }
@@ -331,7 +337,7 @@ private fun SpotifyHome(sp: SpotifyViewModel, play: SpPlay, onBack: () -> Unit) 
                 }
             }
         }
-        if (!sp.spotifyInstalled()) {
+        if (!installed) {
             item {
                 Text(
                     S(R.string.spotify_app_is_not_installed),
@@ -382,7 +388,8 @@ private fun LazyListScope.section(title: String, list: List<SpItem>, row: @Compo
             modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 4.dp),
         )
     }
-    list.forEach { item { row(it) } }
+    // 同じ曲が別の見出しにも出ることがあるので、見出しの名前と並びの番号も付けて区別する(同じ key が 2 つあると落ちるため)
+    itemsIndexed(list, key = { i, it -> "$title:$i:${it.uri}" }, contentType = { _, _ -> "sp" }) { _, it -> row(it) }
 }
 
 @Composable

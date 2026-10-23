@@ -34,7 +34,7 @@
     <string name="add_lrc_file_with_same">"Add an .lrc file with the same name to the song's folder, or embed the lyrics in the song"</string>
     <string name="add_music_folder">"Add a music folder"</string>
     <string name="add_songs_with_heart_button">"Add songs with the heart button in the player or from a song's menu"</string>
-    <string name="add_sound_check_hint">"Add songs with the headphones button next to the heart in the player, or from the song menu (long press). Use the same songs every time to compare sound."</string>
+    <string name="add_sound_check_hint">"Add songs with the headphones button in the player, or from the song menu (long press). Use the same songs every time to compare sound."</string>
     <string name="add_to_favorites">"Add to favorites"</string>
     <string name="add_to_playlist">"Add to playlist…"</string>
     <string name="add_to_playlist_2">"Add to playlist"</string>
@@ -432,6 +432,15 @@
     <string name="prevent_clipping">"Prevent clipping"</string>
     <string name="limits_gain_using_peak">"Limits the boost using the song's peak value so loud passages don't distort"</string>
     <string name="rg_notes">"Songs without ReplayGain values play unchanged. Reads FLAC, MP3, M4A (AAC / ALAC), WavPack, APE, AIFF, WAV and DSF tags. Not applied to DSD playback, DAR's DSD conversion or CDs. Turns off bit-perfect playback while a gain is applied, and isn't used when source direct is on"</string>
+    <string name="rg_analysis">"Analyze library"</string>
+    <string name="rg_analyzed_count">"Analyzed: %1$d / %2$d songs"</string>
+    <string name="rg_analyze_new">"Analyze songs not yet analyzed"</string>
+    <string name="rg_analyze_all">"Re-analyze all"</string>
+    <string name="rg_clear_analyzed">"Clear analyzed values"</string>
+    <string name="rg_analysis_notes">"Measures each song's loudness (EBU R128) and works out ReplayGain values per track and per album. The values are only used for songs that have no ReplayGain tags, and the song files are not changed. Analysis can take a long time for a large library; keep the app open. DSD files are skipped"</string>
+    <string name="rg_all_analyzed">"All songs are already analyzed"</string>
+    <string name="rg_cannot_analyze">"Couldn't analyze %1$s: %2$s"</string>
+    <string name="rg_analysis_finished">"ReplayGain analysis: %1$d songs analyzed, %2$d failed"</string>
     <string name="select_multiple_add_to_playlist">"Select multiple and add to playlist"</string>
     <string name="pick_any_color">"Pick any color"</string>
     <string name="pick_any_color_desc">"Choose a color not in the swatches with the color picker"</string>
@@ -458,6 +467,11 @@
     <string name="streaming_spotify_desc">"Browse your Spotify library and play it in the official Spotify app"</string>
     <string name="streaming_spotify_note">"Requires Spotify Premium and registering your own app in the Spotify Developer Dashboard (see the setup screen). Audio plays from the Spotify app, so UCRT's USB DAC direct output, equalizer and DAR don't apply"</string>
     <string name="streaming_tap_to_open">"Tap to open"</string>
+    <string name="release_usb_dac">"Release USB DAC"</string>
+    <string name="release_usb_dac_desc">"Pauses playback and gives the USB DAC back to Android, so other apps can play through it (UCRT takes it again when you start playback)"</string>
+    <string name="usb_dac_released">"Gave the USB DAC back to Android"</string>
+    <string name="quit_app">"Quit"</string>
+    <string name="quit_app_desc">"Stops playback, gives the USB DAC back to Android and fully closes the app"</string>
     <string name="most_played">"Most played"</string>
     <string name="moves_tabs_to_left_side">"Moves the tabs to the left side and, on wide screens, keeps the player open next to the library. Auto turns it on for tablets and other large screens."</string>
     <string name="mp3_bitrate">"MP3 bitrate"</string>

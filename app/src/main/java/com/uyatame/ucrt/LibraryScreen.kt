@@ -83,6 +83,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -607,9 +608,22 @@ private fun AlbumCollectionPage(
 ) {
     var sort by rememberSaveable(key) { mutableIntStateOf(0) }
     var qf by rememberSaveable(key) { mutableIntStateOf(initialQuality) }
+    // 音質の区分の中の細かい分類(ハイレゾなら "DSD256"・"96kHz/24bit"、圧縮音源なら "AAC" など。空 = すべて)
+    var qd by rememberSaveable(key) { mutableStateOf("") }
     val listView = s.libraryList
-    val shown = remember(albums, sort, qf, sortable) {
-        val f = if (qf < 0) albums else albums.filter { Quality.classOf(it).ordinal == qf }
+    val inClass = remember(albums, qf) { if (qf < 0) albums else albums.filter { Quality.classOf(it).ordinal == qf } }
+    val details = remember(inClass, qf) {
+        if (qf < 0) emptyList() else {
+            val counts = inClass.groupingBy { Quality.detail(it) }.eachCount()
+            val order = inClass.groupBy { Quality.detail(it) }.mapValues { (_, l) -> l.minOf { Quality.detailOrder(it) } }
+            counts.keys.sortedWith(
+                if (qf == QualityClass.HiRes.ordinal) compareBy({ order[it] }, { it })
+                else compareBy({ -counts.getValue(it) }, { it }),
+            ).map { it to counts.getValue(it) }
+        }
+    }
+    val shown = remember(inClass, sort, qd, sortable) {
+        val f = if (qd.isEmpty()) inClass else inClass.filter { Quality.detail(it) == qd }
         if (!sortable) f else when (sort) {
             1 -> f.sortedBy { it.title.lowercase() }
             2 -> f.sortedByDescending { it.added }
@@ -638,9 +652,18 @@ private fun AlbumCollectionPage(
                 }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(qf < 0, { qf = -1 }, label = { Text(S(R.string.all)) })
+                FilterChip(qf < 0, { qf = -1; qd = "" }, label = { Text(S(R.string.all)) })
                 QualityClass.entries.forEach { q ->
-                    FilterChip(qf == q.ordinal, { qf = q.ordinal }, label = { Text(Quality.label(q)) })
+                    FilterChip(qf == q.ordinal, { qf = q.ordinal; qd = "" }, label = { Text(Quality.label(q)) })
+                }
+            }
+            // 区分を選んでいるときは、その中をさらに絞り込める(種類が 2 つ以上あるときだけ)
+            if (details.size > 1) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(qd.isEmpty(), { qd = "" }, label = { Text(S(R.string.all)) })
+                    details.forEach { (d, n) ->
+                        FilterChip(qd == d, { qd = if (qd == d) "" else d }, label = { Text("$d ($n)") })
+                    }
                 }
             }
             PlayShuffleButtons(
@@ -1270,9 +1293,12 @@ private fun PlaylistsPage(vm: MainViewModel) {
         }
         LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp)) {
             items(vm.store.playlists, key = { it.id }) { p ->
-                val first = p.uris.firstNotNullOfOrNull { map[it] }
-                val ts = p.uris.mapNotNull { map[it] }
-                GroupRow(p.name, countText(ts), { vm.libPush("playlist:" + p.id) }) {
+                // 曲の一覧から作るものは、プレイリストかライブラリが変わったときだけ作り直す(行を描き直すたびに作らない)
+                val (first, count) = remember(p.uris, map) {
+                    val ts = p.uris.mapNotNull { map[it] }
+                    ts.firstOrNull() to countText(ts)
+                }
+                GroupRow(p.name, count, { vm.libPush("playlist:" + p.id) }) {
                     if (first != null) ArtImage(vm.albumKeyOf(first.uri) ?: first.uri, first.uri, first.coverUri, Modifier.size(48.dp), 8.dp, 48.dp)
                     else RoundIcon(AppIcons.Queue)
                 }
@@ -1370,8 +1396,10 @@ private fun SearchPage(vm: MainViewModel) {
             Triple(artists, al, songs)
         }
     }
-    val result = remember(key, index) {
-        if (key.isEmpty()) null else {
+    // 探すのは画面のスレッドの外で(曲の多いライブラリでも、文字を打つたびに画面が止まらないように)。
+    // 次の文字を打つと、前の検索は取り消される。結果が出るまでは前の結果を出しておく
+    val result by produceState<Triple<List<String>, List<LibAlbum>, List<LibTrack>>?>(null, key, index) {
+        value = if (key.isEmpty()) null else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             val (ia, ial, isg) = index.value
             val artists = ia.filter { it.second.contains(key) }.take(10).map { it.first }
             val al = ial.filter { it.second.contains(key) }.take(30).map { it.first }

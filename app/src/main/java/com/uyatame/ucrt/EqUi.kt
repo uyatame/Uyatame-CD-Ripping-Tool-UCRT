@@ -498,9 +498,11 @@ private fun EqCurve(
         val n = 160
         val path = Path()
         val fill = Path()
+        // 帯域の係数は 1 回だけ作り、全部の点の値をまとめて求める
+        val curve = ParamEq.responseCurve(list, DoubleArray(n + 1) { posToFreq(it.toFloat() / n).toDouble() })
         for (i in 0..n) {
             val p = i.toFloat() / n
-            val db = ParamEq.responseDb(list, posToFreq(p).toDouble()).toFloat().coerceIn(-maxDb * 1.2f, maxDb * 1.2f)
+            val db = curve[i].toFloat().coerceIn(-maxDb * 1.2f, maxDb * 1.2f)
             val x = p * w
             val y = yOf(db)
             if (i == 0) { path.moveTo(x, y); fill.moveTo(x, yOf(0f)); fill.lineTo(x, y) } else { path.lineTo(x, y); fill.lineTo(x, y) }

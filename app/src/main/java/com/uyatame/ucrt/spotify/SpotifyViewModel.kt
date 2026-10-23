@@ -78,8 +78,12 @@ class SpotifyViewModel(app: Application) : AndroidViewModel(app) {
     /** 画面の下に出すお知らせ */
     var message by mutableStateOf<String?>(null)
 
-    init {
-        if (loggedIn) onLoggedIn()
+    // (ログイン済みでも、起動したときにはまだ Spotify に問い合わせない。Spotify の機能をオフにしている人の起動を重くしないように。
+    // Spotify の画面を開いたときに ensureUser で問い合わせる)
+
+    /** アカウントの情報をまだ読んでいなければ読む(Spotify の画面を開いたときに呼ぶ) */
+    fun ensureUser() {
+        if (loggedIn && userId.isEmpty()) onLoggedIn()
     }
 
     /** ログインの画面(Spotify アプリかブラウザ)から戻ってきたとき */

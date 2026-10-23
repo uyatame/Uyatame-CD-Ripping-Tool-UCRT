@@ -25,6 +25,8 @@ class NotifInfo(
 /** サービスと再生処理の橋渡し(通知ボタンの操作を再生処理に伝える) */
 object MediaBridge {
     @Volatile var player: PlayerController? = null
+    /** アプリを終了する(通知の「終了」から。MainViewModel が設定する) */
+    @Volatile var quit: (() -> Unit)? = null
     @Volatile var info: NotifInfo? = null
     @Volatile var running = false
 }
@@ -38,6 +40,16 @@ class KeepAliveService : Service() {
             ACTION_TOGGLE -> MediaBridge.player?.toggle()
             ACTION_NEXT -> MediaBridge.player?.next()
             ACTION_PREV -> MediaBridge.player?.prev()
+            ACTION_QUIT -> {
+                // アプリを終了する(USB DAC を Android に返してから)
+                val q = MediaBridge.quit
+                if (q != null) q() else {
+                    runCatching { com.uyatame.ucrt.player.usb.UsbDac.close(reattach = true) }
+                    stopSelf()
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                }
+                return START_NOT_STICKY
+            }
         }
         val info = MediaBridge.info ?: NotifInfo(false, S(R.string.working), "")
         val n = build(this, info)
@@ -70,6 +82,7 @@ class KeepAliveService : Service() {
         const val ACTION_TOGGLE = "com.uyatame.ucrt.TOGGLE"
         const val ACTION_NEXT = "com.uyatame.ucrt.NEXT"
         const val ACTION_PREV = "com.uyatame.ucrt.PREV"
+        const val ACTION_QUIT = "com.uyatame.ucrt.QUIT"
 
         private fun action(ctx: Context, act: String, req: Int): PendingIntent = PendingIntent.getService(
             ctx, req, Intent(ctx, KeepAliveService::class.java).setAction(act),
@@ -110,6 +123,8 @@ class KeepAliveService : Service() {
                     else act(android.R.drawable.ic_media_play, S(R.string.play), ACTION_TOGGLE, 2),
                 )
                 b.addAction(act(android.R.drawable.ic_media_next, S(R.string.next), ACTION_NEXT, 3))
+                // 終了(USB DAC を Android に返してアプリを終える)。小さく畳んだ通知には出さない
+                b.addAction(act(android.R.drawable.ic_menu_close_clear_cancel, S(R.string.quit_app), ACTION_QUIT, 4))
                 b.setStyle(
                     Notification.MediaStyle()
                         .setMediaSession(p.session.sessionToken)

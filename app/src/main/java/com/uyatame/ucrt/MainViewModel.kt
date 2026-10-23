@@ -350,6 +350,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             app, detachReceiver, IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED), ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         MediaBridge.player = player
+        MediaBridge.quit = { quitApp(null) }
         // 起動したら、新しい版が出ていないか確かめる(設定を読み込んで、画面が落ち着いてから)
         viewModelScope.launch {
             if (repo.flow.first().updateCheck) {
@@ -365,14 +366,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             var lastMode: Int? = null
             var lastEq: Boolean? = null
+            // 設定はどれか 1 つ変わるたびに全部届く(音量キーで DAC の音量を変えたときなども)ので、変わったものだけ反映する
+            var lastEqState: Any? = null
+            var lastExternal: Boolean? = null
             settings.collect { s ->
-                com.uyatame.ucrt.player.AudioEngine.setEq(s.eqActive, s.eqCurrentBands, s.eqPreamp, s.eqAutoPreamp)
+                val eqState = listOf(s.eqActive, s.eqCurrentBands, s.eqPreamp, s.eqAutoPreamp)
+                if (eqState != lastEqState) {
+                    lastEqState = eqState
+                    com.uyatame.ucrt.player.AudioEngine.setEq(s.eqActive, s.eqCurrentBands, s.eqPreamp, s.eqAutoPreamp)
+                }
                 val mode = s.outputMode
                 com.uyatame.ucrt.player.AudioEngine.setOutputMode(mode)
                 // ビットパーフェクト再生がオンなら、USB DAC の使用許可を先にもらっておく
                 if (mode == 2 && lastMode != 2) com.uyatame.ucrt.player.usb.UsbDac.requestPermissionIfNeeded()
                 player.setUsbVolume(s.usbVolume)
-                com.uyatame.ucrt.player.ExternalMedia.setEnabled(ctx, s.externalMedia)
+                // (許可の変化は、画面に戻ってきたとき(MainActivity.onResume)に確かめる)
+                if (s.externalMedia != lastExternal) {
+                    lastExternal = s.externalMedia
+                    com.uyatame.ucrt.player.ExternalMedia.setEnabled(ctx, s.externalMedia)
+                }
                 val keep = com.uyatame.ucrt.player.DacKeepAlive
                 keep.target = s.dacKeepAliveTarget
                 if (s.dacKeepAlive && !keep.running) keep.start(ctx) else if (!s.dacKeepAlive && keep.running) keep.stop(ctx)
@@ -423,10 +435,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             recordHistory()
             saveResume()
         }
+        viewModelScope.launch(Dispatchers.IO) { com.uyatame.ucrt.player.RgStore.load(ctx) }
         viewModelScope.launch {
             store.load()
             libAll = withContext(Dispatchers.IO) { library.loadCache() }
-            albums = Library.group(libAll)
+            // アルバムへのまとめは曲が多いと時間がかかるので、画面のスレッドの外で行う
+            albums = withContext(Dispatchers.Default) { Library.group(libAll) }
             restoreQueue()
             val s = repo.flow.first()
             if (s.outputUri != null || s.libraryFolders.isNotEmpty()) {
@@ -443,6 +457,181 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---- ReplayGain の解析(ライブラリの曲をまとめて) ----
+
+    var rgAnalyzing by mutableStateOf(false)
+        private set
+    /** 解析の進み具合(0〜1)と、今解析している曲 */
+    var rgProgress by mutableFloatStateOf(0f)
+        private set
+    var rgStatus by mutableStateOf("")
+        private set
+    private var rgJob: kotlinx.coroutines.Job? = null
+    @Volatile private var rgStop = false
+    /** 解析中の曲(解析のスレッドが書き、画面の表示は 0.25 秒ごとに読む) */
+    @Volatile private var rgNow = ""
+
+    /** 解析した 1 曲の結果 */
+    private class RgTrack(val uri: String, val gain: Float?, val peak: Float, val blocks: List<Double>)
+
+    /**
+     * ライブラリの曲の音の大きさを解析して、ReplayGain の値(曲ごと・アルバムごと)を求める。
+     * all: 解析済みの曲も解析し直す(false なら、まだ解析していない曲があるアルバムだけ)。
+     * ライブラリの読み込みと同じように、複数のスレッドで同時に曲を解析する(再生中は少ないスレッドで)。
+     * アルバムの値はアルバムの全曲を合わせて求めるので、アルバムの全曲が終わってから保存する(途中でやめたアルバムは保存しない)。
+     * 値はアプリの中に保存し、曲のファイルは書き換えない
+     */
+    fun analyzeReplayGain(all: Boolean) {
+        if (rgAnalyzing) return
+        val targets = albums.filter { a -> all || a.tracks.any { !com.uyatame.ucrt.player.RgStore.has(it.uri) } }
+        val total = targets.sumOf { it.tracks.size }
+        if (total == 0) {
+            snack = S(R.string.rg_all_analyzed)
+            return
+        }
+        rgAnalyzing = true
+        rgProgress = 0f
+        rgStop = false
+        // 再生中は音が途切れないよう少ないスレッド・低い優先度で、止まっているときは全部の CPU を使う
+        val playing = player.isPlaying
+        val n = if (playing) 2 else Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
+        val prio = if (playing) android.os.Process.THREAD_PRIORITY_BACKGROUND else 5
+        rgJob = viewModelScope.launch {
+            val done = java.util.concurrent.atomic.AtomicInteger()
+            val analyzed = java.util.concurrent.atomic.AtomicInteger()
+            val failed = java.util.concurrent.atomic.AtomicInteger()
+            val pool = java.util.concurrent.Executors.newFixedThreadPool(n) { r ->
+                Thread({
+                    runCatching { android.os.Process.setThreadPriority(prio) }
+                    r.run()
+                }, "rg-analysis").apply { isDaemon = true }
+            }
+            // 画面の表示は、曲が終わるたびではなく 0.25 秒ごとにまとめて更新する
+            val ui = launch {
+                while (true) {
+                    rgProgress = done.get().toFloat() / total
+                    rgStatus = rgNow
+                    delay(250)
+                }
+            }
+            try {
+                withContext(Dispatchers.IO) {
+                    // アルバムごとに、残りの曲数と結果を数える。最後の曲が終わったスレッドがアルバムの値を求めて保存する
+                    val futures = ArrayList<java.util.concurrent.Future<*>>()
+                    for (a in targets) {
+                        val left = java.util.concurrent.atomic.AtomicInteger(a.tracks.size)
+                        val results = java.util.Collections.synchronizedList(ArrayList<RgTrack>())
+                        for (t in a.tracks) futures.add(pool.submit {
+                            if (rgStop) return@submit
+                            rgNow = t.title + S(R.string.separator) + a.title
+                            val r = analyzeTrack(t)
+                            if (r == null) failed.incrementAndGet() else results.add(r)
+                            done.incrementAndGet()
+                            if (left.decrementAndGet() == 0 && !rgStop) analyzed.addAndGet(saveAlbumGain(results))
+                        })
+                    }
+                    for (f in futures) {
+                        try { f.get() } catch (e: InterruptedException) { break }
+                    }
+                }
+            } finally {
+                rgStop = true
+                pool.shutdownNow()
+                ui.cancel()
+                rgAnalyzing = false
+                rgStatus = ""
+                val msg = S(R.string.rg_analysis_finished, analyzed.get(), failed.get())
+                log(msg)
+                snack = msg
+            }
+        }
+    }
+
+    /** 1 曲を解析する。読めなかった曲・DSD・途中でやめたときは null */
+    private fun analyzeTrack(t: com.uyatame.ucrt.library.LibTrack): RgTrack? {
+        var m: com.uyatame.ucrt.player.LoudnessMeter? = null
+        val ok = runCatching {
+            player.decodeForAnalysis(itemOf(t), { rgStop }) { buf, frames, ch, rate ->
+                val meter = m ?: com.uyatame.ucrt.player.LoudnessMeter(rate, ch).also { m = it }
+                meter.feed(buf, frames)
+            }
+        }.getOrElse { e ->
+            if (!rgStop) log(S(R.string.rg_cannot_analyze, t.title, e.message ?: e.javaClass.simpleName))
+            false
+        }
+        val meter = m ?: return null
+        if (!ok || rgStop) return null
+        val l = com.uyatame.ucrt.player.LoudnessMeter.integrated(meter.blocks)
+        return RgTrack(t.uri, l?.let { com.uyatame.ucrt.player.LoudnessMeter.gainDb(it) }, meter.peak, meter.blocks)
+    }
+
+    /** アルバムの全曲の結果から、アルバムの値を求めて保存する。値を付けた曲の数を返す */
+    private fun saveAlbumGain(tracks: List<RgTrack>): Int {
+        val list = synchronized(tracks) { tracks.toList() }
+        val blocks = ArrayList<Double>()
+        var albumPeak = 0f
+        for (r in list) {
+            blocks.addAll(r.blocks)
+            if (r.peak > albumPeak) albumPeak = r.peak
+        }
+        val albumGain = com.uyatame.ucrt.player.LoudnessMeter.integrated(blocks)?.let { com.uyatame.ucrt.player.LoudnessMeter.gainDb(it) }
+        val values = HashMap<String, com.uyatame.ucrt.player.RgInfo>()
+        // ほとんど無音の曲は、値を付けない(そのまま再生する)
+        for (r in list) if (r.gain != null) values[r.uri] = com.uyatame.ucrt.player.RgInfo(r.gain, r.peak, albumGain, albumPeak)
+        if (values.isNotEmpty()) com.uyatame.ucrt.player.RgStore.putAll(values)
+        return values.size
+    }
+
+    fun cancelReplayGainAnalysis() {
+        rgStop = true
+        rgJob?.cancel()
+    }
+
+    /** 解析した値をすべて消す(曲に書かれた値はそのまま) */
+    fun clearAnalyzedReplayGain() {
+        viewModelScope.launch(Dispatchers.IO) { com.uyatame.ucrt.player.RgStore.clear() }
+    }
+
+    // ---- USB DAC の解放・アプリの終了 ----
+
+    /** USB DAC を使っているか(「USB DAC を解放」を出すため) */
+    val usbDacInUse: Boolean get() = com.uyatame.ucrt.player.usb.UsbDac.inUse
+
+    /** 再生を一時停止して、USB DAC を Android に返す(ほかのアプリの音が USB DAC から出るようにする) */
+    fun releaseUsbDac() {
+        player.releaseOutput()
+        // 再生の出力を閉じたあとも開いたままなら、ここで閉じる(Android の USB オーディオに戻す)
+        Thread({ com.uyatame.ucrt.player.usb.UsbDac.close(reattach = true) }, "usb-dac-release").start()
+        snack = S(R.string.usb_dac_released)
+    }
+
+    private var quitting = false
+
+    /**
+     * アプリを終了する。再生を止め、USB DAC を Android に返し(返さずに終わると、ほかのアプリの音が USB DAC から出なくなる)、
+     * 続きと設定を保存してから、通知・サービスを止めてプロセスを終える。finish: 画面を閉じる(通知から終了するときは null)
+     */
+    fun quitApp(finish: (() -> Unit)?) {
+        if (quitting) return
+        quitting = true
+        saveJob?.cancel()
+        writeResume()
+        resumeReady = false
+        player.onStateChanged = null
+        player.release()
+        runCatching { com.uyatame.ucrt.player.cast.CastManager.disconnect() }
+        // DAC を返すのは確実に終えてから終了する(別のスレッドに任せると、終了に間に合わないことがある)
+        runCatching { com.uyatame.ucrt.player.usb.UsbDac.close(reattach = true) }
+        runCatching { com.uyatame.ucrt.player.DacKeepAlive.stop(ctx) }
+        closeAsync(drive)
+        drive = null
+        store.flush()
+        KeepAliveService.hide(ctx)
+        finish?.invoke()
+        // 画面を閉じ終えてから、プロセスごと終える(サービスなどが残って DAC を握り続けないように)
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 300)
+    }
+
     override fun onCleared() {
         // 終了処理で再生リストが空になる前に、続きを保存しておく
         saveJob?.cancel()
@@ -457,6 +646,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         closeAsync(drive)
         drive = null
         MediaBridge.player = null
+        MediaBridge.quit = null
         KeepAliveService.hide(ctx)
     }
 
@@ -1916,11 +2106,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                     // 重なったフォルダから同じファイルが 2 回見つかっても、1 曲として扱う(先に読んだ保存先のものを残す)
-                    all.distinctBy { Library.docKey(it.uri) }.also { library.saveCache(it) }
+                    // 一覧が前と同じなら、保存し直さない(曲が多いと数 MB を書き直すことになる。起動するたびに自動で確かめているため)
+                    all.distinctBy { Library.docKey(it.uri) }.also { if (it != libAll || library.needsFullRescan) library.saveCache(it) }
                 }
                 ArtLoader.clearMisses()
                 libAll = list
-                albums = Library.group(list)
+                albums = withContext(Dispatchers.Default) { Library.group(list) }
             } catch (e: Exception) {
                 log(S(R.string.library_scan_failed, e.message))
             } finally {

@@ -72,7 +72,10 @@ internal class IsoUrb(val endpoint: Int, val packets: Int, val maxBytes: Int, va
     var epoch = 0
     var inFlight = false
 
-    /** パケットごとの長さを設定して、送信できる状態にする */
+    /** パケットの記述(長さ・送れた長さ・状態 × パケット数)。まとめて書き込み・読み出しする */
+    private val desc = IntArray(packets * 3)
+
+    /** パケットごとの長さを設定して、送信できる状態にする(ネイティブのメモリへの書き込みは数回にまとめる) */
     fun prepare(lengths: IntArray) {
         urb.clear(Usbfs.URB_SIZE.toLong())
         urb.setByte(Usbfs.OFF_TYPE.toLong(), Usbfs.URB_TYPE_ISO)
@@ -81,14 +84,20 @@ internal class IsoUrb(val endpoint: Int, val packets: Int, val maxBytes: Int, va
         urb.setPointer(Usbfs.OFF_BUFFER.toLong(), buf)
         var total = 0
         for (i in 0 until packets) {
-            val o = (Usbfs.URB_SIZE + i * Usbfs.ISO_DESC_SIZE).toLong()
-            urb.setInt(o, lengths[i])
-            urb.setInt(o + 4, 0)
-            urb.setInt(o + 8, 0)
+            desc[i * 3] = lengths[i]
+            desc[i * 3 + 1] = 0
+            desc[i * 3 + 2] = 0
             total += lengths[i]
         }
+        urb.write(Usbfs.URB_SIZE.toLong(), desc, 0, packets * 3)
         urb.setInt(Usbfs.OFF_BUFLEN.toLong(), total)
         urb.setInt(Usbfs.OFF_NPACKETS.toLong(), packets)
+    }
+
+    /** 送り終えたあとのパケットの記述をまとめて読む(長さ・送れた長さ・状態の順に 3 つずつ) */
+    fun readDescriptors(): IntArray {
+        urb.read(Usbfs.URB_SIZE.toLong(), desc, 0, packets * 3)
+        return desc
     }
 
     fun status(): Int = urb.getInt(Usbfs.OFF_STATUS.toLong())

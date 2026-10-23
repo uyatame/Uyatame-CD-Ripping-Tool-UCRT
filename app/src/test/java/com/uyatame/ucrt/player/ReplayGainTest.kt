@@ -91,6 +91,18 @@ class ReplayGainTest {
         assertEquals(1.05f, r.trackPeak!!, 1e-6f)
     }
 
+    @Test fun flacWithId3HeaderAndNoExtension() {
+        val comments = listOf("REPLAYGAIN_TRACK_GAIN=-2.50 dB")
+        val vc = cat(le32(0), le32(comments.size), *comments.flatMap { listOf(le32(it.length), it.toByteArray()) }.toTypedArray())
+        val flac = cat(
+            "fLaC".toByteArray(), byteArrayOf(0, 0, 0, 34), ByteArray(34),
+            byteArrayOf((0x80 or 4).toByte(), (vc.size shr 16).toByte(), (vc.size shr 8).toByte(), vc.size.toByte()), vc,
+        )
+        // 先頭に ID3v2(中身は空)が付いていて、拡張子が分からない URI
+        val r = ReplayGain.read(Bytes(cat(id3(ByteArray(20)), flac)), "")!!
+        assertEquals(-2.5f, r.trackGain!!, 1e-4f)
+    }
+
     @Test fun noTags() {
         val r = ReplayGain.read(Bytes(ByteArray(5000)), "wav")
         assertNull(r?.trackGain)
