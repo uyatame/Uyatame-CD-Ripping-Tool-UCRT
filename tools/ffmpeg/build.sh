@@ -82,6 +82,7 @@ cat > "$OUT/README.txt" <<TXT
 UCRT 用の FFmpeg(CD の取り込みの FLAC・MP3 の変換に使用)
 FFmpeg $FFMPEG_TAG ($FFMPEG_COMMIT) https://github.com/FFmpeg/FFmpeg
 LAME $LAME_VER https://lame.sourceforge.io/
+Android NDK $(sed -n 's/^Pkg.Revision *= *//p' "$NDK/source.properties")、API $API
 どちらも GNU LGPL で、改変せずに build.sh の設定でビルドしています。
 TXT
 echo "== 完了"
