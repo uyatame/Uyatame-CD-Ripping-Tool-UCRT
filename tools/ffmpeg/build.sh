@@ -3,7 +3,7 @@
 # GitHub Actions(.github/workflows/ffmpeg.yml)で動かし、できたものをこのリポジトリのリリースに置く。
 # アプリのビルドは、そのリリースから取ってきて SHA-256 を確かめ、APK の lib/<ABI>/libffmpeg.so に入れる。
 #
-# - 対応: armeabi-v7a・arm64-v8a・x86_64、Android 6.0(API 23)から。16 KB のページにも対応
+# - 対応: armeabi-v7a・arm64-v8a・x86_64、Android 5.0(API 21)から。16 KB のページにも対応
 # - 入れるもの: PCM(s16le)の読み込み、FLAC のエンコーダー、LAME(MP3)、FLAC・MP3 の書き出しだけ
 # - ライセンス: FFmpeg・LAME とも LGPL(GPL の部品は使わない)
 #
@@ -14,7 +14,7 @@ FFMPEG_TAG=n8.1.3
 FFMPEG_COMMIT=1041abdc962f4cc4f394aa8de9dc5236c0c3b9e7
 LAME_VER=3.100
 LAME_SHA256=ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e
-API=23
+API=21
 
 OUT=$(realpath -m "${1:?出力先を指定してください}")
 NDK=${ANDROID_NDK_HOME:?ANDROID_NDK_HOME を指定してください}
