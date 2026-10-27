@@ -40,10 +40,14 @@ jobs:
             echo "installing $pkg"
             yes | "$sdk" --install "$pkg" > /dev/null
             name=${pkg#platforms;}
-            if [ "$name" != "android-37" ]; then
-              cp -r "$d/$name" "$d/android-37"
-              sed -i "s#platforms;$name#platforms;android-37#" "$d/android-37/package.xml"
-            fi
+            [ "$name" = "android-37" ] || cp -r "$d/$name" "$d/android-37"
+            echo "--- package.xml of $name:"; cat "$d/$name/package.xml"; echo
+            # 配られている package.xml からは API の番号を読み取れないことがあるので、android-36 のものを 37 に書き換えて使う
+            [ -d "$d/android-36" ] || yes | "$sdk" --install "platforms;android-36" > /dev/null
+            sed -e 's#platforms;android-36#platforms;android-37#' \
+                -e 's#<api-level>36</api-level>#<api-level>37</api-level>#' \
+                -e 's#Android SDK Platform 36#Android SDK Platform 37#' \
+                "$d/android-36/package.xml" > "$d/android-37/package.xml"
           fi
           ls "$d"
 
