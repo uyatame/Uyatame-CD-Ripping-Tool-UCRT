@@ -100,7 +100,7 @@ object ExternalMedia {
         }
         enabled = want
         if (want) {
-            val m = c.getSystemService(MediaSessionManager::class.java) ?: return
+            val m = androidx.core.content.ContextCompat.getSystemService(c, MediaSessionManager::class.java) ?: return
             manager = m
             runCatching { m.addOnActiveSessionsChangedListener(sessionsListener, component(c), main) }
             refresh()

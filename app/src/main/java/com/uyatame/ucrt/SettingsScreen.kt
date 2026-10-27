@@ -304,6 +304,9 @@ private fun QualityPage(vm: MainViewModel, s: AppSettings) {
                 style = MaterialTheme.typography.bodySmall,
             )
         }
+        if (s.format == AudioFormat.FLAC || s.format == AudioFormat.MP3) {
+            SwitchRow(S(R.string.use_ffmpeg), S(R.string.use_ffmpeg_desc), s.useFfmpeg) { vm.set(Keys.useFfmpeg, it) }
+        }
     }
 }
 
@@ -596,6 +599,27 @@ private val LICENSES: List<LicenseInfo> get() = listOf(
             S(R.string.you_can_use_this_projects) +
             S(R.string.full_text_of_lgpl_v2),
         "LGPL-2.1.txt",
+    ),
+    LicenseInfo(
+        "FFmpeg", "8.1.3", "Copyright (c) 2000-2026 the FFmpeg developers",
+        S(R.string.gnu_lesser_general_public_license), LGPL21,
+        "https://github.com/FFmpeg/FFmpeg",
+        S(R.string.ffmpeg_license_note) + S(R.string.ffmpeg_aac_tables_note) + S(R.string.full_text_of_lgpl_v2),
+        "LGPL-2.1.txt",
+    ),
+    LicenseInfo(
+        "LAME", "3.100", "Copyright (c) 1999-2017 The LAME Project",
+        S(R.string.gnu_lesser_general_public_license), LGPL21,
+        "https://lame.sourceforge.io/",
+        S(R.string.lame_license_note),
+        "LGPL-2.1.txt",
+    ),
+    LicenseInfo(
+        "minimp3", "", "lieff",
+        "CC0 1.0 Universal", "https://creativecommons.org/publicdomain/zero/1.0/",
+        "https://github.com/lieff/minimp3",
+        S(R.string.minimp3_license_note),
+        "CC0-1.0.txt",
     ),
     LicenseInfo(
         "JNA (Java Native Access)", "5.14.0", "Copyright (c) 2007-2024 Timothy Wall and JNA contributors",

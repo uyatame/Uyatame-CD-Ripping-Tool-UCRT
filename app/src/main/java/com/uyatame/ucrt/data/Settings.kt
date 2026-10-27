@@ -23,39 +23,14 @@ val Context.dataStore by preferencesDataStore(
     },
 )
 
-enum class AudioFormat(val label: String, val ext: String, val mime: String) {
-    WAV("WAV", "wav", "audio/x-wav"),
-    FLAC("FLAC", "flac", "audio/flac"),
-    AAC("AAC", "m4a", "audio/mp4"),
-    MP3("MP3", "mp3", "audio/mpeg"),
-}
-
-val MP3_RATES = listOf(128, 160, 192, 224, 256, 320)
-
-class QualityPreset(
-    val title: String,
-    val desc: String,
-    val format: AudioFormat,
-    val flacLevel: Int,
-    val aacKbps: Int,
-    val mp3Kbps: Int = 320,
-)
-
-val QUALITY_PRESETS: List<QualityPreset> get() = listOf(
-    QualityPreset(S(R.string.lossless_flac), S(R.string.cd_quality_at_about_half), AudioFormat.FLAC, 5, 256),
-    QualityPreset(S(R.string.high_quality_aac_320_kbps), S(R.string.nearly_indistinguishable_from_cd_about), AudioFormat.AAC, 5, 320),
-    QualityPreset(S(R.string.standard_aac_256_kbps), S(R.string.balanced_quality_and_size_about), AudioFormat.AAC, 5, 256),
-    QualityPreset(S(R.string.most_compatible_mp3_320_kbps), S(R.string.plays_on_older_players_and), AudioFormat.MP3, 5, 256, 320),
-    QualityPreset(S(R.string.space_saver_aac_128_kbps), S(R.string.smallest_files_about_4_mb), AudioFormat.AAC, 5, 128),
-    QualityPreset(S(R.string.uncompressed_wav), S(R.string.saves_cd_data_as_is), AudioFormat.WAV, 5, 256),
-)
-
 data class AppSettings(
     val format: AudioFormat = AudioFormat.FLAC,
     val flacLevel: Int = 5,
     val aacKbps: Int = 256,
     val mp3Kbps: Int = 320,
     val mp3Quality: Int = 2,
+    /** FLAC・MP3 の変換に FFmpeg を使う(動かない端末では、アプリ内蔵の変換を使う) */
+    val useFfmpeg: Boolean = true,
     val speedX: Int = 0,
     val sectorsPerRead: Int = 13,
     val retries: Int = 5,
@@ -199,6 +174,7 @@ object Keys {
     val aacKbps = intPreferencesKey("aacKbps")
     val mp3Kbps = intPreferencesKey("mp3Kbps")
     val mp3Quality = intPreferencesKey("mp3Quality")
+    val useFfmpeg = booleanPreferencesKey("useFfmpeg")
     val speedX = intPreferencesKey("speedX")
     val sectorsPerRead = intPreferencesKey("sectorsPerRead")
     val retries = intPreferencesKey("retries")
@@ -278,6 +254,7 @@ class SettingsRepository(private val context: Context) {
             aacKbps = p[Keys.aacKbps] ?: d.aacKbps,
             mp3Kbps = p[Keys.mp3Kbps] ?: d.mp3Kbps,
             mp3Quality = p[Keys.mp3Quality] ?: d.mp3Quality,
+            useFfmpeg = p[Keys.useFfmpeg] ?: d.useFfmpeg,
             speedX = p[Keys.speedX] ?: d.speedX,
             sectorsPerRead = p[Keys.sectorsPerRead] ?: d.sectorsPerRead,
             retries = p[Keys.retries] ?: d.retries,

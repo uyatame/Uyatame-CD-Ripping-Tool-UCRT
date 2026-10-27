@@ -42,7 +42,7 @@ object StorageAccess {
         if (volId == "home") return S(R.string.documents)
         val ctx = app
         if (ctx != null) {
-            val sm = ctx.getSystemService(StorageManager::class.java)
+            val sm = androidx.core.content.ContextCompat.getSystemService(ctx, StorageManager::class.java)!!
             // 保存場所の一覧は Android 7.0 から
             val v = if (android.os.Build.VERSION.SDK_INT >= 24) {
                 runCatching { sm.storageVolumes }.getOrNull()?.firstOrNull { it.uuid.equals(volId, ignoreCase = true) }

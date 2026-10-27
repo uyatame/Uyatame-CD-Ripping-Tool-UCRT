@@ -70,9 +70,16 @@ object CastManager {
     private val resolveQueue = ArrayDeque<NsdServiceInfo>()
     private var resolving = false
 
+    /** 同じネットワークの機器とのやり取りの許可(Android 17 から。それより前は INTERNET で足りる) */
+    const val LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
+
+    fun hasLocalNetwork(ctx: Context): Boolean =
+        android.os.Build.VERSION.SDK_INT < 37 ||
+            androidx.core.content.ContextCompat.checkSelfPermission(ctx, LOCAL_NETWORK) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
     fun startDiscovery(ctx: Context) {
         if (listener != null) return
-        val m = ctx.applicationContext.getSystemService(NsdManager::class.java) ?: return
+        val m = androidx.core.content.ContextCompat.getSystemService(ctx.applicationContext, NsdManager::class.java) ?: return
         nsd = m
         val l = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String?) {}

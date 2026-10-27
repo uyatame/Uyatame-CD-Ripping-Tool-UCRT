@@ -144,7 +144,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         .setUsage(AudioAttributes.USAGE_MEDIA)
         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
         .build()
-    private val am = ctx.getSystemService(AudioManager::class.java)
+    private val am = androidx.core.content.ContextCompat.getSystemService(ctx, AudioManager::class.java)!!
     private val focusListener = AudioManager.OnAudioFocusChangeListener { ch ->
         if (ch == AudioManager.AUDIOFOCUS_LOSS || ch == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) main.post { pause() }
     }

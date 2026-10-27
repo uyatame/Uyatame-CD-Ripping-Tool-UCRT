@@ -30,7 +30,7 @@ internal class PerfHint private constructor(private val s: PerformanceHintManage
 
         private fun create(ctx: Context, targetNs: Long): PerfHint? {
             if (Build.VERSION.SDK_INT < 31) return null
-            val m = ctx.getSystemService(PerformanceHintManager::class.java) ?: return null
+            val m = androidx.core.content.ContextCompat.getSystemService(ctx, PerformanceHintManager::class.java) ?: return null
             val s = m.createHintSession(intArrayOf(Process.myTid()), targetNs) ?: return null
             if (Build.VERSION.SDK_INT >= 35) runCatching { s.setPreferPowerEfficiency(false) }
             return PerfHint(s, targetNs)

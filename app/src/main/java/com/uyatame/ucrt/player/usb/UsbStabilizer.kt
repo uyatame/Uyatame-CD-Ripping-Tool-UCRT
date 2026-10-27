@@ -43,7 +43,7 @@ object UsbStabilizer {
             running = true
             val app = ctx.applicationContext
             wake = runCatching {
-                app.getSystemService(PowerManager::class.java)
+                androidx.core.content.ContextCompat.getSystemService(app, PowerManager::class.java)
                     ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ucrt:usb-dac")
                     ?.apply { setReferenceCounted(false); acquire(6 * 60 * 60 * 1000L) }
             }.getOrNull()
@@ -75,23 +75,18 @@ object UsbStabilizer {
         val min = AudioTrack.getMinBufferSize(rate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
         if (min <= 0) return
         val t = runCatching {
-            AudioTrack.Builder()
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build(),
-                )
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setSampleRate(rate)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .build(),
-                )
-                .setBufferSizeInBytes(min * 2)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
+            com.uyatame.ucrt.player.newAudioTrack(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build(),
+                AudioFormat.Builder()
+                    .setSampleRate(rate)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .build(),
+                min * 2,
+            )
         }.getOrNull() ?: return
         synchronized(lock) {
             if (!running) {

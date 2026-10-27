@@ -3,7 +3,6 @@ package com.uyatame.ucrt
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
-import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.MediaRouter2
@@ -37,7 +36,15 @@ class SystemOutput(val label: String, val icon: ImageVector)
 private val MEDIA = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build()
 
 /** 音楽の出力先を調べる(Android 13 以降は実際の行き先、それより前はつながっている機器から推測する) */
-private fun currentOutput(am: AudioManager): SystemOutput {
+private fun currentOutput(ctx: Context, am: AudioManager): SystemOutput {
+    // Android 5.x は出力先の一覧を調べられないので、イヤホン・Bluetooth がつながっているかで推測する
+    if (Build.VERSION.SDK_INT < 23) {
+        return when (com.uyatame.ucrt.player.OutputDevices.legacyKind(ctx)) {
+            com.uyatame.ucrt.player.OutputKind.Wired -> SystemOutput(S(R.string.output_wired), AppIcons.Headphones)
+            com.uyatame.ucrt.player.OutputKind.Bluetooth -> SystemOutput(S(R.string.output_bluetooth), AppIcons.Headphones)
+            else -> SystemOutput(S(R.string.output_speaker), AppIcons.Smartphone)
+        }
+    }
     val dev: AudioDeviceInfo? = if (Build.VERSION.SDK_INT >= 33) {
         runCatching { am.getAudioDevicesForAttributes(MEDIA).firstOrNull() }.getOrNull()
     } else {
@@ -74,19 +81,15 @@ private fun describe(d: AudioDeviceInfo?): SystemOutput {
 @Composable
 fun rememberSystemOutput(): SystemOutput {
     val ctx = LocalContext.current
-    val am = remember { ctx.getSystemService(AudioManager::class.java) }
-    var out by remember { mutableStateOf(currentOutput(am)) }
+    val am = remember { androidx.core.content.ContextCompat.getSystemService(ctx, AudioManager::class.java)!! }
+    var out by remember { mutableStateOf(currentOutput(ctx, am)) }
     DisposableEffect(am) {
         val main = Handler(Looper.getMainLooper())
         // 抜き差しの直後は、まだ行き先が切り替わっていないことがあるので、少し待ってから調べ直す
-        val recheck = Runnable { out = currentOutput(am) }
-        val cb = object : AudioDeviceCallback() {
-            override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>?) { main.removeCallbacks(recheck); main.postDelayed(recheck, 400) }
-            override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>?) { main.removeCallbacks(recheck); main.postDelayed(recheck, 400) }
-        }
-        am.registerAudioDeviceCallback(cb, main)
+        val recheck = Runnable { out = currentOutput(ctx, am) }
+        val stop = com.uyatame.ucrt.player.OutputDevices.watch(ctx, main) { main.removeCallbacks(recheck); main.postDelayed(recheck, 400) }
         onDispose {
-            am.unregisterAudioDeviceCallback(cb)
+            stop()
             main.removeCallbacks(recheck)
         }
     }

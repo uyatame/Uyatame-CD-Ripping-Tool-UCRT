@@ -94,6 +94,12 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
         }
     }
 
+    // 曲情報の編集は画面いっぱいに出す(ダイアログだと狭くて入力しにくいため)
+    if (showEdit && vm.meta != null) {
+        EditMetaPage(vm, s) { showEdit = false }
+        return
+    }
+
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
@@ -208,7 +214,6 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
         )
     }
     vm.ripPlan?.let { RipConfirmDialog(vm, s, it) }
-    if (showEdit) EditMetaDialog(vm) { showEdit = false }
     if (showQuality) {
         AlertDialog(
             onDismissRequest = { showQuality = false },
@@ -302,6 +307,16 @@ private fun AlbumHeader(
                     leadingIcon = { Icon(AppIcons.Album, null, Modifier.size(18.dp)) },
                 )
                 Spacer(Modifier.weight(1f))
+                // 自分で入力した曲情報(MusicBrainz から取ったものでないとき)は、MusicBrainz に登録できる
+                if (vm.meta != null && vm.meta?.releaseId == null) {
+                    if (vm.mbUploadBusy) {
+                        androidx.compose.material3.CircularProgressIndicator(Modifier.size(20.dp).padding(2.dp), strokeWidth = 2.dp)
+                    } else {
+                        IconButton({ vm.uploadToMusicBrainz() }, enabled = !vm.busy && !vm.metaSearching) {
+                            Icon(AppIcons.Upload, S(R.string.mb_upload))
+                        }
+                    }
+                }
                 IconButton(onEdit, enabled = !vm.busy) { Icon(Icons.Filled.Edit, S(R.string.edit_track_info)) }
                 IconButton({ vm.openChooser() }, enabled = !vm.busy) { Icon(Icons.Filled.Search, S(R.string.matches_and_search)) }
             }
@@ -459,52 +474,83 @@ private fun MetaChooserDialog(vm: MainViewModel) {
     }
 }
 
+/** 曲情報がすでに MusicBrainz にあったとき(登録はしない)。CD の画面とライブラリの両方から使う */
 @Composable
-private fun EditMetaDialog(vm: MainViewModel, onDismiss: () -> Unit) {
-    val m = vm.meta ?: return
-    var title by remember { mutableStateOf(m.title) }
-    var artist by remember { mutableStateOf(m.artist) }
-    var date by remember { mutableStateOf(m.date) }
-    val titles = remember { mutableStateListOf<String>().apply { addAll(m.tracks.map { it.title }) } }
+internal fun MbExistingDialog(vm: MainViewModel) {
+    val e = vm.mbExisting ?: return
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    fun open(url: String) {
+        runCatching {
+            ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+        }
+    }
     AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton({
-                vm.updateMeta(
-                    m.copy(
-                        title = title.trim(), artist = artist.trim(), date = date.trim(),
-                        tracks = m.tracks.mapIndexed { i, tm ->
-                            tm.copy(
-                                title = titles.getOrElse(i) { tm.title }.trim(),
-                                artist = if (tm.artist == m.artist) artist.trim() else tm.artist,
-                            )
-                        },
-                    ),
-                )
-                onDismiss()
-            }) { Text(S(R.string.save)) }
-        },
-        dismissButton = { TextButton(onDismiss) { Text(S(R.string.cancel)) } },
-        title = { Text(S(R.string.edit_track_info)) },
+        onDismissRequest = { vm.mbExisting = null },
+        title = { Text(S(R.string.mb_upload)) },
         text = {
-            LazyColumn(Modifier.heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                item {
-                    OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.album)) }, singleLine = true)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(e.message)
+                Text(e.title, style = MaterialTheme.typography.titleMedium)
+                if (e.summary.isNotBlank()) {
+                    Text(e.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                item {
-                    OutlinedTextField(artist, { artist = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.artist)) }, singleLine = true)
-                }
-                item {
-                    OutlinedTextField(date, { date = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.release_date_e_g_2024)) }, singleLine = true)
-                }
-                items(titles.size) { i ->
-                    OutlinedTextField(
-                        titles[i], { titles[i] = it }, Modifier.fillMaxWidth(),
-                        label = { Text(S(R.string.track_3, i + 1)) }, singleLine = true,
-                    )
+                if (e.releaseUrl != null) {
+                    TextButton({ open(e.releaseUrl) }) { Text(S(R.string.mb_open_release)) }
                 }
             }
         },
+        confirmButton = {
+            if (e.attachUrl != null) {
+                TextButton({ open(e.attachUrl); vm.mbExisting = null }) { Text(S(R.string.mb_add_disc_id)) }
+            } else {
+                TextButton({ vm.mbExisting = null }) { Text(S(R.string.close)) }
+            }
+        },
+        dismissButton = if (e.attachUrl != null) ({ TextButton({ vm.mbExisting = null }) { Text(S(R.string.close)) } }) else null,
+    )
+}
+
+/** CD の曲情報を編集する画面(画面いっぱい)。詳しい情報と歌詞は、取り込むときにファイルに書く */
+@Composable
+private fun EditMetaPage(vm: MainViewModel, s: AppSettings, onDone: () -> Unit) {
+    val m = vm.meta ?: return
+    val audio = vm.audioTracks
+    // WAV には詳しい情報と歌詞を書けない
+    val detail = s.format != com.uyatame.ucrt.data.AudioFormat.WAV
+    val form = remember(m) {
+        TagForm(
+            m.title, m.artist, m.date, m.genre,
+            m.tracks.mapIndexed { i, t ->
+                val tt = audio.getOrNull(i)
+                TrackForm(
+                    trackLabel(tt?.number ?: (i + 1)), t.title, if (t.artist == m.artist) "" else t.artist,
+                    tt?.let { fmtTime(it.endLba - it.startLba) }.orEmpty(), detail,
+                    t.composer, t.lyricist, t.comment, t.lyrics,
+                )
+            },
+        )
+    }
+    TagEditorPage(
+        S(R.string.edit_track_info), form,
+        onCancel = onDone,
+        onSave = {
+            val artist = form.albumArtist.trim()
+            vm.updateMeta(
+                m.copy(
+                    title = form.album.trim(), artist = artist, date = form.date.trim(), genre = form.genre.trim(),
+                    tracks = m.tracks.mapIndexed { i, tm ->
+                        val f = form.tracks.getOrNull(i) ?: return@mapIndexed tm
+                        tm.copy(
+                            title = f.title.trim(), artist = f.artist.trim().ifEmpty { artist },
+                            composer = f.composer.trim(), lyricist = f.lyricist.trim(), comment = f.comment.trim(), lyrics = f.lyrics.trim(),
+                        )
+                    },
+                ),
+            )
+            onDone()
+        },
+        dateLabel = S(R.string.release_date_e_g_2024),
+        note = if (!detail) S(R.string.tag_detail_wav) else null,
     )
 }
 

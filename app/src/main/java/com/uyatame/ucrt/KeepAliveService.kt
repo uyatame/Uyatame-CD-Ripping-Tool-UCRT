@@ -95,7 +95,7 @@ class KeepAliveService : Service() {
         fun build(ctx: Context, info: NotifInfo): Notification {
             // 通知チャンネルは Android 8.0 から
             if (!channelReady && android.os.Build.VERSION.SDK_INT >= 26) {
-                ctx.getSystemService(NotificationManager::class.java).createNotificationChannel(
+                androidx.core.content.ContextCompat.getSystemService(ctx, NotificationManager::class.java)!!.createNotificationChannel(
                     NotificationChannel("work", S(R.string.playback_and_ripping), NotificationManager.IMPORTANCE_LOW),
                 )
                 channelReady = true
@@ -115,8 +115,10 @@ class KeepAliveService : Service() {
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
             val p = MediaBridge.player
             if (info.media && p != null) {
+                // Icon は Android 6.0 から。5.x は番号でアイコンを渡す
                 fun act(icon: Int, label: String, a: String, req: Int) =
-                    Notification.Action.Builder(Icon.createWithResource(ctx, icon), label, action(ctx, a, req)).build()
+                    (if (android.os.Build.VERSION.SDK_INT >= 23) Notification.Action.Builder(Icon.createWithResource(ctx, icon), label, action(ctx, a, req))
+                    else @Suppress("DEPRECATION") Notification.Action.Builder(icon, label, action(ctx, a, req))).build()
                 b.addAction(act(android.R.drawable.ic_media_previous, S(R.string.previous), ACTION_PREV, 1))
                 b.addAction(
                     if (info.playing) act(android.R.drawable.ic_media_pause, S(R.string.pause), ACTION_TOGGLE, 2)
@@ -140,7 +142,7 @@ class KeepAliveService : Service() {
         fun show(ctx: Context, info: NotifInfo) {
             MediaBridge.info = info
             if (MediaBridge.running) {
-                runCatching { ctx.getSystemService(NotificationManager::class.java).notify(ID, build(ctx, info)) }
+                runCatching { androidx.core.content.ContextCompat.getSystemService(ctx, NotificationManager::class.java)!!.notify(ID, build(ctx, info)) }
             } else {
                 runCatching {
                     // 前面サービスとして始めるのは Android 8.0 から。それより前は普通に始める

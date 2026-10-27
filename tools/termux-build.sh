@@ -58,9 +58,17 @@ main() {
     apk=app/build/outputs/apk/release/app-release.apk
     out=/storage/emulated/0/Download/UCRT_v$ver.apk
     cp "$apk" "$out"
+    # 古い Android(4.0〜5.1)向けの UCRT Legacy も同時にビルドされる(別のアプリとして入れられる)
+    lapk=legacy/build/outputs/apk/release/legacy-release.apk
+    # UCRT Legacy の版は本家と別(legacy/build.gradle.kts の legacyVersion。例: 0.1.0-alpha)
+    lbase=$(sed -n 's/^val legacyVersion = "\(.*\)"/\1/p' legacy/build.gradle.kts)
+    lver="${lbase:-$ver}${test:+.test$test}"
+    lout=/storage/emulated/0/Download/UCRT_Legacy_v$lver.apk
+    [ -f "$lapk" ] && cp "$lapk" "$lout"
 
     echo "== できました"
     ls -l "$out"
+    [ -f "$lout" ] && ls -l "$lout"
     command -v aapt2 >/dev/null && aapt2 dump badging "$out" 2>/dev/null | head -1 || true
     command -v termux-open >/dev/null && termux-open "$out" || true
 }

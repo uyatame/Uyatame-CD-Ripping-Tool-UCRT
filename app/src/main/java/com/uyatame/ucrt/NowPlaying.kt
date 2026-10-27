@@ -1093,7 +1093,7 @@ private fun VolumeSheet(vm: MainViewModel, onDismiss: () -> Unit, system: Boolea
     val ctx = LocalContext.current
     // ほかのアプリの音(system)は、DAC を直接使っていても Android の音量で変える
     val usb = !system && AudioEngine.output?.kind == OutputKind.UsbDirect
-    val am = remember { ctx.getSystemService(AudioManager::class.java) }
+    val am = remember { androidx.core.content.ContextCompat.getSystemService(ctx, AudioManager::class.java)!! }
     val max = if (usb) 100 else am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
     fun read(): Int = if (usb) UsbDac.volume() else am.getStreamVolume(AudioManager.STREAM_MUSIC)
     var v by remember(usb) { mutableIntStateOf(read()) }

@@ -119,6 +119,13 @@ fun BitPerfectPanel(vm: MainViewModel, s: AppSettings) {
 @Composable
 fun DacKeepAliveSection(vm: MainViewModel, s: AppSettings) {
     val keep = com.uyatame.ucrt.player.DacKeepAlive
+    // 出力先を選んで無音を流すので、出力先を選べない Android 5.x では使えない
+    if (android.os.Build.VERSION.SDK_INT < 23) {
+        Section(S(R.string.dac_keepalive)) {
+            Text(S(R.string.needs_android_6), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
     Section(S(R.string.dac_keepalive)) {
         SwitchRow(S(R.string.dac_keepalive_switch), S(R.string.dac_keepalive_desc), s.dacKeepAlive) {
             vm.set(com.uyatame.ucrt.data.Keys.dacKeepAlive, it)
@@ -241,7 +248,7 @@ fun ReplayGainPanel(vm: MainViewModel, s: AppSettings) {
 private fun ReplayGainAnalysisPanel(vm: MainViewModel) {
     Section(S(R.string.rg_analysis)) {
         val total = remember(vm.albums) { vm.albums.sumOf { it.tracks.size } }
-        Text(S(R.string.rg_analyzed_count, com.uyatame.ucrt.player.RgStore.count, total), style = MaterialTheme.typography.bodyMedium)
+        Text(S(R.string.rg_analyzed_count, RgCount.n, total), style = MaterialTheme.typography.bodyMedium)
         if (vm.rgAnalyzing) {
             androidx.compose.material3.LinearProgressIndicator(progress = { vm.rgProgress }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
             Text(
@@ -253,7 +260,7 @@ private fun ReplayGainAnalysisPanel(vm: MainViewModel) {
             androidx.compose.material3.Button({ vm.analyzeReplayGain(false) }, Modifier.fillMaxWidth()) { Text(S(R.string.rg_analyze_new)) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 androidx.compose.material3.OutlinedButton({ vm.analyzeReplayGain(true) }) { Text(S(R.string.rg_analyze_all)) }
-                TextButton({ vm.clearAnalyzedReplayGain() }, enabled = com.uyatame.ucrt.player.RgStore.count > 0) { Text(S(R.string.rg_clear_analyzed)) }
+                TextButton({ vm.clearAnalyzedReplayGain() }, enabled = RgCount.n > 0) { Text(S(R.string.rg_clear_analyzed)) }
             }
         }
         Text(S(R.string.rg_analysis_notes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -342,19 +349,11 @@ fun OutputDeviceSheet(vm: MainViewModel, s: AppSettings, onDismiss: () -> Unit) 
     var auto by remember { mutableStateOf(com.uyatame.ucrt.player.OutputDevices.defaultDevice(ctx)) }
     // イヤホンの抜き差しなどで一覧を更新する
     androidx.compose.runtime.DisposableEffect(Unit) {
-        val am = ctx.getSystemService(android.media.AudioManager::class.java)
-        val cb = object : android.media.AudioDeviceCallback() {
-            override fun onAudioDevicesAdded(added: Array<out android.media.AudioDeviceInfo>?) {
-                devices = com.uyatame.ucrt.player.OutputDevices.list(ctx)
-                auto = com.uyatame.ucrt.player.OutputDevices.defaultDevice(ctx)
-            }
-            override fun onAudioDevicesRemoved(removed: Array<out android.media.AudioDeviceInfo>?) {
-                devices = com.uyatame.ucrt.player.OutputDevices.list(ctx)
-                auto = com.uyatame.ucrt.player.OutputDevices.defaultDevice(ctx)
-            }
+        val stop = com.uyatame.ucrt.player.OutputDevices.watch(ctx, android.os.Handler(android.os.Looper.getMainLooper())) {
+            devices = com.uyatame.ucrt.player.OutputDevices.list(ctx)
+            auto = com.uyatame.ucrt.player.OutputDevices.defaultDevice(ctx)
         }
-        am.registerAudioDeviceCallback(cb, android.os.Handler(android.os.Looper.getMainLooper()))
-        onDispose { am.unregisterAudioDeviceCallback(cb) }
+        onDispose { stop() }
     }
     val selectedKey = if (s.outputMode == 2) com.uyatame.ucrt.player.OutputDevices.KEY_USB_DIRECT else s.outputDevice
     val current = AudioEngine.output
@@ -420,5 +419,15 @@ fun OutputDeviceSheet(vm: MainViewModel, s: AppSettings, onDismiss: () -> Unit) 
                 modifier = Modifier.padding(top = 8.dp),
             )
         }
+    }
+}
+
+/** 解析済みの ReplayGain の曲の数(画面に出す。RgStore から知らせを受けて変える) */
+object RgCount {
+    var n by androidx.compose.runtime.mutableIntStateOf(0)
+
+    init {
+        n = com.uyatame.ucrt.player.RgStore.count
+        com.uyatame.ucrt.player.RgStore.onCount = { n = it }
     }
 }

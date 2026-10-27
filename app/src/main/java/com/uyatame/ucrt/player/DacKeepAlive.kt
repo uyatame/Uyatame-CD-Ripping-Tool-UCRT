@@ -9,7 +9,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
-import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -49,6 +48,8 @@ object DacKeepAlive {
         internal set
 
     fun start(ctx: Context) {
+        // 出力先を選んで無音を流すので、Android 6.0 から
+        if (Build.VERSION.SDK_INT < 23) return
         val i = Intent(ctx, DacKeepAliveService::class.java)
         runCatching { if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i) }
             .onFailure { AudioEngine.log("dac keep-alive: cannot start (${it.javaClass.simpleName})") }
@@ -79,10 +80,8 @@ class DacKeepAliveService : Service() {
     @Volatile private var stopFlag = false
     private var wake: PowerManager.WakeLock? = null
 
-    private val callback = object : AudioDeviceCallback() {
-        override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>?) = update()
-        override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>?) = update()
-    }
+    /** 抜き差しの知らせを止める関数 */
+    private var unwatch: (() -> Unit)? = null
 
     /** UCRT が USB DAC を直接使い始めた・やめたときも、選び直す */
     private val poll = object : Runnable {
@@ -96,10 +95,14 @@ class DacKeepAliveService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        am = getSystemService(AudioManager::class.java)
+        am = androidx.core.content.ContextCompat.getSystemService(this, AudioManager::class.java)!!
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (Build.VERSION.SDK_INT < 23) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         val ok = runCatching {
             if (Build.VERSION.SDK_INT >= 29) startForeground(ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
             else startForeground(ID, notification())
@@ -110,17 +113,19 @@ class DacKeepAliveService : Service() {
         }
         if (!DacKeepAlive.running) {
             DacKeepAlive.running = true
-            am.registerAudioDeviceCallback(callback, main)
+            unwatch = OutputDevices.watch(this, main) { update() }
             main.post(poll)
             AudioEngine.log("dac keep-alive: started")
         }
         update()
-        return START_STICKY
+        // Android 17 からは、裏で(システムが)起こし直したサービスの音は消されるので、起こし直さない(アプリを開いたときにまた始める)
+        return if (Build.VERSION.SDK_INT >= 37) START_NOT_STICKY else START_STICKY
     }
 
     override fun onDestroy() {
         main.removeCallbacks(poll)
-        runCatching { am.unregisterAudioDeviceCallback(callback) }
+        unwatch?.invoke()
+        unwatch = null
         stopSilence()
         DacKeepAlive.running = false
         DacKeepAlive.activeDevice = ""
@@ -137,7 +142,7 @@ class DacKeepAliveService : Service() {
         device = want
         if (want != null) startSilence(want)
         DacKeepAlive.activeDevice = want?.productName?.toString()?.trim().orEmpty().ifEmpty { if (want != null) typeName(want) else "" }
-        runCatching { getSystemService(NotificationManager::class.java).notify(ID, notification()) }
+        runCatching { androidx.core.content.ContextCompat.getSystemService(this, NotificationManager::class.java)!!.notify(ID, notification()) }
     }
 
     private fun typeName(d: AudioDeviceInfo): String = when (d.type) {
@@ -148,7 +153,7 @@ class DacKeepAliveService : Service() {
     private fun startSilence(d: AudioDeviceInfo) {
         stopFlag = false
         wake = runCatching {
-            getSystemService(PowerManager::class.java)?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ucrt:dac-keepalive")
+            androidx.core.content.ContextCompat.getSystemService(this, PowerManager::class.java)?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ucrt:dac-keepalive")
                 ?.apply { setReferenceCounted(false); acquire() }
         }.getOrNull()
         thread = Thread({ playSilence(d) }, "dac-keepalive").apply { isDaemon = true; start() }
@@ -169,17 +174,12 @@ class DacKeepAliveService : Service() {
         val min = AudioTrack.getMinBufferSize(rate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
         if (min <= 0) return
         val t = runCatching {
-            AudioTrack.Builder()
-                .setAudioAttributes(
-                    AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build(),
-                )
-                .setAudioFormat(
-                    AudioFormat.Builder().setSampleRate(rate).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build(),
-                )
-                .setBufferSizeInBytes(min * 2)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
+            newAudioTrack(
+                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build(),
+                AudioFormat.Builder().setSampleRate(rate).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build(),
+                min * 2,
+            )
         }.getOrNull() ?: return
         val zeros = ByteArray(min)
         try {
@@ -197,7 +197,7 @@ class DacKeepAliveService : Service() {
 
     private fun notification(): Notification {
         if (Build.VERSION.SDK_INT >= 26) {
-            getSystemService(NotificationManager::class.java).createNotificationChannel(
+            androidx.core.content.ContextCompat.getSystemService(this, NotificationManager::class.java)!!.createNotificationChannel(
                 NotificationChannel("keepalive", S(R.string.dac_keepalive), NotificationManager.IMPORTANCE_MIN),
             )
         }

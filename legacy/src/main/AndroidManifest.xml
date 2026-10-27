@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 古い Android(4.0〜5.1)向けのアプリ「UCRT Legacy」。新しい端末にも入れて試せるように、新しい Android の許可も書く -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- 外付けの CD ドライブ(USB)。USB のない端末にも入れられるように、必須にはしない -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+    <!-- 曲情報(MusicBrainz)・ジャケット・歌詞・更新の確認 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- キャスト(Chromecast)で、同じネットワークの機器を探し、音を送る(Android 17 から必要) -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <!-- 取り込んだ曲を保存する(Android 9 まで。Android 10 は requestLegacyExternalStorage) -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29"
+        tools:ignore="ScopedStorage" />
+    <!-- 取り込んだ曲を保存する(Android 11 から。「すべてのファイルへのアクセス」) -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
+    <!-- 曲のファイルを読む(Android 12 まで) -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- 曲のファイルを読む(Android 13 から) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- 画面を閉じても再生を続ける -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application
+        android:name=".legacy.LegacyApp"
+        android:allowBackup="false"
+        android:requestLegacyExternalStorage="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/legacy_app_name"
+        android:theme="@style/Theme.UCRT.Legacy">
+
+        <activity
+            android:name=".legacy.LegacyActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- CD ドライブをつないだら開く -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
+        </activity>
+
+        <!-- MusicBrainz への登録(アプリの中のブラウザ。Android 7.1 から使う) -->
+        <activity
+            android:name=".legacy.compat.Api25MbWebActivity"
+            android:exported="false"
+            android:label="MusicBrainz"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- イヤホン・Bluetooth のボタン(Android 4.x) -->
+        <receiver
+            android:name=".legacy.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ホーム画面のウィジェット(縦長・横長) -->
+        <receiver
+            android:name=".legacy.LegacyWidgetTall"
+            android:exported="true"
+            android:label="@string/widget_tall_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_tall_info" />
+        </receiver>
+        <receiver
+            android:name=".legacy.LegacyWidgetWide"
+            android:exported="true"
+            android:label="@string/widget_wide_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_wide_info" />
+        </receiver>
+
+        <service
+            android:name=".legacy.PlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+    </application>
+</manifest>

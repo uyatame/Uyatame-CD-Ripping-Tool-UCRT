@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 一覧の行の種類(使い回すときの印) -->
+    <item name="row_kind" type="id" />
+</resources>

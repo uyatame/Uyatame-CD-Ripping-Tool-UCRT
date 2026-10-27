@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- キャスト(Chromecast)で、同じネットワークの機器を探し、音を送るため(Android 17 から必要。「付近のデバイス」の許可) -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <!-- USB DAC への直接出力中に CPU が眠って音が途切れないように(音切れ対策の設定がオンのとき) -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -58,6 +60,22 @@
             </intent-filter>
         </activity>
 
+        <!-- 曲情報を MusicBrainz に登録する画面(MusicBrainz の登録画面を、曲情報を入れた状態で開く) -->
+        <activity
+            android:name=".MusicBrainzSubmitActivity"
+            android:exported="false"
+            android:label="MusicBrainz"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
+        <!-- MusicBrainz にジャケット画像を登録するとき、アプリの中のブラウザに画像を渡すため(アプリのキャッシュの mb-cover だけ) -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <!-- ホーム画面のウィジェット(縦長・横長) -->
         <receiver
             android:name=".PlayerWidgetTall"

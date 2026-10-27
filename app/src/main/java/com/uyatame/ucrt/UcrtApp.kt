@@ -7,5 +7,7 @@ class UcrtApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Strings.init(this)
+        // 曲情報の書き換えなどで、保存場所の URI から実際のファイルを求められるようにする
+        FileUris.resolver = { com.uyatame.ucrt.library.StorageAccess.fileOf(it) }
     }
 }
