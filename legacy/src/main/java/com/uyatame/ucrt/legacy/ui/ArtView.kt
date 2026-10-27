@@ -1,0 +1,120 @@
+package com.uyatame.ucrt.legacy.ui
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapShader
+import android.graphics.Canvas
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Shader
+import android.view.View
+import com.uyatame.ucrt.legacy.Art
+import com.uyatame.ucrt.legacy.ArtRef
+
+/**
+ * ジャケット(本家の CoverBox・ArtImage)。角を丸くして描き、画像が無ければ目印を出す。
+ * 正方形に近い画像は枠いっぱいに切り抜き、縦長・横長の画像(8cm CD の短冊など)は全体が収まるように縮める
+ */
+class ArtView(ctx: Context, var cornerDp: Float = 8f) : View(ctx) {
+    private var bmp: Bitmap? = null
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val bg = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val shade = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val m = Matrix()
+    private val r = RectF()
+    private var want: ArtRef? = null
+    private var wantGen = -1
+    /** 再生中の印(暗くして棒のアイコンを出す) */
+    var playing = false
+        set(v) { if (field != v) { field = v; invalidate() } }
+    /** 正方形の枠(高さを幅に合わせる) */
+    var square = true
+    /** 一覧にジャケットを出さない設定のときは、画像を読まない */
+    var enabledArt = true
+    private val placeholder = IconDrawable(Icons.Album, Pal.onSurfaceVariant, dp(24))
+    private val bars = IconDrawable(Icons.Bars, 0xFFFFFFFF.toInt(), dp(20))
+
+    override fun onMeasure(w: Int, h: Int) {
+        if (square && MeasureSpec.getMode(w) == MeasureSpec.EXACTLY && MeasureSpec.getMode(h) != MeasureSpec.EXACTLY) {
+            val s = MeasureSpec.getSize(w)
+            setMeasuredDimension(s, s)
+        } else super.onMeasure(w, h)
+    }
+
+    /** 画像を直接置く */
+    fun setBitmap(b: Bitmap?) {
+        want = null
+        bmp = b
+        updateShader()
+        invalidate()
+    }
+
+    /** 読み込んで出す(px は読み込む大きさ。0 なら表示する大きさ) */
+    fun bind(ref: ArtRef?, px: Int = 0) {
+        if (ref == null || !enabledArt) { want = null; bmp = null; updateShader(); invalidate(); return }
+        if (want?.key == ref.key && want?.trackUri == ref.trackUri && wantGen == Art.generation && bmp != null) return
+        want = ref
+        wantGen = Art.generation
+        val size = if (px > 0) px else maxOf(width, height, dp(48))
+        val cached = Art.peek(ref.key, size)
+        bmp = cached
+        updateShader()
+        invalidate()
+        Art.load(context, ref, size) { b ->
+            if (want !== ref) return@load
+            if (b != null) { bmp = b; updateShader(); invalidate() }
+        }
+    }
+
+    private fun updateShader() {
+        val b = bmp
+        paint.shader = if (b == null) null else BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        requestLayoutIfFit()
+    }
+
+    private fun requestLayoutIfFit() {}
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat(); val h = height.toFloat()
+        val rad = dpf(cornerDp)
+        val b = bmp
+        if (b == null) {
+            bg.color = Pal.surfaceVariant
+            r.set(0f, 0f, w, h)
+            c.drawRoundRect(r, rad, rad, bg)
+            val s = (minOf(w, h) * 0.45f).toInt()
+            placeholder.color = Pal.onSurfaceVariant
+            placeholder.setBounds(((w - s) / 2).toInt(), ((h - s) / 2).toInt(), ((w + s) / 2).toInt(), ((h + s) / 2).toInt())
+            placeholder.draw(c)
+        } else {
+            val ratio = b.width.toFloat() / b.height.coerceAtLeast(1)
+            val crop = ratio in 0.8f..1.25f
+            val sc: Float
+            if (crop) {
+                sc = maxOf(w / b.width, h / b.height)
+                r.set(0f, 0f, w, h)
+            } else {
+                sc = minOf(w / b.width, h / b.height)
+                val dw = b.width * sc; val dh = b.height * sc
+                r.set((w - dw) / 2, (h - dh) / 2, (w + dw) / 2, (h + dh) / 2)
+                bg.color = Pal.surfaceVariant
+                c.drawRoundRect(RectF(0f, 0f, w, h), rad, rad, bg)
+            }
+            m.setScale(sc, sc)
+            m.postTranslate(r.centerX() - b.width * sc / 2, r.centerY() - b.height * sc / 2)
+            paint.shader?.setLocalMatrix(m)
+            c.drawRoundRect(r, rad, rad, paint)
+        }
+        if (playing) {
+            shade.color = 0x73000000
+            r.set(0f, 0f, w, h)
+            c.drawRoundRect(r, rad, rad, shade)
+            val s = (minOf(w, h) * 0.42f).toInt()
+            bars.setBounds(((w - s) / 2).toInt(), ((h - s) / 2).toInt(), ((w + s) / 2).toInt(), ((h + s) / 2).toInt())
+            bars.draw(c)
+        }
+    }
+
+    val bitmap: Bitmap? get() = bmp
+}

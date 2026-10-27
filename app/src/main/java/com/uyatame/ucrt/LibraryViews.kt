@@ -387,6 +387,8 @@ fun GlobalSheets(vm: MainViewModel) {
     UpdateDialog(vm)
     BurnTracksDialog(vm)
     BurnDialog(vm)
+    MbExistingDialog(vm)
+    MbSubmitSheet(vm)
 }
 
 /** 新しい版が出ていることを知らせ、ダウンロードのページへのリンクを出す */
@@ -586,6 +588,7 @@ private fun AlbumMenuSheet(vm: MainViewModel) {
                 SheetAction(AppIcons.Album, S(R.string.go_to_album)) { close(); vm.openRoute("album:" + a.key) }
             }
             SheetAction(AppIcons.Album, S(R.string.burn_to_cd)) { vm.burnRequest = a.title to a.tracks; close() }
+            SheetAction(AppIcons.Upload, S(R.string.mb_upload)) { vm.uploadAlbumToMusicBrainz(a); close() }
             HorizontalDivider()
             SheetAction(Icons.Filled.Delete, S(R.string.delete_album_files)) { vm.deleteRequest = a.tracks; close() }
             Spacer(Modifier.size(16.dp))

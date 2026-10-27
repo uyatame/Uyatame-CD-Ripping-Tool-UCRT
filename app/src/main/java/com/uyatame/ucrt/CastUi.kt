@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -39,9 +40,16 @@ import com.uyatame.ucrt.player.cast.CastManager
 @Composable
 fun CastSheet(onDismiss: () -> Unit) {
     val ctx = LocalContext.current
-    DisposableEffect(Unit) {
-        CastManager.startDiscovery(ctx)
-        onDispose { CastManager.stopDiscovery() }
+    // Android 17 から(このアプリが Android 17 向けのとき)、同じネットワークの機器を探す・つなぐには「付近のデバイス」の
+    // 許可(ACCESS_LOCAL_NETWORK)が要る
+    var allowed by remember { mutableStateOf(CastManager.hasLocalNetwork(ctx)) }
+    val ask = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { allowed = it }
+    androidx.compose.runtime.LaunchedEffect(Unit) { if (!allowed) ask.launch(CastManager.LOCAL_NETWORK) }
+    DisposableEffect(allowed) {
+        if (allowed) CastManager.startDiscovery(ctx)
+        onDispose { if (allowed) CastManager.stopDiscovery() }
     }
     val cur = CastManager.connected
     val busy = CastManager.connecting
@@ -63,7 +71,12 @@ fun CastSheet(onDismiss: () -> Unit) {
                     selected = cur?.id == d.id, busy = busy?.id == d.id,
                 ) { CastManager.connect(d) }
             }
-            if (CastManager.devices.isEmpty()) {
+            if (!allowed) {
+                Text(S(R.string.cast_needs_local_network), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp))
+                androidx.compose.material3.Button({ ask.launch(CastManager.LOCAL_NETWORK) }, Modifier.padding(horizontal = 16.dp)) {
+                    Text(S(R.string.allow))
+                }
+            } else if (CastManager.devices.isEmpty()) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(12.dp))

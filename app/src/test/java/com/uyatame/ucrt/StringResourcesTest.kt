@@ -17,8 +17,8 @@ class StringResourcesTest {
     private class Res(val text: String, val translatable: Boolean, val formatted: Boolean)
 
     private fun load(dir: String): Map<String, Res> {
-        // テストはモジュール(app)のフォルダで動く
-        val f = File("src/main/res/$dir/strings.xml")
+        // テストはモジュール(app)のフォルダで動く。文言は app と legacy で共通の core にある
+        val f = File("../core/src/main/res/$dir/strings.xml")
         assertTrue("${f.path} がありません", f.exists())
         val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(f)
         val list = doc.getElementsByTagName("string")

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 4.0 からある Holo の明るい色。Android 5.0 以降も同じ見た目にする -->
+    <style name="Theme.UCRT.Legacy" parent="android:Theme.Holo.Light.DarkActionBar" />
+</resources>

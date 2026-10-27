@@ -147,7 +147,7 @@ object UsbDac {
         ContextCompat.registerReceiver(app, r, f, ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
-    private fun usb(): UsbManager = app.getSystemService(UsbManager::class.java)
+    private fun usb(): UsbManager = androidx.core.content.ContextCompat.getSystemService(app, UsbManager::class.java)!!
 
     /**
      * USB DAC がつながっていて、まだ使用の許可が無ければ許可を求める。

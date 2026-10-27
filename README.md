@@ -8,9 +8,9 @@
 
 ## 主な機能
 
-- **CDの取り込み**: FLAC（ロスレス）/ AAC / MP3 / WAVに対応（曲情報・ジャケット付き）。音質はプリセットから選べるほか、細かく設定することもできます。取り込み前の確認、失敗しても元のファイルが消えない上書き
+- **CDの取り込み**: FLAC（ロスレス）/ AAC / MP3 / WAVに対応（曲情報・ジャケット付き）。FLACとMP3はFFmpegで、CDの読み取りと並行して変換。音質はプリセットから選べるほか、細かく設定することもできます。取り込み前の確認、失敗しても元のファイルが消えない上書き
 - **CDの書き込み**: 音楽CDのコピー（曲順・曲間もそのまま）、ライブラリの曲からの音楽CD作成（CD-R / CD-RW、SAO / TAO、テスト書き込み）
-- **曲情報の自動取得**: CDを入れるとMusicBrainzから曲名・アーティスト・ジャケットを取得。候補からの選択や名前での検索にも対応
+- **曲情報の自動取得**: CDを入れるとMusicBrainzから曲名・アーティスト・ジャケットを取得。候補からの選択や名前での検索にも対応。MusicBrainzにないCDは、入力した曲情報をMusicBrainzに登録できます（ライブラリのアルバムからも。登録済みなら登録しません）
 - **正確な読み取り**: リトライ、C2エラー検出、読み取りオフセット補正、読み取り速度の指定
 - **ライブラリ**: 取り込んだ曲と端末内の音楽フォルダの曲を、トップ画面のカテゴリー（アルバム・アーティスト・全曲・お気に入り・プレイリスト・最近追加・最近再生・よく聴く曲・音質別・ジャンル・発売年・フォルダ）から探せます。横断検索、形式と音質の表示（ハイレゾは金色）、長押しメニュー（次に再生・再生リストに追加・プレイリストに追加など）、曲を複数選んでまとめてプレイリストへ、曲ごとのジャケットの表示、高速スクロール
 - **再生できる形式**: FLAC / ALAC / WAV / AIFF / WavPack / APE（アプリ内蔵のデコーダーで再生。端末やAndroidの版に左右されず、元の音とビット単位で一致）、DSD（DSF / DFF）、MP3 / AAC / Ogg Vorbis / Opus / MPEG-H（端末のデコーダー）
@@ -27,7 +27,7 @@
 
 ## 動作環境
 
-- Android 6.0以上（Android 6.0〜7.1は試験的な対応。ダイナミックカラーはAndroid 12以上、すべてのファイルへのアクセスはAndroid 11以上、アプリ別の表示言語はAndroid 13以上。Android 11以前の通常の出力は192 kHzまで）
+- Android 6.0以上（Android 6.0〜7.1は試験的な対応。Android 4.0〜5.1向けには、別のアプリ「UCRT Legacy」（α版。CDの取り込み・書き込み・再生などストリーミング以外の機能。[Releases](../../releases) の `legacy-v` で始まるもの）があります。ダイナミックカラーはAndroid 12以上、すべてのファイルへのアクセスはAndroid 11以上、アプリ別の表示言語はAndroid 13以上。Android 11以前の通常の出力は192 kHzまで）
 - USB OTG（USBホスト）に対応した端末
 - USB接続の光学ドライブ（Bulk-Only Transport対応のもの。動作確認: Pioneer BDR-XS07JL）
 - スマートフォンからの給電で動かないドライブには、セルフパワーのUSBハブを使ってください
@@ -46,7 +46,7 @@ pkg install git openjdk-17 gradle aapt2
 git clone https://github.com/uyatame/Uyatame-CD-Ripping-Tool-UCRT.git ~/UyatameCdRipper
 cd ~/UyatameCdRipper
 echo "android.aapt2FromMavenOverride=$PREFIX/bin/aapt2" >> ~/.gradle/gradle.properties
-echo "sdk.dir=$HOME/android-sdk" > local.properties   # Android SDK(platform 36)の場所
+echo "sdk.dir=$HOME/android-sdk" > local.properties   # Android SDK(platform 37)の場所
 gradle assembleRelease --no-daemon
 ```
 
@@ -76,7 +76,7 @@ GitHubへのプッシュとプルリクエストのたびに、GitHub Actionsが
 
 ### 開発の流れ
 
-最新のソースは `main` ブランチにあります。リリースは `main` に版のタグ（`v0.6.0` など）を付けて作成し、APKを [Releases](../../releases) に添付します。
+最新のソースは `main` ブランチにあります。リリースは `main` に版のタグ（`v0.6.0` など）を付けて作成し、APKを [Releases](../../releases) に添付します。UCRT Legacyのリリースは別の番号で、タグは `legacy-v0.1.0-alpha` のような形（プレリリース）です。
 
 ### 署名について
 
@@ -127,7 +127,7 @@ Premiumの人が登録したアプリのUser Managementに追加してもらえ�
 
 ## 通信とプライバシー
 
-インターネットに接続するのは、曲情報とジャケット画像を取得するとき（MusicBrainzとCover Art Archive）と、Spotifyの機能を使うとき（SpotifyのWeb APIとログイン）だけです。MusicBrainzに送信するのは、CDの目次から計算したディスクIDと、検索欄に入力した文字だけです。Spotifyには、ログインと、Spotifyの画面で行った検索・一覧の取得のための通信だけを行います。利用状況の収集や広告はありません。
+インターネットに接続するのは、曲情報とジャケット画像を取得するとき（MusicBrainzとCover Art Archive）と、Spotifyの機能を使うとき（SpotifyのWeb APIとログイン）だけです。MusicBrainzに送信するのは、CDの目次から計算したディスクIDと、検索欄に入力した文字だけです（「MusicBrainzに登録」を使ったときは、MusicBrainzの登録画面に曲情報とCDの目次を入れて開きます。送信するかどうかは、MusicBrainzの画面でご自身が決めます。歌詞の登録を選んだときは、曲名・アーティスト・アルバム名・長さ・歌詞をLRCLIBに送ります）。Spotifyには、ログインと、Spotifyの画面で行った検索・一覧の取得のための通信だけを行います。利用状況の収集や広告はありません。
 
 「通知へのアクセス」を許可した場合も、使うのはほかの音楽アプリの再生状態（曲名・ジャケット・再生位置）だけで、通知の内容は読み取りません。この情報が端末の外に送られることもありません。ジャケットを高画質で表示するために、そのアプリが示した画像のURL（各サービスの画像サーバー）から画像を読み込むことがあります。
 
@@ -158,9 +158,9 @@ Spotify、Qobuz、Amazon Music、YouTube Musicなど、本書とアプリに記�
 
 UCRT turns an Android phone and a USB optical drive into a CD ripper and player.
 
-- Rip audio CDs to FLAC, AAC, MP3 or WAV (with tags and cover art), with retries, C2 error detection and read offset correction
+- Rip audio CDs to FLAC, AAC, MP3 or WAV (with tags and cover art; FLAC and MP3 are encoded with FFmpeg while the CD is being read), with retries, C2 error detection and read offset correction
 - Burn audio CDs: copy a CD with the same track layout and gaps, or write library tracks to a CD-R / CD-RW (SAO / TAO, test write)
-- Automatic track info and cover art from MusicBrainz, with a choice of matches and search by name
+- Automatic track info and cover art from MusicBrainz, with a choice of matches and search by name; track info you entered for a CD that isn't on MusicBrainz can be submitted to it (skipped if it's already there)
 - A library of ripped albums and any music folders you add, with search, sorting, grid/list views and fast scrolling
 - Bit-perfect output to USB DACs through the app's own USB audio driver, DSD playback, DAR (PCM upsampling / conversion to DSD), Source Direct and a parametric equalizer with a curve editor
 - Plays FLAC, ALAC, WAV, AIFF, WavPack and APE with built-in decoders (bit-exact, independent of the device's codecs), DSD (DSF / DFF), and MP3 / AAC / Vorbis / Opus / MPEG-H using the system decoders
@@ -174,6 +174,6 @@ UCRT turns an Android phone and a USB optical drive into a CD ripper and player.
 
 To build it yourself, run `./gradlew assembleRelease` (JDK 17 and the Android SDK are required). Unit tests run with `./gradlew testDebugUnitTest`, and GitHub Actions runs them on every push and pull request. The latest source is on the `main` branch.
 
-Requires Android 6.0 or later (Android 6.0–7.1 support is experimental) and a device with USB OTG support. Licensed under GPL-3.0.
+Requires Android 6.0 or later (Android 6.0–7.1 support is experimental; for Android 4.0–5.1 there is a separate app, "UCRT Legacy" (alpha; all features except streaming, released under `legacy-v*` tags)) and a device with USB OTG support. Licensed under GPL-3.0.
 
 Spotify, Qobuz, Amazon Music, YouTube Music and other service names mentioned here are trademarks of their respective owners. UCRT is not affiliated with or endorsed by these services.

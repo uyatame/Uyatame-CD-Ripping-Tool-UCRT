@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider で渡してよい場所: MusicBrainz に登録するジャケット画像(アプリのキャッシュ)だけ -->
+<paths>
+    <cache-path name="mb-cover" path="mb-cover/" />
+</paths>

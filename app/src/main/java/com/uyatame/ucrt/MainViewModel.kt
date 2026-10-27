@@ -1257,6 +1257,228 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---- 曲情報を MusicBrainz に登録(アップロード) ----
+
+    /** 登録の前の確認中 */
+    var mbUploadBusy by mutableStateOf(false)
+        private set
+    /** 同じアルバムがすでに MusicBrainz にあったとき(曲情報は登録せず、ディスクIDの追加だけを勧める) */
+    var mbExisting by mutableStateOf<MbExisting?>(null)
+
+    /** message: 何が見つかったかの説明。attachUrl: このCDのディスクIDを追加するページ(CD から登録しようとしたときだけ) */
+    class MbExisting(val title: String, val summary: String, val releaseUrl: String?, val attachUrl: String?, val message: String)
+
+    /**
+     * 入力した曲情報を MusicBrainz に登録する。すでに登録されている(ディスクIDが一致する・同じアルバムがある)ときは登録しない。
+     * MusicBrainz にはアプリから直接登録する仕組みが無いので、登録画面を曲情報を入れた状態で開き、送信は利用者が行う
+     */
+    fun uploadToMusicBrainz() {
+        val m = meta ?: return
+        val toc = MusicBrainz.toc(tracks, leadOut) ?: return
+        if (mbUploadBusy) return
+        // 入力していない(「不明なアルバム」「トラック 1」などの仮の名前のまま)ところがあれば、登録しない
+        val audio = audioTracks
+        val placeholder = m.title.isBlank() || m.artist.isBlank() || m.title == UNKNOWN_ALBUM || m.artist == UNKNOWN_ARTIST ||
+            m.tracks.size < toc.audioCount ||
+            m.tracks.take(toc.audioCount).withIndex().any { (i, t) ->
+                t.title.isBlank() || audio.getOrNull(i)?.let { t.title == S(R.string.track_2).format(it.number) } == true
+            }
+        if (placeholder) {
+            snack = S(R.string.mb_upload_fill_in)
+            return
+        }
+        MusicBrainz.version = BuildConfigVersion.name(ctx)
+        mbUploadBusy = true
+        viewModelScope.launch {
+            try {
+                // 1) このCDのディスクIDで見つかる(= すでに登録されている)なら、登録しない
+                val byDisc = withContext(Dispatchers.IO) { MusicBrainz.lookup(toc) }
+                if (byDisc.error != null) {
+                    snack = S(R.string.mb_upload_check_failed, byDisc.error)
+                    return@launch
+                }
+                byDisc.candidates.firstOrNull { it.exact }?.let { c ->
+                    mbExisting = MbExisting(
+                        c.meta.title, c.summary, c.meta.releaseId?.let { MusicBrainz.releaseUrl(it) }, null, S(R.string.mb_upload_already_desc),
+                    )
+                    log(S(R.string.mb_upload_already, c.meta.title))
+                    return@launch
+                }
+                // 2) 曲の長さが同じリリース、または同じアルバム名・アーティスト名・曲数のリリースがあれば、曲情報は登録せず、
+                //    そのリリースにこのCDのディスクIDを追加するよう勧める(重複して登録しないように)
+                val same = byDisc.candidates.firstOrNull { it.trackCount == toc.audioCount }
+                    ?: withContext(Dispatchers.IO) { MusicBrainz.findSame(m, toc.audioCount) }
+                if (same != null) {
+                    mbExisting = MbExisting(
+                        same.meta.title, same.summary, same.meta.releaseId?.let { MusicBrainz.releaseUrl(it) }, MusicBrainz.attachUrl(toc),
+                        S(R.string.mb_upload_similar_desc),
+                    )
+                    log(S(R.string.mb_upload_similar, same.meta.title))
+                    return@launch
+                }
+                // 3) 見つからなければ、詳しい情報を入力する画面を出す
+                val lengths = audioTracks.take(toc.audioCount).map { (it.endLba - it.startLba).toLong() * 1000 / 75 }
+                mbDraft = MbDraft(
+                    m.title, m.artist, m.date,
+                    listOf(
+                        MbDiscDraft(
+                            if (m.discTotal > 1) m.discNo else 0, toc.tocParam.replace('+', ' '),
+                            lengths.indices.map { i ->
+                                val tm = m.tracks[i]
+                                // CD の画面で入力した歌詞があれば、LRCLIB にも登録できるようにする
+                                MbTrackDraft(tm.title, tm.artist, lengths[i], tm.lyrics.takeIf { it.isNotBlank() }?.let { com.uyatame.ucrt.player.LyricsLoader.parse(it) })
+                            },
+                        ),
+                    ),
+                    coverBytes, MusicBrainz.EDIT_NOTE,
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                snack = S(R.string.mb_upload_check_failed, com.uyatame.ucrt.meta.describeNetError(e))
+            } finally {
+                mbUploadBusy = false
+            }
+        }
+    }
+
+    class MbTrackDraft(val title: String, val artist: String, val lengthMs: Long, val lyrics: com.uyatame.ucrt.player.Lyrics?)
+    /** position: 何枚目か(0 = 1 枚組)。toc: CD の目次(ライブラリからは無い) */
+    class MbDiscDraft(val position: Int, val toc: String?, val tracks: List<MbTrackDraft>)
+    /** MusicBrainz に登録する内容(詳しい情報を入力する画面で、利用者が直してから送る) */
+    class MbDraft(
+        val title: String,
+        val artist: String,
+        val date: String,
+        val discs: List<MbDiscDraft>,
+        val cover: ByteArray?,
+        val note: String,
+        val extra: MusicBrainz.ReleaseExtra = MusicBrainz.ReleaseExtra(),
+    )
+
+    /** 詳しい情報を入力する画面に出している内容(null なら出さない) */
+    var mbDraft by mutableStateOf<MbDraft?>(null)
+
+    /** 歌詞を LRCLIB に登録している間 */
+    var lyricsUploading by mutableStateOf(false)
+        private set
+    private var lyricsJob: Job? = null
+
+    /**
+     * 詳しい情報を入力する画面で「登録」を押したとき。MusicBrainz の登録画面を開き、
+     * 選ばれていれば、埋め込まれた歌詞を LRCLIB に登録する(登録済みの曲は登録しない)
+     */
+    fun submitMbDraft(d: MbDraft, withCover: Boolean, withLyrics: Boolean) {
+        mbDraft = null
+        val discs = d.discs.map { disc ->
+            MusicBrainz.SeedDisc(disc.position, disc.tracks.map { MusicBrainz.SeedTrack(it.title, it.artist, it.lengthMs) }, disc.toc)
+        }
+        val html = MusicBrainz.seedHtml(d.title, d.artist, d.date, discs, d.note, d.extra)
+        log(S(R.string.mb_upload_opening))
+        // ジャケット画像があれば、リリースを登録したあとに画像も登録できるようにする
+        MusicBrainzSubmitActivity.open(ctx, html, if (withCover) d.cover else null)
+        if (withLyrics) uploadLyrics(d)
+    }
+
+    /** 曲に埋め込まれた歌詞を LRCLIB に登録する(すでに歌詞がある曲は登録しない) */
+    private fun uploadLyrics(d: MbDraft) {
+        if (lyricsUploading) return
+        val entries = d.discs.flatMap { it.tracks }.mapNotNull { t ->
+            val l = t.lyrics ?: return@mapNotNull null
+            if (t.lengthMs <= 0) return@mapNotNull null
+            val (plain, synced) = com.uyatame.ucrt.meta.Lrclib.fromLyrics(l)
+            if (plain.isNullOrBlank() && synced.isNullOrBlank()) return@mapNotNull null
+            com.uyatame.ucrt.meta.Lrclib.Entry(t.title, t.artist.ifBlank { d.artist }, d.title, t.lengthMs / 1000.0, plain, synced)
+        }
+        if (entries.isEmpty()) return
+        lyricsUploading = true
+        lyricsJob = viewModelScope.launch {
+            var sent = 0
+            var skipped = 0
+            var failed = 0
+            try {
+                for ((i, e) in entries.withIndex()) {
+                    val job = coroutineContext[Job]
+                    snack = S(R.string.lyrics_uploading, i + 1, entries.size, e.track)
+                    val r = withContext(Dispatchers.IO) {
+                        runCatching {
+                            if (com.uyatame.ucrt.meta.Lrclib.hasLyrics(e)) false
+                            else { com.uyatame.ucrt.meta.Lrclib.publish(e) { job?.isActive == false }; true }
+                        }
+                    }
+                    r.onSuccess { if (it) sent++ else skipped++ }.onFailure {
+                        if (it is kotlinx.coroutines.CancellationException) throw it
+                        failed++
+                        log(S(R.string.lyrics_upload_failed, e.track, com.uyatame.ucrt.meta.describeNetError(it)))
+                    }
+                }
+            } finally {
+                lyricsUploading = false
+                val msg = S(R.string.lyrics_upload_done, sent, skipped, failed)
+                log(msg)
+                snack = msg
+            }
+        }
+    }
+
+    /**
+     * ライブラリのアルバムの曲情報(タグ)を MusicBrainz に登録する。CD の目次が無いのでディスクIDは登録できない。
+     * 同じアルバム(アルバム名・アーティスト名・曲数が同じ)がすでにあれば登録しない
+     */
+    fun uploadAlbumToMusicBrainz(a: com.uyatame.ucrt.library.LibAlbum) {
+        if (mbUploadBusy) return
+        val discs = a.tracks.groupBy { it.disc }.toSortedMap()
+        if (a.title.isBlank() || a.artist.isBlank() || a.title == UNKNOWN_ALBUM || a.artist == UNKNOWN_ARTIST ||
+            a.tracks.any { it.title.isBlank() }
+        ) {
+            snack = S(R.string.mb_upload_fill_in)
+            return
+        }
+        MusicBrainz.version = BuildConfigVersion.name(ctx)
+        mbUploadBusy = true
+        snack = S(R.string.mb_upload_checking)
+        viewModelScope.launch {
+            try {
+                // 1 枚目の曲数で探す(MusicBrainz の検索は、曲数が合うディスクを選ぶ)
+                val firstCount = discs.values.first().size
+                val same = withContext(Dispatchers.IO) { MusicBrainz.findSame(AlbumMeta(a.title, a.artist), firstCount) }
+                if (same != null) {
+                    mbExisting = MbExisting(
+                        same.meta.title, same.summary, same.meta.releaseId?.let { MusicBrainz.releaseUrl(it) }, null,
+                        S(R.string.mb_upload_library_exists),
+                    )
+                    log(S(R.string.mb_upload_similar, same.meta.title))
+                    return@launch
+                }
+                // 曲に埋め込まれた歌詞とジャケット画像を読んでから、詳しい情報を入力する画面を出す
+                val multi = discs.size > 1
+                val draftDiscs = withContext(Dispatchers.IO) {
+                    discs.entries.mapIndexed { n, (disc, list) ->
+                        MbDiscDraft(
+                            if (multi) (if (disc > 0) disc else n + 1) else 0, null,
+                            list.sortedBy { it.track }.map {
+                                MbTrackDraft(
+                                    it.title, it.artist, it.durationMs.coerceAtLeast(0),
+                                    com.uyatame.ucrt.player.LyricsLoader.embeddedOnly(ctx, it.uri),
+                                )
+                            },
+                        )
+                    }
+                }
+                val cover = withContext(Dispatchers.IO) {
+                    com.uyatame.ucrt.library.ArtLoader.originalBytes(ctx, a.first.uri, a.first.coverUri)
+                }
+                mbDraft = MbDraft(a.title, a.artist, a.year, draftDiscs, cover, MusicBrainz.EDIT_NOTE_LIBRARY)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                snack = S(R.string.mb_upload_check_failed, com.uyatame.ucrt.meta.describeNetError(e))
+            } finally {
+                mbUploadBusy = false
+            }
+        }
+    }
+
     fun openChooser() {
         showChooser = true
         if (candidates.isEmpty() && !metaSearching) fetchMeta(openChooserAlways = true)
@@ -1869,6 +2091,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             dir.createFile("application/octet-stream", "$name.part")
         } ?: throw IOException(S(R.string.cannot_create_file))
         val bytes = (t.endLba - t.startLba).toLong() * 2352
+        // 利用者が入力した詳しい情報(ジャンル・作曲・作詞・コメント・歌詞)。WAV には書かない
+        val tm = m.tracks.getOrNull(ai)
+        val extra = com.uyatame.ucrt.tags.TagExtra(
+            m.genre.ifBlank { null }, tm?.composer?.ifBlank { null }, tm?.lyricist?.ifBlank { null },
+            tm?.comment?.ifBlank { null }, tm?.lyrics?.ifBlank { null },
+        )
         val tags = buildList {
             add("TITLE" to title)
             add("ARTIST" to artist)
@@ -1880,6 +2108,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             add("DISCTOTAL" to m.discTotal.toString())
             if (m.date.isNotEmpty()) add("DATE" to m.date)
             m.releaseId?.let { add("MUSICBRAINZ_ALBUMID" to it) }
+            addAll(extra.vorbisPairs())
         }
         var os: OutputStream? = null
         var sink: AudioSink? = null
@@ -1897,20 +2126,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     WavSink(o, bytes, meta)
                 }
                 AudioFormat.FLAC -> {
-                    val o = BufferedOutputStream(openOut(file), 1 shl 16); os = o; FlacSink(o, bytes / 4, s.flacLevel, tags, cover)
+                    val o = BufferedOutputStream(openOut(file), 1 shl 16); os = o
+                    ffmpegSink(s, listOf("-c:a", "flac", "-compression_level", s.flacLevel.coerceIn(0, 8).toString(), "-f", "flac"), "flac") { f ->
+                        f.inputStream().use { com.uyatame.ucrt.rip.FlacHeader.retag(java.io.BufferedInputStream(it, 1 shl 16), o, tags, cover) }
+                        o.flush()
+                    } ?: FlacSink(o, bytes / 4, s.flacLevel, tags, cover)
                 }
                 AudioFormat.AAC -> {
                     tmp.delete(); AacSink(tmp.absolutePath, s.aacKbps * 1000)
                 }
                 AudioFormat.MP3 -> {
                     val o = BufferedOutputStream(openOut(file), 1 shl 16); os = o
-                    val ms = Mp3Sink(
-                        o, s.mp3Kbps, s.mp3Quality,
-                        Id3Tags(title, artist, m.title, m.artist, m.date.take(4), t.number, total, m.discNo, m.discTotal),
-                        cover,
-                    )
-                    if (!ms.bitrateApplied) log(S(R.string.mp3_bitrate_setting_not_supported))
-                    ms
+                    val id3 = Id3Tags(title, artist, m.title, m.artist, m.date.take(4), t.number, total, m.discNo, m.discTotal)
+                    ffmpegSink(
+                        s,
+                        listOf(
+                            "-c:a", "libmp3lame", "-b:a", "${s.mp3Kbps}k", "-compression_level", s.mp3Quality.coerceIn(0, 9).toString(),
+                            "-f", "mp3", "-id3v2_version", "0", "-write_id3v1", "0", "-write_xing", "1",
+                        ),
+                        "mp3",
+                    ) { f ->
+                        // 曲の情報(ID3v2)はアプリで書き、その後ろに FFmpeg の書いた MP3 を続ける
+                        o.write(com.uyatame.ucrt.rip.Id3v2.build(id3, cover, extraFrames = extra.id3Frames()))
+                        f.inputStream().use { it.copyTo(o, 1 shl 16) }
+                        o.flush()
+                    } ?: Mp3Sink(o, s.mp3Kbps, s.mp3Quality, id3, cover, extra.id3Frames()).also { ms ->
+                        if (!ms.bitrateApplied) log(S(R.string.mp3_bitrate_setting_not_supported))
+                    }
                 }
             }
             sink = sk
@@ -1928,7 +2170,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 Mp4Tagger.tag(
                     tmp,
                     Mp4Tags(title, artist, m.title, m.artist, m.date.take(4), t.number, total, m.discNo, m.discTotal),
-                    cover,
+                    cover, extra,
                 )
                 openOut(file).use { o -> tmp.inputStream().use { it.copyTo(o, 1 shl 16) } }
                 tmp.delete()
@@ -1949,6 +2191,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         } finally {
             runCatching { os?.close() }
         }
+    }
+
+    /**
+     * FFmpeg で変換する書き出し先。設定でオフ・FFmpeg が動かない・起動できないときは null(アプリ内蔵の変換を使う)
+     */
+    private fun ffmpegSink(s: AppSettings, args: List<String>, ext: String, done: (File) -> Unit): com.uyatame.ucrt.rip.AudioSink? {
+        if (!s.useFfmpeg) return null
+        val exe = com.uyatame.ucrt.rip.Ffmpeg.binary(ctx) { log(it) } ?: return null
+        return runCatching { com.uyatame.ucrt.rip.FfmpegSink(exe, args, File(ctx.cacheDir, "rip_tmp.$ext"), done) }
+            .onFailure { log(S(R.string.ffmpeg_failed_using_builtin, it.message ?: it.javaClass.simpleName)) }
+            .getOrNull()
     }
 
     /** 取り込み終えた一時ファイルで、元のファイルを置き換える */
@@ -2232,6 +2485,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         artists: List<String>,
         newCover: Uri?,
         coverData: ByteArray? = null,
+        /** 曲ごとの詳しい情報(null・空の TagExtra なら書き換えない) */
+        extras: List<com.uyatame.ucrt.tags.TagExtra?>? = null,
     ) {
         if (tagSaving) return
         viewModelScope.launch {
@@ -2254,6 +2509,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                             val v = TagValues(
                                 titles.getOrElse(i) { t.title }.trim(), artists.getOrElse(i) { t.artist }.trim(),
                                 album.trim(), albumArtist.trim(), year.trim(), t.track, trackTotal, t.disc, discTotal,
+                                extras?.getOrNull(i) ?: com.uyatame.ucrt.tags.TagExtra(),
                             )
                             if (TagEditor.edit(ctx, Uri.parse(t.uri), v, coverBytes)) ok++ else skipped++
                         } catch (e: Exception) {
@@ -2277,6 +2533,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 tagSaving = false
             }
         }
+    }
+
+    /** 曲ごとの今の詳しい情報(ジャンル・作曲・作詞・コメント・歌詞)を読む。書けない形式・読めなかった曲は null */
+    suspend fun readAlbumExtras(a: LibAlbum): List<com.uyatame.ucrt.tags.TagExtra?> = withContext(Dispatchers.IO) {
+        a.tracks.map { com.uyatame.ucrt.tags.TagExtra.read(ctx, it.uri) }
     }
 
     // ================= 再生 =================

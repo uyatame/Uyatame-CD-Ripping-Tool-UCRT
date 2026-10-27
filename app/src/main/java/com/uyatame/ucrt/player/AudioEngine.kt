@@ -19,35 +19,6 @@ import kotlin.math.roundToLong
 import kotlin.math.sin
 import android.media.AudioFormat as AFormat
 
-/** イコライザーのプリセット(10バンド、dB)。label は表示名(表示言語に合わせて読む) */
-class EqPreset(val label: () -> String, val gains: FloatArray)
-
-object EqBands {
-    val FREQS = floatArrayOf(31f, 62f, 125f, 250f, 500f, 1000f, 2000f, 4000f, 8000f, 16000f)
-    val LABELS = listOf("31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k")
-    const val MAX_DB = 12f
-
-    val PRESETS = listOf(
-        EqPreset({ S(R.string.flat) }, floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)),
-        EqPreset({ S(R.string.bass_boost) }, floatArrayOf(6f, 5f, 4f, 2f, 0f, 0f, 0f, 0f, 0f, 0f)),
-        EqPreset({ S(R.string.treble_boost) }, floatArrayOf(0f, 0f, 0f, 0f, 0f, 1f, 2f, 4f, 5f, 6f)),
-        EqPreset({ S(R.string.vocal) }, floatArrayOf(-2f, -2f, -1f, 1f, 3f, 4f, 3f, 1f, 0f, -1f)),
-        EqPreset({ S(R.string.rock) }, floatArrayOf(5f, 4f, 2f, -1f, -2f, -1f, 2f, 4f, 5f, 5f)),
-        EqPreset({ S(R.string.pop) }, floatArrayOf(-1f, 1f, 3f, 4f, 3f, 0f, -1f, -1f, 1f, 2f)),
-        EqPreset({ S(R.string.jazz) }, floatArrayOf(3f, 2f, 1f, 2f, -1f, -1f, 0f, 1f, 2f, 3f)),
-        EqPreset({ S(R.string.classical) }, floatArrayOf(4f, 3f, 2f, 1f, -1f, -1f, 0f, 2f, 3f, 4f)),
-        EqPreset({ S(R.string.loudness) }, floatArrayOf(5f, 4f, 1f, 0f, -1f, 0f, 0f, 1f, 4f, 5f)),
-        // iTunes の「Perfect」として広まった設定(全体に持ち上げるので、音割れを防ぐ自動の音量調整と合わせて使う)
-        EqPreset({ S(R.string.perfect) }, floatArrayOf(3f, 6f, 9f, 7f, 6f, 5f, 7f, 9f, 11f, 8f)),
-    )
-
-    fun encode(g: FloatArray): String = g.joinToString(",") { "%.1f".format(java.util.Locale.US, it) }
-    fun decode(s: String?): FloatArray {
-        val v = s?.split(',')?.mapNotNull { it.trim().toFloatOrNull() }.orEmpty()
-        return FloatArray(FREQS.size) { i -> v.getOrElse(i) { 0f }.coerceIn(-MAX_DB, MAX_DB) }
-    }
-}
-
 /**
  * 再生の音響設定(イコライザー・ビットパーフェクト)と、その時点の状態を持つ。
  * 設定は画面から変更され、再生中の出力にすぐ反映される。
@@ -477,7 +448,7 @@ class AudioOutput(
             dac = null
             dacSession = -1
             // DAR の PCM アップサンプリング: 出力先(イヤホンジャックなど)が受け付ける周波数まで、アプリの中で上げてから渡す
-            val target = OutputDevices.find(ctx, AudioEngine.preferredKey) ?: OutputDevices.defaultDeviceInfo(ctx)
+            val target = OutputDevices.route(ctx, AudioEngine.preferredKey)
             val outRate = if (dar && !exact && channels in 1..2) normalDarRate(target) else sampleRate
             // 整数倍なら 1 段(Upsampler)で。そうでなければ 2 のべき乗倍で近くまで上げてから、残りを RationalResampler で合わせる
             val nf = if (outRate % sampleRate == 0) outRate / sampleRate
@@ -508,7 +479,7 @@ class AudioOutput(
                 )
                 AudioEngine.log(
                     "dar: normal output x$nf ${khz(sampleRate)} -> ${khz(sampleRate * nf)}" +
-                        (frac?.let { " -> ${khz(outRate)} (${it.up}/${it.down})" } ?: "") + " (${target?.productName}, type ${target?.type})",
+                        (frac?.let { " -> ${khz(outRate)} (${it.up}/${it.down})" } ?: "") + " (${target?.name}, type ${target?.type})",
                 )
             } else if (!AudioEngine.wantUsbDirect) AudioEngine.report(false, "")
             val stereo = if (channels == 1) AFormat.CHANNEL_OUT_MONO else AFormat.CHANNEL_OUT_STEREO
@@ -529,28 +500,18 @@ class AudioOutput(
                 throw e
             }
             // 選ばれている出力先があれば、そこへ出す
-            OutputDevices.find(ctx, AudioEngine.preferredKey)?.let { dev -> runCatching { t.setPreferredDevice(dev) } }
+            OutputDevices.applyPreferred(ctx, AudioEngine.preferredKey, t)
             // 実際に音が出ている先を画面に出す
             // (出力先が変わったときの知らせは Android 7.0 から)
             if (android.os.Build.VERSION.SDK_INT >= 24) {
-                val rl = android.media.AudioRouting.OnRoutingChangedListener { r ->
-                    if (!released) r.routedDevice?.let { AudioEngine.setOutput(OutputDevices.describe(it)) }
-                }
-                routing = rl
-                runCatching { t.addOnRoutingChangedListener(rl, android.os.Handler(android.os.Looper.getMainLooper())) }
+                routing = OutputDevices.onRouted(t) { d -> if (!released) AudioEngine.setOutput(d) }
             }
-            AudioEngine.setOutput(OutputDevices.find(ctx, AudioEngine.preferredKey)?.let { OutputDevices.describe(it) } ?: OutputDevices.defaultDevice(ctx))
+            AudioEngine.setOutput(OutputDevices.selected(ctx, AudioEngine.preferredKey) ?: OutputDevices.defaultDevice(ctx))
             track = t
             outEnc = enc
             bitPerfect = false
             exactOk = false
-            runCatching {
-                val tf = t.format
-                AudioEngine.log(
-                    "track: ${tf.sampleRate} Hz ${AudioEngine.encName(tf.encoding)} mask=${tf.channelMask} idx=${tf.channelIndexMask}" +
-                        " buf=${t.bufferSizeInFrames} state=${t.state}",
-                )
-            }
+            OutputDevices.trackText(t)?.let { AudioEngine.log("track: $it") }
             AudioEngine.log(
                 "output: ${khz(trackRate)} ${channels}ch ${AudioEngine.encName(outEnc)}" +
                     " mixer",
@@ -567,15 +528,15 @@ class AudioOutput(
      * 元の周波数の整数倍でなくてもよい(44.1 kHz → 192 kHz など)が、そのときは 2 倍以上に限る。
      * 上げられない(出力先が高い周波数を受け付けない・分からない)ときは元の周波数(上げても Android がまた下げるだけなので)
      */
-    private fun normalDarRate(dev: android.media.AudioDeviceInfo?): Int {
+    private fun normalDarRate(dev: OutputRoute?): Int {
         if (dev != null && AudioEngine.darMode == 2) {
             // DSD への変換は、いまは USB DAC だけ。出力先が DSD を受け付けるかを調べられるよう、形式を残す
-            AudioEngine.log("dar: DSD to ${dev.productName} (type ${dev.type}) is not supported; ${OutputDevices.formatsText(dev)}")
+            AudioEngine.log("dar: DSD to ${dev.name} (type ${dev.type}) is not supported; ${dev.formats}")
         }
         val max = AudioEngine.darMaxRate(sampleRate)
         if (max <= 0 || dev == null) return sampleRate
-        val rates = runCatching { dev.sampleRates }.getOrNull() ?: return sampleRate
-        AudioEngine.log("dar: output ${dev.productName} (type ${dev.type}) ${OutputDevices.formatsText(dev)}")
+        val rates = dev.rates
+        AudioEngine.log("dar: output ${dev.name} (type ${dev.type}) ${dev.formats}")
         // Android 11 以前の通常の出力は 192 kHz まで
         val sdkCap = if (android.os.Build.VERSION.SDK_INT >= 31) 768000L else 192000L
         // 倍率の上限は、44.1 kHz の系統から 48 kHz の系統へ移るときは、その分(160/147)だけ広げる(例: ×4 なら 176.4 → 192 kHz まで)
@@ -598,24 +559,19 @@ class AudioOutput(
     }
 
     /** 通常の出力で、その周波数の AudioTrack を本当に作れるか(作ってすぐ捨てる。結果は覚えておく) */
-    private fun trackAccepts(dev: android.media.AudioDeviceInfo, rate: Int): Boolean =
+    private fun trackAccepts(dev: OutputRoute, rate: Int): Boolean =
         AudioEngine.rateProbe.getOrPut("${dev.id}:$rate") {
             val ok = runCatching {
                 val mask = AFormat.CHANNEL_OUT_STEREO
                 val enc = AFormat.ENCODING_PCM_FLOAT
                 val min = AudioTrack.getMinBufferSize(rate, mask, enc)
                 if (min <= 0) return@runCatching false
-                val t = AudioTrack.Builder()
-                    .setAudioAttributes(attrs)
-                    .setAudioFormat(AFormat.Builder().setSampleRate(rate).setChannelMask(mask).setEncoding(enc).build())
-                    .setBufferSizeInBytes(min)
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .build()
+                val t = newAudioTrack(attrs, AFormat.Builder().setSampleRate(rate).setChannelMask(mask).setEncoding(enc).build(), min)
                 val inited = t.state == AudioTrack.STATE_INITIALIZED
                 t.release()
                 inited
             }.getOrDefault(false)
-            if (!ok) AudioEngine.log("dar: ${khz(rate)} is not accepted by the standard output (${dev.productName}, type ${dev.type})")
+            if (!ok) AudioEngine.log("dar: ${khz(rate)} is not accepted by the standard output (${dev.name}, type ${dev.type})")
             ok
         }
 
@@ -642,12 +598,7 @@ class AudioOutput(
         var last: Exception? = null
         for ((i, size) in sizes.withIndex()) {
             try {
-                val t = AudioTrack.Builder()
-                    .setAudioAttributes(attrs)
-                    .setAudioFormat(f)
-                    .setBufferSizeInBytes(size)
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .build()
+                val t = newAudioTrack(attrs, f, size)
                 if (i > 0) AudioEngine.log("track: created with a smaller buffer ($size bytes)")
                 return t
             } catch (e: Exception) {
@@ -682,7 +633,7 @@ class AudioOutput(
         }
         val t = track ?: return
         if (android.os.Build.VERSION.SDK_INT >= 24) {
-            (routing as? android.media.AudioRouting.OnRoutingChangedListener)?.let { l -> runCatching { t.removeOnRoutingChangedListener(l) } }
+            routing?.let { OutputDevices.removeRouted(t, it) }
         }
         runCatching { t.pause() }
         runCatching { t.flush() }
@@ -967,7 +918,7 @@ class AudioOutput(
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             if (released) return@postDelayed
             val t = track
-            val routed = runCatching { t?.routedDevice?.let { "${it.productName} (type ${it.type})" } }.getOrNull()
+            val routed = t?.let { OutputDevices.routedText(it) }
             AudioEngine.log(
                 "after 3s: head=${headFrames()} written=$framesWritten" +
                     (if (t != null) " playState=${t.playState} routed=$routed" else " usb-direct streaming=${usbDac.streaming}") +

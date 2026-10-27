@@ -1462,7 +1462,11 @@ private fun SearchPage(vm: MainViewModel) {
 private fun AlbumDetail(vm: MainViewModel, a: LibAlbum) {
     var editing by remember { mutableStateOf(false) }
     var lookup by remember { mutableStateOf(false) }
-    if (editing) EditTagsDialog(vm, a) { editing = false }
+    // 編集は画面いっぱいに出す(ダイアログだと狭くて入力しにくいため)
+    if (editing) {
+        EditTagsPage(vm, a) { editing = false }
+        return
+    }
     if (lookup) LookupSheet(vm, a) { lookup = false }
     val discs = remember(a) { a.tracks.groupBy { it.disc }.toList().sortedBy { it.first } }
     SelectionPool(vm, a.tracks)
@@ -1563,67 +1567,59 @@ private fun AlbumDetail(vm: MainViewModel, a: LibAlbum) {
     }
 }
 
+/** 取り込み済みのアルバムの曲情報を編集する画面(画面いっぱい)。詳しい情報と歌詞も書ける(FLAC・MP3・M4A) */
 @Composable
-private fun EditTagsDialog(vm: MainViewModel, a: LibAlbum, onDismiss: () -> Unit) {
-    var album by remember { mutableStateOf(a.title) }
-    var albumArtist by remember { mutableStateOf(a.artist) }
-    var year by remember { mutableStateOf(a.first.year) }
-    val titles = remember { mutableStateListOf<String>().apply { addAll(a.tracks.map { it.title }) } }
-    val artists = remember { mutableStateListOf<String>().apply { addAll(a.tracks.map { it.artist }) } }
+private fun EditTagsPage(vm: MainViewModel, a: LibAlbum, onDone: () -> Unit) {
+    val form = remember(a) {
+        TagForm(
+            a.title, a.artist, a.first.year, a.first.genre,
+            a.tracks.mapIndexed { i, t ->
+                TrackForm(
+                    trackLabel(if (t.track > 0) t.track else i + 1), t.title, t.artist, lengthText(t.durationMs),
+                    com.uyatame.ucrt.tags.TagExtra.supported(t.uri),
+                )
+            },
+        )
+    }
+    // 曲ごとの詳しい情報(今の値)を読んでから入力できるようにする。読めなかった曲は書き換えない
+    var extras by remember(a) { mutableStateOf<List<com.uyatame.ucrt.tags.TagExtra?>?>(null) }
+    LaunchedEffect(a) {
+        val list = vm.readAlbumExtras(a)
+        list.forEachIndexed { i, e ->
+            val f = form.tracks.getOrNull(i) ?: return@forEachIndexed
+            if (e == null) return@forEachIndexed
+            f.composer = e.composer.orEmpty(); f.lyricist = e.lyricist.orEmpty()
+            f.comment = e.comment.orEmpty(); f.lyrics = e.lyrics.orEmpty()
+        }
+        list.firstOrNull { it != null }?.genre?.takeIf { it.isNotBlank() }?.let { form.genre = it }
+        extras = list
+    }
     var cover by remember { mutableStateOf<Uri?>(null) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { if (it != null) cover = it }
     val unsupported = a.tracks.count { !TagEditor.supported(it.uri) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton({
-                vm.saveAlbumTags(a, album, albumArtist, year, titles.toList(), artists.toList(), cover)
-                onDismiss()
-            }) { Text(S(R.string.save)) }
+    TagEditorPage(
+        S(R.string.edit_track_info), form,
+        onCancel = onDone,
+        onSave = {
+            val read = extras
+            vm.saveAlbumTags(
+                a, form.album, form.albumArtist, form.date,
+                form.tracks.map { it.title }, form.tracks.map { it.artist }, cover,
+                extras = form.tracks.mapIndexed { i, t -> if (read?.getOrNull(i) == null) null else t.extra(form.genre) },
+            )
+            onDone()
         },
-        dismissButton = { TextButton(onDismiss) { Text(S(R.string.cancel)) } },
-        title = { Text(S(R.string.edit_track_info)) },
-        text = {
-            LazyColumn(Modifier.heightIn(max = 500.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                item {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(64.dp), 8.dp, 64.dp)
-                        Spacer(Modifier.width(12.dp))
-                        FilledTonalButton({
-                            pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        }) { Text(if (cover == null) S(R.string.change_cover) else S(R.string.new_image_selected)) }
-                    }
-                }
-                item { OutlinedTextField(album, { album = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.album)) }, singleLine = true) }
-                item {
-                    OutlinedTextField(albumArtist, { albumArtist = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.album_artist)) }, singleLine = true)
-                }
-                item { OutlinedTextField(year, { year = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.year)) }, singleLine = true) }
-                if (unsupported > 0) {
-                    item {
-                        Text(
-                            S(R.string.songs_cant_be_edited_because, unsupported),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
-                items(titles.size) { i ->
-                    Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        // 開いている間にライブラリが読み直されて曲が減っても落ちないように
-                        val n = a.tracks.getOrNull(i)?.track ?: 0
-                        OutlinedTextField(
-                            titles[i], { titles[i] = it }, Modifier.fillMaxWidth(),
-                            label = { Text(if (n > 0) S(R.string.track_title, n) else S(R.string.title_2)) }, singleLine = true,
-                        )
-                        OutlinedTextField(
-                            artists[i], { artists[i] = it }, Modifier.fillMaxWidth(),
-                            label = { Text(S(R.string.artist)) }, singleLine = true,
-                        )
-                    }
-                }
-            }
-        },
-    )
+        loading = extras == null,
+        note = if (unsupported > 0) S(R.string.songs_cant_be_edited_because, unsupported) else null,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(72.dp), 8.dp, 72.dp)
+            Spacer(Modifier.width(12.dp))
+            FilledTonalButton({
+                pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }) { Text(if (cover == null) S(R.string.change_cover) else S(R.string.new_image_selected)) }
+        }
+    }
 }
 
 /** 取り込み済みアルバムの曲情報を、インターネットから探して書き込む */

@@ -1,6 +1,7 @@
 import java.net.URI
 import java.security.MessageDigest
 import java.util.Properties
+import java.util.zip.ZipInputStream
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -11,14 +12,16 @@ plugins {
 
 android {
     namespace = "com.uyatame.ucrt"
-    compileSdk = 36
+    // Android 17(API 37)の SDK でビルドする(今後 Android 17 の新しい機能を使えるように。ユーザーの指示)。
+    // Android Gradle Plugin 8.9 は正式には 36 までなので、gradle.properties で警告を止めている
+    compileSdk = 37
 
     defaultConfig {
         // アプリ ID は公開済みの版から変えない(変えると別のアプリ扱いになり、上書き更新や設定の引き継ぎができなくなる)
         applicationId = "com.uyatame.cdripper"
-        // Android 6.0 から(Android 6.0・7.x は試験的な対応)
+        // Android 6.0 から(Android 6.0・7.x は試験的な対応)。Android 4.0〜5.1 は別のアプリ(legacy)で対応する
         minSdk = 23
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 44
         // 次にリリースする版。テスト用のビルド(tools/termux-build.sh)では、後ろに ".test<テスト版>" が付く
         versionName = "0.6.0" + (findProperty("testVersion")?.let { ".test$it" } ?: "")
@@ -52,6 +55,13 @@ android {
     }
     buildFeatures { compose = true }
     lint { checkReleaseBuilds = false }
+    // app と legacy で共通のソースと文言(core。どちらのアプリにもそのまま入る)
+    sourceSets["main"].java.srcDir("../core/src/main/java")
+    sourceSets["main"].res.srcDir("../core/src/main/res")
+    // 取り込みの変換に使う FFmpeg(fetchFfmpeg が取ってくる lib/<ABI>/libffmpeg.so)
+    sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("ffmpeg/jniLibs").get().asFile)
+    // FFmpeg はプログラムとして実行するので、インストール時に lib を展開させる(展開しないと実行できない)
+    packaging { jniLibs { useLegacyPackaging = true } }
 }
 
 kotlin {
@@ -81,6 +91,44 @@ val fetchSpotifySdk = tasks.register("fetchSpotifySdk") {
         f.writeBytes(bytes)
     }
 }
+
+// CD の取り込みの変換(FLAC・MP3)に使う FFmpeg。tools/ffmpeg/build.sh を GitHub Actions(.github/workflows/ffmpeg.yml)で
+// ビルドしてこのリポジトリのリリースに置いたもの。ビルド時に取得し、SHA-256 を確かめてから APK に入れる(リポジトリには入れない)
+val ffmpegRelease = "ffmpeg-8.1.3-2"
+val ffmpegUrl = "https://github.com/uyatame/Uyatame-CD-Ripping-Tool-UCRT/releases/download/$ffmpegRelease/ucrt-ffmpeg.zip"
+val ffmpegSha256 = "7f3aa514273aaadc051caad86f6255a8d55c9be57260fbe6070a3fc341043dd6"
+val ffmpegDir = layout.buildDirectory.dir("ffmpeg")
+
+val fetchFfmpeg = tasks.register("fetchFfmpeg") {
+    val out = ffmpegDir
+    outputs.dir(out)
+    doLast {
+        val dir = out.get().asFile
+        val zip = File(dir, "$ffmpegRelease.zip")
+        if (!zip.exists() || sha256Hex(zip.readBytes()) != ffmpegSha256) {
+            logger.lifecycle("FFmpeg を取得: $ffmpegUrl")
+            val bytes = downloadText(ffmpegUrl)
+            val got = sha256Hex(bytes)
+            check(got == ffmpegSha256) { "FFmpeg の SHA-256 が一致しません: $got" }
+            dir.mkdirs()
+            zip.writeBytes(bytes)
+        }
+        val libs = File(dir, "jniLibs")
+        libs.deleteRecursively()
+        ZipInputStream(zip.inputStream()).use { z ->
+            while (true) {
+                val e = z.nextEntry ?: break
+                // lib/<ABI>/libffmpeg.so だけを取り出す
+                val m = Regex("^lib/([A-Za-z0-9_-]+)/libffmpeg\\.so$").find(e.name) ?: continue
+                val f = File(libs, "${m.groupValues[1]}/libffmpeg.so")
+                f.parentFile.mkdirs()
+                f.outputStream().use { z.copyTo(it) }
+            }
+        }
+        check(File(libs, "arm64-v8a/libffmpeg.so").exists()) { "FFmpeg の中身が足りません" }
+    }
+}
+tasks.named("preBuild") { dependsOn(fetchFfmpeg) }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
