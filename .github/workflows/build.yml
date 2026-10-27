@@ -28,6 +28,10 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # compileSdk 37(Android 17)の SDK は、GitHub の実行環境にまだ入っていないので入れる
+      - name: Install Android SDK platform 37
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37" > /dev/null
+
       # Gradle のキャッシュと、gradle-wrapper.jar が正規のものかの確認
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
