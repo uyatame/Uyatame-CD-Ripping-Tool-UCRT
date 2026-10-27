@@ -29,8 +29,23 @@ jobs:
           java-version: "17"
 
       # compileSdk 37(Android 17)の SDK は、GitHub の実行環境にまだ入っていないので入れる
+      # (配られている名前は platforms;android-37.0 など。AGP は platforms/android-37 を探すので、その名前でも置く。Termux と同じ)
       - name: Install Android SDK platform 37
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37" > /dev/null
+        run: |
+          sdk="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          d="$ANDROID_HOME/platforms"
+          if [ ! -d "$d/android-37" ]; then
+            pkg=$("$sdk" --list 2>/dev/null | grep -o 'platforms;android-37[^ |]*' | sort -u | head -1)
+            [ -n "$pkg" ] || { echo "platforms;android-37 is not available"; exit 1; }
+            echo "installing $pkg"
+            yes | "$sdk" --install "$pkg" > /dev/null
+            name=${pkg#platforms;}
+            if [ "$name" != "android-37" ]; then
+              cp -r "$d/$name" "$d/android-37"
+              sed -i "s#platforms;$name#platforms;android-37#" "$d/android-37/package.xml"
+            fi
+          fi
+          ls "$d"
 
       # Gradle のキャッシュと、gradle-wrapper.jar が正規のものかの確認
       - name: Set up Gradle
