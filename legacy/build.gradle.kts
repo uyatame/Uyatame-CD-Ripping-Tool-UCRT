@@ -10,9 +10,9 @@ plugins {
 
 // UCRT Legacy の版(本家とは別の番号。α版。2026-10-27 にユーザーの指示)。
 // リリースのときは legacyVersion を書き換え、legacyVersionCode を 1 上げる。リリースのタグは legacy-v<legacyVersion>(プレリリース)
-val legacyVersion = "0.1.0-alpha"
+val legacyVersion = "0.1.1-alpha"
 // これまでのテスト版(本家の版の番号 44 で作っていた)の上に入れられるように、45 から始める
-val legacyVersionCode = 45
+val legacyVersionCode = 46
 
 android {
     // R(文言など)とソースのパッケージは app と同じ(core のソースが com.uyatame.ucrt.R を使うため)。アプリ ID は別

@@ -39,6 +39,15 @@ object AudioEngine {
     @Volatile var version = 0
         private set
 
+    /**
+     * アプリの中の音量(倍率。通常の出力だけ。1 = そのまま)。設定の「細かい音量」をオンにすると、再生画面の音量で
+     * 端末の音量より細かく(0.5 dB ごと)変えられる
+     */
+    @Volatile var appVolume = 1f
+
+    /** 0〜200 の段階(200 = 0 dB、1 段 0.5 dB。0 は消音) → 倍率 */
+    fun appVolumeOf(step: Int): Float = if (step <= 0) 0f else Math.pow(10.0, (step - 200) * 0.5 / 20).toFloat()
+
     /** 画面表示用: ビットパーフェクトで出力中か */
     var bitPerfectActive by mutableStateOf(false)
         private set
@@ -626,6 +635,7 @@ class AudioOutput(
 
     override fun release() {
         released = true
+        SpectrumTap.forget(this)
         pipe?.close()
         if (dac != null) {
             usbDac.end(dacSession)
@@ -768,6 +778,9 @@ class AudioOutput(
         val frames = src.remaining() / frameBytes
         val samples = frames * channels
         if (samples <= 0) return
+        // スペクトラムアナライザー(表示している間だけ。音には触れない)
+        // (DoP は DSD のデータなので、DSD の再生の側で写す)
+        if (SpectrumTap.enabled && !exact) SpectrumTap.submit(this, src, srcEnc, frames, channels, sampleRate, framesWritten)
         framesWritten += frames
         val d = dac
         if (d != null) {
@@ -796,7 +809,8 @@ class AudioOutput(
             val g = AudioEngine.preampGain()
             if (g != 1f) for (k in 0 until samples) fbuf[k] *= g
         }
-        val rgGain = ReplayGain.linear(rg)
+        // ReplayGain と、アプリの細かい音量(設定の「細かい音量」。端末の音量の段階の間を細かく合わせる)
+        val rgGain = ReplayGain.linear(rg) * AudioEngine.appVolume
         if (rgGain != 1f) for (k in 0 until samples) fbuf[k] *= rgGain
         // 3ch 以上(5.1ch など)は、通常の出力ではステレオにまとめて出す
         if (channels > 2) {

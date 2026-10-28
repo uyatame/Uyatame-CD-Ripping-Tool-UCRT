@@ -33,7 +33,7 @@ object Quality {
         "ogg" -> "Ogg"
         "opus" -> "Opus"
         "aac" -> "AAC"
-        // m4a は AAC と ALAC があり、ビット数が分かるのは ALAC だけ
+        // m4a は AAC と ALAC がある(読むときに codec に記録する。古い記録はビット数で見分ける)
         "m4a", "mp4" -> if (t.bits in 16..32) "ALAC" else "AAC"
         else -> e.uppercase().ifEmpty { "?" }
     }

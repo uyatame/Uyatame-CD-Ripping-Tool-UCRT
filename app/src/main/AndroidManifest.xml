@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- アップサンプルのタブの変換(DSRE・DSD 変換)を、画面を閉じても続けるため(Android 15 からは mediaProcessing) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- キャスト(Chromecast)で、同じネットワークの機器を探し、音を送るため(Android 17 から必要。「付近のデバイス」の許可) -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
@@ -36,16 +39,235 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:launchMode="singleTop">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>
             <meta-data
                 android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
                 android:resource="@xml/device_filter" />
         </activity>
+
+        <!-- ホーム画面のアイコン(設定の「表示」で選ぶ。選んだもの 1 つだけを有効にする。LauncherIcons) -->
+        <activity-alias
+            android:name=".LauncherAlias_default"
+            android:enabled="true"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_ucrt_light"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_ucrt_light"
+            android:roundIcon="@mipmap/ic_alt_ucrt_light"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_ucrt_dark"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_ucrt_dark"
+            android:roundIcon="@mipmap/ic_alt_ucrt_dark"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_ucrt2_light"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_ucrt2_light"
+            android:roundIcon="@mipmap/ic_alt_ucrt2_light"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_ucrt2_dark"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_ucrt2_dark"
+            android:roundIcon="@mipmap/ic_alt_ucrt2_dark"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_ucrt3_light"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_ucrt3_light"
+            android:roundIcon="@mipmap/ic_alt_ucrt3_light"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_ucrt3_dark"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_ucrt3_dark"
+            android:roundIcon="@mipmap/ic_alt_ucrt3_dark"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_ucrt4_light"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_ucrt4_light"
+            android:roundIcon="@mipmap/ic_alt_ucrt4_light"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_ucrt4_dark"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_ucrt4_dark"
+            android:roundIcon="@mipmap/ic_alt_ucrt4_dark"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_ucrt5_light"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_ucrt5_light"
+            android:roundIcon="@mipmap/ic_alt_ucrt5_light"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_ucrt5_dark"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_ucrt5_dark"
+            android:roundIcon="@mipmap/ic_alt_ucrt5_dark"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_ucrt6_light"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_ucrt6_light"
+            android:roundIcon="@mipmap/ic_alt_ucrt6_light"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_ucrt6_dark"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_ucrt6_dark"
+            android:roundIcon="@mipmap/ic_alt_ucrt6_dark"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_ucrt7_light"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_ucrt7_light"
+            android:roundIcon="@mipmap/ic_alt_ucrt7_light"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_ucrt7_dark"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_ucrt7_dark"
+            android:roundIcon="@mipmap/ic_alt_ucrt7_dark"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_rainbow_ucrt"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_rainbow_ucrt"
+            android:roundIcon="@mipmap/ic_alt_rainbow_ucrt"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_rainbow_unknown"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_alt_rainbow_unknown"
+            android:roundIcon="@mipmap/ic_alt_rainbow_unknown"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- Spotify のログインをブラウザで行ったときに、戻ってくるところ(ucrt-spotify://callback)。
              Spotify 公式の認証ライブラリの画面で、5.0.0 からはアプリ側で宣言する -->
@@ -104,6 +326,12 @@
             android:name=".KeepAliveService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice|mediaPlayback" />
+
+        <!-- アップサンプルのタブの変換 -->
+        <service
+            android:name=".ConvertService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|mediaProcessing" />
 
         <!-- DAC を常に起こしておく(試験的。ほかのアプリの再生にも効く) -->
         <service

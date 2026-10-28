@@ -43,6 +43,12 @@ object LyricsCore {
             "flac" -> flacLyrics(ctx, uri)
             "mp3" -> mp3Lyrics(ctx, uri)
             "dsf", "dff" -> com.uyatame.ucrt.player.dsd.DsdTags.read(ctx, uri)?.tags?.lyrics
+            // M4A / ALAC / MP4(©lyr)
+            "m4a", "mp4", "m4b", "alac" -> BuiltinCodecs.openInput(ctx, uri)?.use { com.uyatame.ucrt.tags.TagExtra.readFrom(it, "m4a")?.lyrics }
+            // Ogg Vorbis / Opus(LYRICS・UNSYNCEDLYRICS)
+            "ogg", "oga", "opus" -> BuiltinCodecs.openInput(ctx, uri)?.use { oggLyrics(it) }
+            // WAV(id3 のチャンクの USLT / SYLT)
+            "wav", "wave" -> BuiltinCodecs.openInput(ctx, uri)?.use { wavLyrics(it) }
             "aif", "aiff", "aifc", "wv", "ape" -> {
                 val kind = BuiltinCodecs.kindOf(Uri.decode(uri.toString()))
                 if (kind == null) null else BuiltinCodecs.openInput(ctx, uri)?.use { com.uyatame.ucrt.tags.ExtraTags.read(kind, it)?.lyrics }
@@ -50,6 +56,83 @@ object LyricsCore {
             else -> null
         } ?: return null
         return parse(text)
+    }
+
+    private fun at(src: RandomInput, pos: Long, n: Int): ByteArray? {
+        if (n < 0 || pos < 0 || pos + n > src.size) return null
+        val b = ByteArray(n)
+        var o = 0
+        while (o < n) {
+            val r = src.read(pos + o, b, o, n - o)
+            if (r <= 0) return null
+            o += r
+        }
+        return b
+    }
+
+    /** Ogg の 2 つ目のパケット(コメント)を組み立てて、LYRICS を探す */
+    internal fun oggLyrics(src: RandomInput): String? {
+        var pos = 0L
+        var packet = 0
+        val cur = java.io.ByteArrayOutputStream()
+        while (pos + 27 <= src.size && packet < 2) {
+            val h = at(src, pos, 27) ?: return null
+            if (h[0] != 'O'.code.toByte() || h[1] != 'g'.code.toByte()) return null
+            val nseg = h[26].toInt() and 0xFF
+            val lace = at(src, pos + 27, nseg) ?: return null
+            var p = pos + 27 + nseg
+            for (i in 0 until nseg) {
+                val l = lace[i].toInt() and 0xFF
+                if (packet == 1) {
+                    if (cur.size() + l > (16 shl 20)) return null
+                    cur.write(at(src, p, l) ?: return null)
+                }
+                p += l
+                if (l < 255) {
+                    packet++
+                    if (packet == 2) break
+                }
+            }
+            // 次のページの先頭へ
+            pos = p
+        }
+        val b = cur.toByteArray()
+        // "\u0003vorbis" か "OpusTags" のあと: ベンダー名、件数、"KEY=値" の並び(すべて長さ付き、リトルエンディアン)
+        var o = when {
+            b.size > 7 && b[0].toInt() == 3 && String(b, 1, 6, Charsets.ISO_8859_1) == "vorbis" -> 7
+            b.size > 8 && String(b, 0, 8, Charsets.ISO_8859_1) == "OpusTags" -> 8
+            else -> return null
+        }
+        fun le(i: Int) = (b[i].toInt() and 0xFF) or ((b[i + 1].toInt() and 0xFF) shl 8) or ((b[i + 2].toInt() and 0xFF) shl 16) or ((b[i + 3].toInt() and 0xFF) shl 24)
+        if (o + 4 > b.size) return null
+        o += 4 + le(o)
+        if (o + 4 > b.size) return null
+        val n = le(o); o += 4
+        for (i in 0 until n) {
+            if (o + 4 > b.size) break
+            val len = le(o); o += 4
+            if (len < 0 || o + len > b.size) break
+            val kv = String(b, o, len, Charsets.UTF_8)
+            o += len
+            val key = kv.substringBefore('=').uppercase()
+            if (key == "LYRICS" || key == "UNSYNCEDLYRICS" || key == "UNSYNCED LYRICS") return kv.substringAfter('=')
+        }
+        return null
+    }
+
+    /** WAV の id3 チャンクから歌詞を読む */
+    private fun wavLyrics(src: RandomInput): String? {
+        var p = 12L
+        while (p + 8 <= src.size) {
+            val h = at(src, p, 8) ?: return null
+            val id = String(h, 0, 4, Charsets.ISO_8859_1)
+            val len = ((h[4].toLong() and 0xFF) or ((h[5].toLong() and 0xFF) shl 8) or ((h[6].toLong() and 0xFF) shl 16) or ((h[7].toLong() and 0xFF) shl 24))
+            if (id.equals("id3 ", true) && len in 10..(32L shl 20)) {
+                return at(src, p + 8, len.toInt())?.let { Id3Reader.parse(it)?.lyrics }
+            }
+            p += 8 + len + (len and 1)
+        }
+        return null
     }
 
     private fun readFully(ins: java.io.InputStream, b: ByteArray): Int {

@@ -38,7 +38,9 @@ object AudioInfo {
         }
         // アプリ内蔵のデコーダーで読む形式は、中身から読む(古い Android でも周波数・ビット数が分かるように)
         val kind = BuiltinCodecs.kindOf(Uri.decode(uri.toString()))
-        if (kind != null) {
+        // m4a / mp4 は、中身が本当に ALAC のときだけ ALAC とする(AAC を ALAC と表示しないように)
+        val mp4Entry = if (kind == "alac") BuiltinCodecs.openInput(ctx, uri)?.use { Mp4Probe.audioEntry(it) } else null
+        if (kind != null && (kind != "alac" || mp4Entry == "alac")) {
             val info = BuiltinCodecs.openInput(ctx, uri)?.use { BuiltinCodecs.info(kind, it) }
             if (info != null) {
                 val name = when (kind) {
@@ -72,7 +74,8 @@ object AudioInfo {
             val dur = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
             val ext = Uri.decode(uri.toString()).substringAfterLast('.', "").lowercase()
             var name = formatName(mime, ext)
-            if (name == "AAC" && (bits ?: 0) in 16..32) name = "ALAC"
+            // ビット数があっても AAC は AAC(Android は AAC にも 16 などを返すことがある)。中身が ALAC のときだけ ALAC
+            if (name == "AAC" && mp4Entry == "alac") name = "ALAC"
             if (name == "FLAC" || name == "WAV") {
                 header(ctx, uri, name)?.let { (sr, bps) ->
                     if (rate == null || rate <= 0) rate = sr

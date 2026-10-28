@@ -2,6 +2,10 @@
 
 package com.uyatame.ucrt
 
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.ui.graphics.luminance
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -50,6 +54,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
@@ -67,6 +72,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -246,12 +252,19 @@ private fun SelectionPool(vm: MainViewModel, all: List<LibTrack>) {
  */
 @Composable
 private fun SelectionBar(vm: MainViewModel, modifier: Modifier) {
-    Surface(
-        modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        shadowElevation = 6.dp,
-    ) {
+    val glass = LocalGlass.current
+    val box: @Composable (@Composable () -> Unit) -> Unit = { inner ->
+        // リキッドグラスでは浮かぶガラスにする
+        if (glass) GlassSurface(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), RoundedCornerShape(26.dp)) {
+            Box(Modifier.padding(horizontal = 6.dp)) { inner() }
+        } else Surface(
+            modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            shadowElevation = 6.dp,
+        ) { inner() }
+    }
+    box {
         Row(Modifier.padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton({ vm.endSelection() }) { Icon(Icons.Filled.Close, S(R.string.cancel)) }
             Text(
@@ -382,7 +395,7 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
     LazyVerticalGrid(
         state = homeState,
         columns = GridCells.Adaptive(96.dp),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp + barInset()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxSize(),
@@ -425,7 +438,8 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
             Surface(
                 onClick = { vm.libPush("search") },
                 shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = if (LocalGlass.current) MaterialTheme.colorScheme.surface.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = if (LocalGlass.current) androidx.compose.foundation.BorderStroke(1.dp, glassRim(MaterialTheme.colorScheme.surface.luminance() < 0.5f)) else null,
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
             ) {
                 Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -688,7 +702,7 @@ private fun AlbumCollectionPage(
                 val st = rememberLazyListState()
                 LazyColumn(
                     state = st,
-                    contentPadding = PaddingValues(start = 12.dp, end = 24.dp, bottom = 24.dp),
+                    contentPadding = PaddingValues(start = 12.dp, end = 24.dp, bottom = 24.dp + barInset()),
                 ) {
                     item(key = "controls") { controls() }
                     items(shown, key = { it.key }) { a -> AlbumListRow(vm, a, subOf?.invoke(a)) }
@@ -699,7 +713,7 @@ private fun AlbumCollectionPage(
                 LazyVerticalGrid(
                     state = st,
                     columns = GridCells.Adaptive(150.dp),
-                    contentPadding = PaddingValues(start = 16.dp, end = 24.dp, bottom = 24.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 24.dp, bottom = 24.dp + barInset()),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
@@ -725,7 +739,7 @@ private fun ArtistsPage(vm: MainViewModel) {
         PageTop(vm, tileLabel("artists"), S(R.string.artists_2, artists.size))
         Box(Modifier.fillMaxSize()) {
             val st = rememberLazyListState()
-            LazyColumn(state = st, contentPadding = PaddingValues(start = 12.dp, end = 24.dp, bottom = 24.dp)) {
+            LazyColumn(state = st, contentPadding = PaddingValues(start = 12.dp, end = 24.dp, bottom = 24.dp + barInset())) {
                 items(artists, key = { it.name }) { e ->
                     val a = e.albums.first()
                     GroupRow(
@@ -751,7 +765,7 @@ private fun ArtistPage(vm: MainViewModel, name: String) {
         PageTop(vm, name)
         LazyVerticalGrid(
             columns = GridCells.Adaptive(150.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp + barInset()),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -811,7 +825,7 @@ private fun SongsPage(vm: MainViewModel) {
         PageTop(vm, tileLabel("songs"), remember(all) { countText(all) }) { SelectButton(vm) }
         Box(Modifier.fillMaxSize()) {
             val st = rememberLazyListState()
-            LazyColumn(state = st, contentPadding = PaddingValues(start = 8.dp, end = 24.dp, bottom = 24.dp)) {
+            LazyColumn(state = st, contentPadding = PaddingValues(start = 8.dp, end = 24.dp, bottom = 24.dp + barInset())) {
                 item(key = "controls") {
                     Column(Modifier.padding(start = 8.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -843,7 +857,7 @@ private fun GroupedTracks(vm: MainViewModel, title: String, tracks: List<LibTrac
     SelectionPool(vm, flat)
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, title, countText(tracks)) { SelectButton(vm) }
-        LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp)) {
+        LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp + barInset())) {
             item(key = "controls") {
                 PlayShuffleButtons(
                     { vm.playTracks(flat, 0) }, { vm.playTracks(flat, 0, shuffle = true) },
@@ -889,7 +903,7 @@ private fun GenresPage(vm: MainViewModel) {
     }
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, tileLabel("genres"), S(R.string.genres_2, genres.count { it.first.isNotEmpty() }))
-        LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp)) {
+        LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp + barInset())) {
             items(genres, key = { it.first }) { (g, n, al) ->
                 GroupRow(
                     g.ifEmpty { S(R.string.unknown_genre) }, S(R.string.albums_songs, al, n),
@@ -916,7 +930,7 @@ private fun YearsPage(vm: MainViewModel) {
     }
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, tileLabel("years"))
-        LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp)) {
+        LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp + barInset())) {
             items(years, key = { it.first }) { (y, n, t) ->
                 GroupRow(
                     y.ifEmpty { S(R.string.unknown_year) }, S(R.string.albums_songs, n, t),
@@ -940,6 +954,13 @@ private class FolderNode(val path: String, val name: String) {
 
 /** 曲の入っているフォルダ(例: Music/Artist/Album/disc1) */
 private fun trackFolder(t: LibTrack): String = Uri.decode(t.folderId).substringAfter(':', "")
+
+/** フォルダ(子フォルダも含む)の曲を、フォルダ・ディスク・曲順に並べる(フォルダ単位の再生) */
+private fun folderTracks(vm: MainViewModel, path: String): List<LibTrack> =
+    vm.albums.asSequence().flatMap { it.tracks }
+        .filter { val p = trackFolder(it); p == path || path.isEmpty() || p.startsWith("$path/") }
+        .sortedWith(compareBy({ trackFolder(it).lowercase() }, { it.disc }, { it.track }, { Uri.decode(it.uri).lowercase() }))
+        .toList()
 
 /**
  * 曲の入っているフォルダから、実際のフォルダの階層どおりの木を作る。
@@ -990,6 +1011,13 @@ private fun FolderBrowsePage(vm: MainViewModel, path: String) {
     val parts = path.split('/').filter { it.isNotEmpty() }
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, parts.lastOrNull() ?: "/", node?.let { S(R.string.albums_songs, it.albumCount, it.trackCount) }) {
+            // このフォルダの曲をまとめて再生する(子フォルダも含む)
+            IconButton({ folderTracks(vm, path).takeIf { it.isNotEmpty() }?.let { vm.playTracks(it, 0) } }) {
+                Icon(Icons.Filled.PlayArrow, S(R.string.play_folder))
+            }
+            IconButton({ folderTracks(vm, path).takeIf { it.isNotEmpty() }?.let { vm.playTracks(it, 0, shuffle = true) } }) {
+                Icon(AppIcons.Shuffle, S(R.string.shuffle_folder))
+            }
             // この下のアルバムをまとめて一覧にする
             IconButton({ vm.libPush("folder:$path") }) { Icon(AppIcons.ListView, S(R.string.show_all_albums_in_this)) }
         }
@@ -1017,7 +1045,7 @@ private fun FolderBrowsePage(vm: MainViewModel, path: String) {
         val children = remember(node) { node.children.values.toList() }
         Box(Modifier.fillMaxSize()) {
             val st = rememberLazyListState()
-            LazyColumn(state = st, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp)) {
+            LazyColumn(state = st, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp + barInset())) {
                 items(children, key = { "f:" + it.path }) { c ->
                     GroupRow(
                         c.name, S(R.string.albums_songs, c.albumCount, c.trackCount),
@@ -1064,7 +1092,7 @@ private fun FoldersPage(vm: MainViewModel) {
         PageTop(vm, tileLabel("folders"))
         Box(Modifier.fillMaxSize()) {
             val st = rememberLazyListState()
-            LazyColumn(state = st, contentPadding = PaddingValues(start = 8.dp, end = 12.dp, bottom = 24.dp)) {
+            LazyColumn(state = st, contentPadding = PaddingValues(start = 8.dp, end = 12.dp, bottom = 24.dp + barInset())) {
                 // disc1 / disc2 のように分かれたアルバムは複数のフォルダに出るので、入っているフォルダもキーに含める
                 items(rows, key = { r -> r.folder?.let { "f:" + it.path } ?: ("a:" + r.parent + "\u0000" + r.album!!.key) }) { r ->
                     val f = r.folder
@@ -1091,6 +1119,10 @@ private fun FoldersPage(vm: MainViewModel) {
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
                                 )
                             }
+                            // このフォルダの曲を再生する(子フォルダも含む)
+                            IconButton({ folderTracks(vm, f.path).takeIf { it.isNotEmpty() }?.let { vm.playTracks(it, 0) } }) {
+                                Icon(Icons.Filled.PlayArrow, S(R.string.play_folder))
+                            }
                             // このフォルダの中へ入る(エクスプローラーのように、階層を潜っていく)
                             IconButton({ vm.libPush("dir:" + f.path) }) {
                                 Icon(AppIcons.Grid, S(R.string.open_folder))
@@ -1110,13 +1142,45 @@ private fun FoldersPage(vm: MainViewModel) {
 private fun FavoritesPage(vm: MainViewModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val map = vm.trackMap
-    val songs = remember(vm.store.favTracks, map) { vm.store.favTracks.mapNotNull { map[it] } }
-    val albums = remember(vm.store.favAlbums, vm.albums) { vm.store.favAlbums.mapNotNull { k -> vm.albumByKey(k) } }
+    val sort = vm.settings.collectAsState().value.favSort
+    // 並べ替え(追加した順・曲名・アーティスト・アルバム)。大文字・小文字は区別しない
+    val songs = remember(vm.store.favTracks, map, sort) {
+        val l = vm.store.favTracks.mapNotNull { map[it] }
+        when (sort) {
+            1 -> l.sortedBy { it.title.lowercase() }
+            2 -> l.sortedWith(compareBy({ it.artist.lowercase() }, { it.album.lowercase() }, { it.disc }, { it.track }))
+            3 -> l.sortedWith(compareBy({ it.album.lowercase() }, { it.disc }, { it.track }))
+            else -> l
+        }
+    }
+    val albums = remember(vm.store.favAlbums, vm.albums, sort) {
+        val l = vm.store.favAlbums.mapNotNull { k -> vm.albumByKey(k) }
+        when (sort) {
+            1 -> l.sortedBy { it.title.lowercase() }
+            2 -> l.sortedWith(compareBy({ it.artist.lowercase() }, { it.title.lowercase() }))
+            3 -> l.sortedWith(compareByDescending<LibAlbum> { it.year }.thenBy { it.title.lowercase() })
+            else -> l
+        }
+    }
+    var sortMenu by remember { mutableStateOf(false) }
+    val sortNames = listOf(
+        S(R.string.fav_sort_added), S(R.string.fav_sort_title), S(R.string.fav_sort_artist),
+        if (tab == 0) S(R.string.fav_sort_album) else S(R.string.fav_sort_year),
+    )
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, tileLabel("favorites"))
-        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             FilterChip(tab == 0, { tab = 0 }, label = { Text(S(R.string.songs_2, songs.size)) })
             FilterChip(tab == 1, { tab = 1 }, label = { Text(S(R.string.albums_2, albums.size)) })
+            Spacer(Modifier.weight(1f))
+            Box {
+                TextButton({ sortMenu = true }) { Text(sortNames[sort]) }
+                DropdownMenu(sortMenu, { sortMenu = false }) {
+                    sortNames.forEachIndexed { i, n ->
+                        DropdownMenuItem(text = { Text(n) }, onClick = { sortMenu = false; vm.set(com.uyatame.ucrt.data.Keys.favSort, i) })
+                    }
+                }
+            }
         }
         if (tab == 0) {
             if (songs.isEmpty()) {
@@ -1126,7 +1190,7 @@ private fun FavoritesPage(vm: MainViewModel) {
                 )
                 return@Column
             }
-            LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp)) {
+            LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp + barInset())) {
                 item(key = "controls") {
                     PlayShuffleButtons(
                         { vm.playTracks(songs, 0) }, { vm.playTracks(songs, 0, shuffle = true) },
@@ -1145,7 +1209,7 @@ private fun FavoritesPage(vm: MainViewModel) {
             }
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(150.dp),
-                contentPadding = PaddingValues(16.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp + barInset()),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
@@ -1182,7 +1246,7 @@ private fun SoundCheckPage(vm: MainViewModel) {
             EmptyState(AppIcons.Headphones, S(R.string.no_sound_check_songs_yet), S(R.string.add_sound_check_hint))
             return@Column
         }
-        LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp)) {
+        LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp + barInset())) {
             item(key = "controls") {
                 PlayShuffleButtons(
                     { vm.playTracks(songs, 0) }, { vm.playTracks(songs, 0, shuffle = true) },
@@ -1217,7 +1281,7 @@ private fun HistoryPage(vm: MainViewModel) {
             EmptyState(AppIcons.History, S(R.string.nothing_played_yet), "")
             return@Column
         }
-        LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp)) {
+        LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp + barInset())) {
             itemsIndexed(list, key = { _, p -> p.first.uri }) { i, (t, time) ->
                 TrackRow(
                     vm, t, { vm.playTracks(tracks, i) },
@@ -1246,7 +1310,7 @@ private fun TopPage(vm: MainViewModel) {
             EmptyState(AppIcons.Trending, S(R.string.nothing_played_yet), "")
             return@Column
         }
-        LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp)) {
+        LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp + barInset())) {
             item(key = "controls") {
                 PlayShuffleButtons(
                     { vm.playTracks(tracks, 0) }, { vm.playTracks(tracks, 0, shuffle = true) },
@@ -1279,8 +1343,13 @@ private fun PlaylistsPage(vm: MainViewModel) {
     var creating by remember { mutableStateOf(false) }
     if (creating) PlaylistNameDialog(S(R.string.new_playlist), "", { creating = false }) { vm.createPlaylist(it, emptyList()) }
     val map = vm.trackMap
+    // ほかのアプリのプレイリスト(M3U など)を読み込む
+    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { if (it.isNotEmpty()) vm.importPlaylists(it) }
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, tileLabel("playlists")) {
+            IconButton({ importer.launch(arrayOf("audio/x-mpegurl", "audio/mpegurl", "application/vnd.apple.mpegurl", "audio/x-scpls", "application/xspf+xml", "application/vnd.ms-wpl", "text/*", "application/octet-stream")) }) {
+                Icon(AppIcons.Download, S(R.string.playlist_import))
+            }
             IconButton({ creating = true }) { Icon(Icons.Filled.Add, S(R.string.new_playlist)) }
         }
         if (vm.store.playlists.isEmpty()) {
@@ -1291,7 +1360,7 @@ private fun PlaylistsPage(vm: MainViewModel) {
             ) { creating = true }
             return@Column
         }
-        LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp)) {
+        LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp + barInset())) {
             items(vm.store.playlists, key = { it.id }) { p ->
                 // 曲の一覧から作るものは、プレイリストかライブラリが変わったときだけ作り直す(行を描き直すたびに作らない)
                 val (first, count) = remember(p.uris, map) {
@@ -1345,12 +1414,35 @@ private fun PlaylistPage(vm: MainViewModel, id: String) {
         val b = pos.getOrNull(to)
         if (a != null && b != null) vm.store.movePlaylistItem(id, a, b)
     }
+    // 並べ替えのために選んだ曲(プレイリストの中の位置)。null なら選んでいない
+    var picked by remember(id) { mutableStateOf<Set<Int>?>(null) }
     Column(Modifier.fillMaxSize()) {
+        val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { u -> if (u != null) vm.exportPlaylist(p, u) }
         PageTop(vm, p.name, countText(tracks)) {
+            IconButton({ picked = if (picked == null) emptySet() else null }) {
+                Icon(Icons.Filled.CheckCircle, S(R.string.playlist_arrange), tint = if (picked != null) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+            }
+            IconButton({ exporter.launch(p.name + ".m3u8") }) { Icon(AppIcons.Upload, S(R.string.playlist_export)) }
             IconButton({ renaming = true }) { Icon(Icons.Filled.Edit, S(R.string.rename)) }
             IconButton({ deleting = true }) { Icon(Icons.Filled.Delete, S(R.string.delete)) }
         }
-        LazyColumn(state = st, contentPadding = PaddingValues(start = 4.dp, end = 8.dp, bottom = 24.dp)) {
+        // 選んだ曲をまとめて動かす帯
+        picked?.let { sel ->
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(S(R.string.playlist_picked, sel.size), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 8.dp))
+                val on = sel.isNotEmpty()
+                FilledTonalButton({ picked = vm.store.movePlaylistItems(id, sel, -2) }, enabled = on) { Text(S(R.string.move_top)) }
+                FilledTonalButton({ picked = vm.store.movePlaylistItems(id, sel, -1) }, enabled = on) { Text(S(R.string.move_up)) }
+                FilledTonalButton({ picked = vm.store.movePlaylistItems(id, sel, 1) }, enabled = on) { Text(S(R.string.move_down)) }
+                FilledTonalButton({ picked = vm.store.movePlaylistItems(id, sel, 2) }, enabled = on) { Text(S(R.string.move_bottom)) }
+                TextButton({ vm.store.removePlaylistItems(id, sel); picked = emptySet() }, enabled = on) { Text(S(R.string.remove_from_playlist_short)) }
+                TextButton({ picked = null }) { Text(S(R.string.done)) }
+            }
+        }
+        LazyColumn(state = st, contentPadding = PaddingValues(start = 4.dp, end = 8.dp, bottom = 24.dp + barInset())) {
             item(key = "controls") {
                 if (tracks.isEmpty()) {
                     Text(
@@ -1366,11 +1458,15 @@ private fun PlaylistPage(vm: MainViewModel, id: String) {
                 }
             }
             itemsIndexed(entries, key = { i, _ -> keys[i] }) { i, (pos, t) ->
+                val sel = picked
                 TrackRow(
-                    vm, t, { vm.playTracks(tracks, i) },
+                    vm, t, { if (sel != null) picked = if (pos in sel) sel - pos else sel + pos else vm.playTracks(tracks, i) },
                     modifier = Modifier.reorderItem(reorder, i),
                     playlist = p.id to pos,
-                    handle = { DragHandle(reorder, i) },
+                    handle = {
+                        if (sel != null) androidx.compose.material3.Checkbox(pos in sel, { picked = if (it) sel + pos else sel - pos })
+                        else DragHandle(reorder, i)
+                    },
                 )
             }
         }
@@ -1435,7 +1531,7 @@ private fun SearchPage(vm: MainViewModel) {
             EmptyState(Icons.Filled.Search, S(R.string.no_results), "")
             return@Column
         }
-        LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp)) {
+        LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp + barInset())) {
             if (artists.isNotEmpty()) {
                 item(key = "ah") { ListHeading(S(R.string.artists), Modifier.padding(start = 8.dp)) }
                 items(artists, key = { "a:$it" }) { name ->
@@ -1551,15 +1647,15 @@ private fun AlbumDetail(vm: MainViewModel, a: LibAlbum) {
             Column(Modifier.fillMaxSize()) {
                 bar()
                 Row(Modifier.fillMaxSize()) {
-                    Box(Modifier.width(left).fillMaxHeight().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+                    Box(Modifier.width(left).fillMaxHeight().verticalScroll(rememberScrollState()).padding(bottom = 24.dp + barInset())) {
                         head(Modifier.fillMaxWidth(0.8f).widthIn(max = 360.dp).aspectRatio(1f))
                     }
-                    LazyColumn(Modifier.weight(1f).fillMaxHeight(), contentPadding = PaddingValues(end = 8.dp, bottom = 24.dp), content = tracks)
+                    LazyColumn(Modifier.weight(1f).fillMaxHeight(), contentPadding = PaddingValues(end = 8.dp, bottom = 24.dp + barInset()), content = tracks)
                 }
             }
         }
     } else {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp + barInset())) {
             item(key = "bar") { bar() }
             item(key = "head") { head(Modifier.fillMaxWidth(0.66f).aspectRatio(1f)) }
             tracks()
@@ -1569,7 +1665,7 @@ private fun AlbumDetail(vm: MainViewModel, a: LibAlbum) {
 
 /** 取り込み済みのアルバムの曲情報を編集する画面(画面いっぱい)。詳しい情報と歌詞も書ける(FLAC・MP3・M4A) */
 @Composable
-private fun EditTagsPage(vm: MainViewModel, a: LibAlbum, onDone: () -> Unit) {
+internal fun EditTagsPage(vm: MainViewModel, a: LibAlbum, onDone: () -> Unit) {
     val form = remember(a) {
         TagForm(
             a.title, a.artist, a.first.year, a.first.genre,
@@ -1577,8 +1673,12 @@ private fun EditTagsPage(vm: MainViewModel, a: LibAlbum, onDone: () -> Unit) {
                 TrackForm(
                     trackLabel(if (t.track > 0) t.track else i + 1), t.title, t.artist, lengthText(t.durationMs),
                     com.uyatame.ucrt.tags.TagExtra.supported(t.uri),
+                    trackNo = if (t.track > 0) t.track.toString() else "", discNo = if (t.disc > 0) t.disc.toString() else "",
                 )
             },
+            numbers = true,
+            trackTotal = maxOf(a.tracks.size, a.tracks.maxOf { it.track }).toString(),
+            discTotal = a.tracks.maxOf { it.disc }.coerceAtLeast(1).toString(),
         )
     }
     // 曲ごとの詳しい情報(今の値)を読んでから入力できるようにする。読めなかった曲は書き換えない
@@ -1606,6 +1706,10 @@ private fun EditTagsPage(vm: MainViewModel, a: LibAlbum, onDone: () -> Unit) {
                 a, form.album, form.albumArtist, form.date,
                 form.tracks.map { it.title }, form.tracks.map { it.artist }, cover,
                 extras = form.tracks.mapIndexed { i, t -> if (read?.getOrNull(i) == null) null else t.extra(form.genre) },
+                numbers = MainViewModel.TagNumbers(
+                    form.tracks.map { it.trackNo.toIntOrNull() }, form.trackTotal.toIntOrNull(),
+                    form.tracks.map { it.discNo.toIntOrNull() }, form.discTotal.toIntOrNull(),
+                ),
             )
             onDone()
         },
@@ -1634,7 +1738,7 @@ private fun LookupSheet(vm: MainViewModel, a: LibAlbum, onDismiss: () -> Unit) {
         LazyColumn(
             Modifier.fillMaxWidth().imePadding().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
-            contentPadding = PaddingValues(bottom = 32.dp),
+            contentPadding = PaddingValues(bottom = 32.dp + barInset()),
         ) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {

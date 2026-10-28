@@ -52,8 +52,13 @@ class TrackForm(
     lyricist: String = "",
     comment: String = "",
     lyrics: String = "",
+    /** 何曲目か・何枚目か(入力中の値。空なら書き換えない。CD の画面では使わない) */
+    trackNo: String = "",
+    discNo: String = "",
 ) {
     var title by mutableStateOf(title)
+    var trackNo by mutableStateOf(trackNo)
+    var discNo by mutableStateOf(discNo)
     var artist by mutableStateOf(artist)
     var composer by mutableStateOf(composer)
     var lyricist by mutableStateOf(lyricist)
@@ -69,13 +74,31 @@ class TrackForm(
         if (!detailSupported) TagExtra() else TagExtra(genre.trim(), composer.trim(), lyricist.trim(), comment.trim(), lyrics.trim())
 }
 
-/** 曲情報の編集画面の全体(入力中の値) */
-class TagForm(album: String, albumArtist: String, date: String, genre: String, val tracks: List<TrackForm>) {
+/**
+ * 曲情報の編集画面の全体(入力中の値)。
+ * numbers: トラック番号・曲数・ディスク番号・枚数も入力できるか(ライブラリ。CD は目次で決まるので、枚数と何枚目かだけ)
+ */
+class TagForm(
+    album: String, albumArtist: String, date: String, genre: String, val tracks: List<TrackForm>,
+    val numbers: Boolean = false,
+    trackTotal: String = "",
+    discNo: String = "",
+    discTotal: String = "",
+) {
     var album by mutableStateOf(album)
     var albumArtist by mutableStateOf(albumArtist)
     var date by mutableStateOf(date)
     var genre by mutableStateOf(genre)
+    /** 曲数(全体) */
+    var trackTotal by mutableStateOf(trackTotal)
+    /** 何枚目か(CD の画面。ライブラリでは曲ごと) */
+    var discNo by mutableStateOf(discNo)
+    /** 枚数(全体) */
+    var discTotal by mutableStateOf(discTotal)
 }
+
+/** 数字だけを残す(番号の欄) */
+private fun digits(s: String, max: Int = 3) = s.filter { it.isDigit() }.take(max)
 
 /**
  * 曲情報の編集画面(画面いっぱいに出す。ダイアログではない)。ライブラリと CD の画面で使う。
@@ -106,7 +129,7 @@ fun TagEditorPage(
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 48.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 48.dp + barInset()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "album") {
@@ -127,6 +150,12 @@ fun TagEditorPage(
                             enabled = !loading,
                         )
                     }
+                    // 曲数・何枚目か・枚数
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (form.numbers) NumberField(form.trackTotal, S(R.string.tag_track_total), Modifier.weight(1f)) { form.trackTotal = it }
+                        else NumberField(form.discNo, S(R.string.tag_disc_no), Modifier.weight(1f)) { form.discNo = it }
+                        NumberField(form.discTotal, S(R.string.tag_disc_total), Modifier.weight(1f)) { form.discTotal = it }
+                    }
                 }
             }
             item(key = "tracks-head") {
@@ -136,19 +165,26 @@ fun TagEditorPage(
                     Text(S(R.string.tag_detail_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            itemsIndexed(form.tracks, key = { i, _ -> "t$i" }) { _, t -> TrackFormCard(t, form.albumArtist, loading) }
+            itemsIndexed(form.tracks, key = { i, _ -> "t$i" }) { _, t -> TrackFormCard(t, form.albumArtist, loading, form.numbers) }
         }
     }
 }
 
 @Composable
-private fun TrackFormCard(t: TrackForm, albumArtist: String, loading: Boolean) {
-    Card(Modifier.fillMaxWidth()) {
+private fun TrackFormCard(t: TrackForm, albumArtist: String, loading: Boolean, numbers: Boolean) {
+    UCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
                 t.number + if (t.length.isNotEmpty()) "（${t.length}）" else "",
                 style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
             )
+            // 何曲目か・何枚目か(ライブラリ)
+            if (numbers) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    NumberField(t.trackNo, S(R.string.tag_track_no), Modifier.weight(1f)) { t.trackNo = it }
+                    NumberField(t.discNo, S(R.string.tag_disc_no), Modifier.weight(1f)) { t.discNo = it }
+                }
+            }
             OutlinedTextField(t.title, { t.title = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.title)) }, singleLine = true)
             OutlinedTextField(
                 t.artist, { t.artist = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.artist)) }, singleLine = true,
@@ -189,6 +225,15 @@ private fun TrackFormCard(t: TrackForm, albumArtist: String, loading: Boolean) {
             }
         }
     }
+}
+
+/** 番号の入力欄(数字だけ) */
+@Composable
+private fun NumberField(value: String, label: String, modifier: Modifier, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value, { onChange(digits(it)) }, modifier, label = { Text(label) }, singleLine = true,
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+    )
 }
 
 private fun detailSummary(t: TrackForm): String = buildList {

@@ -27,10 +27,25 @@ const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
 object Ui {
     var density = 1f
         private set
+    /** 文字の 1sp のピクセル数(画面の縮小と、文字の大きさの設定(1.3 倍まで)を含む) */
+    var spPx = 1f
+        private set
 
+    /**
+     * 狭い画面(短い辺が 360dp 未満の、解像度の低い端末)では、画面全体を同じ割合で縮めて、
+     * 360dp の幅を前提にした並びが崩れないようにする(0.75 倍まで)。文字の大きさの設定も 1.3 倍までにする
+     */
     fun init(ctx: Context) {
-        density = ctx.resources.displayMetrics.density
+        val dm = ctx.resources.displayMetrics
+        val shortDp = minOf(dm.widthPixels, dm.heightPixels) / dm.density
+        val scale = (shortDp / 360f).coerceIn(0.75f, 1f)
+        density = dm.density * scale
+        val font = (ctx.resources.configuration.fontScale).coerceIn(0.85f, 1.3f)
+        spPx = dm.density * font * scale
     }
+
+    /** sp → ピクセル */
+    fun sp(v: Float): Float = v * spPx
 }
 
 fun dp(v: Number): Int = (v.toFloat() * Ui.density + 0.5f).toInt()
@@ -131,10 +146,22 @@ fun text(ctx: Context, s: CharSequence, type: Type = Type.BodyMedium, color: Int
     }
 
 fun TextView.style(type: Type, color: Int = currentTextColor) {
-    setTextSize(TypedValue.COMPLEX_UNIT_SP, type.sp)
+    setTextSize(TypedValue.COMPLEX_UNIT_PX, Ui.sp(type.sp))
     typeface = if (type.medium) Type.mediumFace else android.graphics.Typeface.DEFAULT
     setTextColor(color)
     includeFontPadding = true
+}
+
+/** 1 行に収まらない文字を横に流す(再生画面の曲名など。狭い画面でも全部見えるように) */
+fun TextView.marquee(): TextView {
+    setSingleLine(true)
+    maxLines = 1
+    ellipsize = TextUtils.TruncateAt.MARQUEE
+    marqueeRepeatLimit = -1
+    setHorizontallyScrolling(true)
+    // 流すには「選ばれている」状態が要る(フォーカスは取らない)
+    isSelected = true
+    return this
 }
 
 /** 太字 */
@@ -238,7 +265,7 @@ fun badge(ctx: Context, s: String, hiRes: Boolean, onDark: Boolean = false): Tex
     val base = if (onDark) Pal.alpha(0xFFFFFFFF.toInt(), 0.75f) else Pal.onSurfaceVariant
     return TextView(ctx).apply {
         text = s
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+        setTextSize(TypedValue.COMPLEX_UNIT_PX, Ui.sp(10f))
         typeface = android.graphics.Typeface.DEFAULT_BOLD
         setSingleLine(true)
         setTextColor(if (hiRes) Pal.HIRES_INK else base)

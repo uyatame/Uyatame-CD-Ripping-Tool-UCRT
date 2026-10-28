@@ -235,6 +235,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     var tagSaving by mutableStateOf(false)
         private set
+    /** 設定の「タグの編集」で選んだファイル(アルバムごとにまとめたもの。null = 読み込み中・まだ選んでいない) */
+    var fileTagAlbums by mutableStateOf<List<LibAlbum>?>(null)
+    private var fileTagUris: List<Uri> = emptyList()
+
+    /** 設定の「タグの編集」: 選んだファイルのタグを読み、アルバムごとにまとめる(ライブラリと同じ編集画面で開く) */
+    fun openFilesForTags(uris: List<Uri>) {
+        if (uris.isNotEmpty()) fileTagUris = uris
+        val list = fileTagUris
+        fileTagAlbums = null
+        viewModelScope.launch {
+            val scan = com.uyatame.ucrt.library.TagScan(ctx, { ctx.contentResolver.openInputStream(it) }, { null })
+            val tracks = withContext(Dispatchers.IO) {
+                list.mapNotNull { u ->
+                    runCatching {
+                        val name = ctx.contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                            ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: u.lastPathSegment.orEmpty().substringAfterLast('/')
+                        scan.readTags(u, name, "", null, 0L)
+                    }.onFailure { log(S(R.string.cannot_read_file) + ": $u (${it.message})") }.getOrNull()
+                }
+            }
+            fileTagAlbums = tracks.groupBy { it.album to it.albumArtist.ifEmpty { it.artist } }.map { (k, ts) ->
+                val sorted = ts.sortedWith(compareBy({ it.disc }, { it.track }))
+                LibAlbum("file:" + sorted.first().uri, k.first, k.second, sorted)
+            }
+        }
+    }
+
+    /** 「タグの編集」を閉じる */
+    fun closeFileTags() { fileTagAlbums = null; fileTagUris = emptyList() }
 
     /** 新しい音楽CDを読み込むたびに増える(画面の自動切り替え用) */
     var discEvent by mutableIntStateOf(0)
@@ -360,6 +389,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         // 再生エンジンの診断メッセージをアプリのログに出す
         com.uyatame.ucrt.player.AudioEngine.logger = { msg -> log(msg) }
+        UpsampleJobs.log = { msg -> log(msg) }
+        UpsampleJobs.onFinished = { refreshLibrary() }
         // 音量キーで DAC の音量を変えたら保存する
         com.uyatame.ucrt.player.AudioEngine.onUsbVolume = { v -> set(com.uyatame.ucrt.data.Keys.usbVolume, v) }
         // 保存されている音響設定を再生エンジンに反映し続ける
@@ -388,6 +419,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val keep = com.uyatame.ucrt.player.DacKeepAlive
                 keep.target = s.dacKeepAliveTarget
                 if (s.dacKeepAlive && !keep.running) keep.start(ctx) else if (!s.dacKeepAlive && keep.running) keep.stop(ctx)
+                com.uyatame.ucrt.player.usb.UsbDac.returnOnExit = s.usbDacReturnOnExit
+                player.usbVolumeStep = s.usbVolumeStep
+                com.uyatame.ucrt.player.AudioEngine.appVolume =
+                    if (s.fineVolume) com.uyatame.ucrt.player.AudioEngine.appVolumeOf(s.appVolumeStep) else 1f
                 val stab = com.uyatame.ucrt.player.usb.UsbStabilizer
                 if (stab.enabled != s.usbStabilize) {
                     stab.enabled = s.usbStabilize
@@ -620,16 +655,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         player.onStateChanged = null
         player.release()
         runCatching { com.uyatame.ucrt.player.cast.CastManager.disconnect() }
-        // DAC を返すのは確実に終えてから終了する(別のスレッドに任せると、終了に間に合わないことがある)
-        runCatching { com.uyatame.ucrt.player.usb.UsbDac.close(reattach = true) }
-        runCatching { com.uyatame.ucrt.player.DacKeepAlive.stop(ctx) }
+        // DAC を起こしておく無音は、DAC を閉じる前に止め終えておく(閉じたあとにまた流し始めないように)
+        runCatching { com.uyatame.ucrt.player.DacKeepAlive.stopNow(ctx) }
         closeAsync(drive)
         drive = null
         store.flush()
         KeepAliveService.hide(ctx)
         finish?.invoke()
-        // 画面を閉じ終えてから、プロセスごと終える(サービスなどが残って DAC を握り続けないように)
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 300)
+        exitAfterDacClosed()
+    }
+
+    /**
+     * USB DAC を(設定に従って Android に返して)閉じ終えてから、プロセスごと終える(サービスなどが残って DAC を握り続けないように)。
+     * 返すときは数秒かかることがあるので別のスレッドで行い、画面は先に閉じる。長くかかっても 8 秒で終える
+     */
+    private fun exitAfterDacClosed() {
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        val kill = Runnable { android.os.Process.killProcess(android.os.Process.myPid()) }
+        main.postDelayed(kill, 8000)
+        Thread({
+            runCatching { com.uyatame.ucrt.player.usb.UsbDac.closeForExit() }
+            main.removeCallbacks(kill)
+            main.postDelayed(kill, 200)
+        }, "usb-dac-exit").start()
     }
 
     override fun onCleared() {
@@ -2476,6 +2524,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ================= タグ編集 =================
 
+    /** 曲情報の編集で入力された番号(曲ごとのトラック番号・ディスク番号と、曲数・枚数。null は今のまま) */
+    class TagNumbers(val tracks: List<Int?>, val trackTotal: Int?, val discs: List<Int?>, val discTotal: Int?)
+
     fun saveAlbumTags(
         a: LibAlbum,
         album: String,
@@ -2487,6 +2538,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         coverData: ByteArray? = null,
         /** 曲ごとの詳しい情報(null・空の TagExtra なら書き換えない) */
         extras: List<com.uyatame.ucrt.tags.TagExtra?>? = null,
+        /** 入力されたトラック番号・曲数・ディスク番号・枚数(null・空欄なら今の値のまま) */
+        numbers: TagNumbers? = null,
     ) {
         if (tagSaving) return
         viewModelScope.launch {
@@ -2498,8 +2551,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         prepareCoverImage(raw)
                     }
                 }
-                val trackTotal = maxOf(a.tracks.size, a.tracks.maxOf { it.track })
-                val discTotal = a.tracks.maxOf { it.disc }.coerceAtLeast(1)
+                val trackTotal = numbers?.trackTotal ?: maxOf(a.tracks.size, a.tracks.maxOf { it.track })
+                val discTotal = numbers?.discTotal ?: a.tracks.maxOf { it.disc }.coerceAtLeast(1)
                 var ok = 0
                 var skipped = 0
                 var failed = 0
@@ -2508,7 +2561,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         try {
                             val v = TagValues(
                                 titles.getOrElse(i) { t.title }.trim(), artists.getOrElse(i) { t.artist }.trim(),
-                                album.trim(), albumArtist.trim(), year.trim(), t.track, trackTotal, t.disc, discTotal,
+                                album.trim(), albumArtist.trim(), year.trim(),
+                                numbers?.tracks?.getOrNull(i) ?: t.track, trackTotal, numbers?.discs?.getOrNull(i) ?: t.disc, discTotal,
                                 extras?.getOrNull(i) ?: com.uyatame.ucrt.tags.TagExtra(),
                             )
                             if (TagEditor.edit(ctx, Uri.parse(t.uri), v, coverBytes)) ok++ else skipped++
@@ -2639,6 +2693,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun createPlaylist(name: String, uris: List<String>) {
         store.createPlaylist(name, uris)
         snack = S(R.string.created_playlist, name.trim())
+    }
+
+    /**
+     * ほかのアプリのプレイリスト(M3U・M3U8・PLS・XSPF・WPL)を読み込む。ファイル名・フォルダ名(見つからなければ曲名)で
+     * ライブラリの曲に結び付け、ファイルごとに新しいプレイリストを作る。文字コードは UTF-8、だめなら Shift_JIS
+     */
+    fun importPlaylists(uris: List<Uri>) {
+        viewModelScope.launch {
+            val all = albums.flatMap { it.tracks }
+            var made = 0; var songs = 0; var missing = 0
+            for (u in uris) {
+                val r = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val name = UpsampleJobs.nameOf(ctx, u)
+                        val bytes = ctx.contentResolver.openInputStream(u)?.use { it.readBytes() } ?: return@runCatching null
+                        val text = runCatching {
+                            Charsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                                .decode(java.nio.ByteBuffer.wrap(bytes)).toString()
+                        }.getOrElse { String(bytes, charset("windows-31j")) }
+                        val p = com.uyatame.ucrt.library.PlaylistFiles.parse(text, name.substringAfterLast('.', ""))
+                        val (found, miss) = com.uyatame.ucrt.library.PlaylistFiles.match(p.entries, all)
+                        Triple(p.name ?: name.substringBeforeLast('.'), found, miss)
+                    }.onFailure { log("playlist import: ${it.message}") }.getOrNull()
+                } ?: continue
+                if (r.second.isEmpty()) { missing += r.third; continue }
+                store.createPlaylist(r.first, r.second)
+                made++; songs += r.second.size; missing += r.third
+            }
+            snack = if (made == 0) S(R.string.playlist_import_none) else S(R.string.playlist_imported, made, songs) +
+                (if (missing > 0) S(R.string.playlist_import_missing, missing) else "")
+        }
+    }
+
+    /** プレイリストを M3U8 に書き出す(曲の場所は、分かればファイルのパス) */
+    fun exportPlaylist(p: com.uyatame.ucrt.data.Playlist, to: Uri) {
+        viewModelScope.launch {
+            val text = com.uyatame.ucrt.library.PlaylistFiles.toM3u8(p.name, playlistTracks(p)) { u ->
+                com.uyatame.ucrt.library.StorageAccess.fileOf(Uri.parse(u))?.path
+            }
+            snack = runCatching {
+                withContext(Dispatchers.IO) { ctx.contentResolver.openOutputStream(to, "wt")?.use { it.write(text.toByteArray()) } ?: error("open") }
+                S(R.string.playlist_exported, p.name)
+            }.getOrElse { S(R.string.could_not_save, it.message) }
+        }
     }
 
     /** 今の再生リストをプレイリストとして保存する(CD の曲は除く) */

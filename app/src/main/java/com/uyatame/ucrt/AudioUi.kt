@@ -104,6 +104,9 @@ fun BitPerfectPanel(vm: MainViewModel, s: AppSettings) {
             SwitchRow(S(R.string.usb_stabilize), S(R.string.usb_stabilize_desc), s.usbStabilize) {
                 vm.set(com.uyatame.ucrt.data.Keys.usbStabilize, it)
             }
+            SwitchRow(S(R.string.usb_return_on_exit), S(R.string.usb_return_on_exit_desc), s.usbDacReturnOnExit) {
+                vm.set(com.uyatame.ucrt.data.Keys.usbDacReturnOnExit, it)
+            }
             Text(
                 S(R.string.for_details_see_settings_log),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,

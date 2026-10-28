@@ -9,11 +9,13 @@ import kotlin.math.sqrt
  * 1 段目: 128 タップの FIR を 1 バイト単位の表引きで計算し、1/16 に間引く(DSD64 → 176.4 kHz)
  * 2 段目: float の FIR で、出力の周波数(44.1 kHz 系は 176.4 kHz、48 kHz 系は 192 kHz)まで間引く
  */
-class DsdToPcm(dsdRate: Int, private val channels: Int) {
+class DsdToPcm(dsdRate: Int, private val channels: Int, hq: Boolean = false) {
+    /** 1 段目のフィルターが見るバイト数(128 タップなら 16。高音質(ファイルの変換)では 512 タップで 64) */
+    private val nb = if (hq) 64 else 16
     val outRate: Int
     private val m2: Int
     private val tab: Array<FloatArray> // [バイト位置 0..15][バイト値]
-    private val hist1 = Array(channels) { ByteArray(32) }
+    private val hist1 = Array(channels) { ByteArray(nb * 2) }
     private var p1 = 0
     private var phase1 = 0
     private val taps2: Int
@@ -28,10 +30,11 @@ class DsdToPcm(dsdRate: Int, private val channels: Int) {
         m2 = (stage1Rate / target).coerceAtLeast(1)
         outRate = stage1Rate / m2
         // 1 段目
-        val n1 = 128
+        val n1 = nb * 8
         val fc1 = 70000.0 / dsdRate * (dsdRate / 2822400.0).coerceAtLeast(1.0) // 周波数が高いほど広く取り、2 段目で絞る
-        val h1 = kaiserLowpass(n1, fc1.coerceAtMost(0.5 / 16 * 0.9), 8.0)
-        tab = Array(16) { j ->
+        // 高音質: タップを長く・窓を深くして、可聴帯域に折り返す DSD の高域の雑音を約 120 dB 落とす(再生用は約 80 dB)
+        val h1 = kaiserLowpass(n1, fc1.coerceAtMost(0.5 / 16 * 0.9), if (hq) 12.0 else 8.0)
+        tab = Array(nb) { j ->
             FloatArray(256) { b ->
                 var s = 0.0
                 for (i in 0 until 8) {
@@ -43,8 +46,8 @@ class DsdToPcm(dsdRate: Int, private val channels: Int) {
             }
         }
         // 2 段目(約 45 kHz より上を落とす)
-        taps2 = if (m2 == 1) 64 else 32 * m2
-        h2 = kaiserLowpass(taps2, 45000.0 / stage1Rate, 8.0).map { it.toFloat() }.toFloatArray()
+        taps2 = (if (m2 == 1) 64 else 32 * m2) * (if (hq) 2 else 1)
+        h2 = kaiserLowpass(taps2, 45000.0 / stage1Rate, if (hq) 12.0 else 8.0).map { it.toFloat() }.toFloatArray()
         for (c in 0 until channels) hist2[c] = FloatArray(taps2 * 2)
     }
 
@@ -84,9 +87,9 @@ class DsdToPcm(dsdRate: Int, private val channels: Int) {
             for (c in 0 until channels) {
                 val h = hist1[c]
                 h[p1] = input[c][i]
-                h[p1 + 16] = input[c][i]
+                h[p1 + nb] = input[c][i]
             }
-            p1 = (p1 + 1) and 15
+            p1 = (p1 + 1) and (nb - 1)
             phase1++
             if (phase1 < 2) continue
             phase1 = 0
@@ -94,9 +97,9 @@ class DsdToPcm(dsdRate: Int, private val channels: Int) {
             for (c in 0 until channels) {
                 val h = hist1[c]
                 var acc = 0f
-                // p1 は次に書く位置 = いちばん古いもの。新しい順に j = 0..15
-                var idx = p1 + 15
-                for (j in 0 until 16) {
+                // p1 は次に書く位置 = いちばん古いもの。新しい順に j = 0..nb-1
+                var idx = p1 + nb - 1
+                for (j in 0 until nb) {
                     acc += tab[j][h[idx].toInt() and 0xFF]
                     idx--
                 }

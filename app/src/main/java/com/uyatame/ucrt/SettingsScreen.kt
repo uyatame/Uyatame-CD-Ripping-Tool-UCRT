@@ -1,5 +1,7 @@
 package com.uyatame.ucrt
 
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -48,6 +50,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
@@ -60,6 +66,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
@@ -91,6 +98,7 @@ fun SettingsScreen(vm: MainViewModel, s: AppSettings, page: Int, onPage: (Int) -
         4 -> SettingsPage(S(R.string.library), back) { LibraryFoldersPage(vm, s) }
         5 -> SettingsPage(S(R.string.display), back) { DisplayPage(vm, s) }
         9 -> SettingsPage(S(R.string.player_screen), back) { PlayerScreenPage(vm, s) }
+        10 -> FileTagsPage(vm) { vm.closeFileTags(); back() }
         6 -> LogPage(vm, s, back)
         7 -> LicensePage(vm, s, back)
         8 -> SettingsPage(SoundPage.title(SoundPage.MAIN), back) { SoundMain(vm, s) { onPage(80 + it) } }
@@ -113,7 +121,7 @@ private fun SettingsPage(title: String, onBack: () -> Unit, content: @Composable
     Column(Modifier.fillMaxSize()) {
         PageHeader(title, onBack)
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 32.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 32.dp + barInset()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             content = content,
         )
@@ -152,13 +160,13 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
     val ctx = LocalContext.current
     val folders = 1 + s.libraryFolders.size - (if (s.outputUri == null) 1 else 0)
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp + barInset()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ScreenHeader(S(R.string.settings))
         // ---- CD の取り込み ----
         GroupLabel(S(R.string.settings_group_rip))
-        Card(Modifier.fillMaxWidth()) {
+        UCard(Modifier.fillMaxWidth()) {
             CategoryRow(
                 AppIcons.Download, S(R.string.saving_ripping),
                 folderLabel(s.outputUri) + S(R.string.auto_track_info) + if (s.autoMeta) "ON" else "OFF",
@@ -174,7 +182,7 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
         }
         // ---- 音楽プレーヤー ----
         GroupLabel(S(R.string.settings_group_player))
-        Card(Modifier.fillMaxWidth()) {
+        UCard(Modifier.fillMaxWidth()) {
             CategoryRow(
                 AppIcons.Library, S(R.string.library),
                 S(R.string.folders_add_music_from_your, folders.coerceAtLeast(0)),
@@ -194,12 +202,14 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
         }
         // ---- 全般 ----
         GroupLabel(S(R.string.settings_group_general))
-        Card(Modifier.fillMaxWidth()) {
+        UCard(Modifier.fillMaxWidth()) {
             CategoryRow(
                 AppIcons.Smartphone, S(R.string.display),
                 listOf(S(R.string.auto), S(R.string.light), S(R.string.dark))[s.themeMode.coerceIn(0, 2)] +
                     (if (AppLanguage.supported) S(R.string.separator) + languageLabel(AppLanguage.current(ctx)) else ""),
             ) { onPage(5) }
+            HorizontalDivider()
+            CategoryRow(Icons.Filled.Edit, S(R.string.tag_edit_files), S(R.string.tag_edit_files_desc)) { onPage(10) }
             HorizontalDivider()
             CategoryRow(Icons.Filled.Build, S(R.string.log), S(R.string.activity_log_for_troubleshooting)) { onPage(6) }
             HorizontalDivider()
@@ -209,7 +219,7 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
             ) { onPage(7) }
         }
         // ---- USB DAC の解放・アプリの終了 ----
-        Card(Modifier.fillMaxWidth()) {
+        UCard(Modifier.fillMaxWidth()) {
             if (vm.usbDacInUse) {
                 CategoryRow(AppIcons.Usb, S(R.string.release_usb_dac), S(R.string.release_usb_dac_desc)) { vm.releaseUsbDac() }
                 HorizontalDivider()
@@ -218,6 +228,45 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
                 vm.quitApp { (ctx as? android.app.Activity)?.finishAndRemoveTask() }
             }
         }
+    }
+}
+
+/**
+ * 好きなファイルの曲情報を編集する(ライブラリに無い曲も)。ファイルを選ぶとアルバムごとにまとめ、
+ * 1 つならそのまま、いくつかあれば選んでから、ライブラリと同じ編集画面で開く
+ */
+@Composable
+private fun FileTagsPage(vm: MainViewModel, onBack: () -> Unit) {
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) { if (vm.fileTagAlbums == null) onBack() } else vm.openFilesForTags(uris)
+    }
+    var picked by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) { if (!picked) { picked = true; pick.launch(arrayOf("audio/*")) } }
+    val albums = vm.fileTagAlbums
+    var open by remember(albums) { mutableStateOf(albums?.singleOrNull()) }
+    val a = open
+    if (a != null) {
+        EditTagsPage(vm, a) {
+            // 保存したら読み直す(アルバムが 1 つだけなら、そのまま設定へ戻る)
+            if (albums?.size == 1) onBack() else { open = null; vm.openFilesForTags(emptyList()) }
+        }
+        return
+    }
+    SettingsPage(S(R.string.tag_edit_files), onBack) {
+        if (albums == null) {
+            Text(S(R.string.tag_edit_files_desc), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else if (albums.isEmpty()) {
+            Text(S(R.string.cannot_read_file))
+        } else {
+            Text(S(R.string.tag_edit_pick_album), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            UCard(Modifier.fillMaxWidth()) {
+                albums.forEachIndexed { i, al ->
+                    if (i > 0) HorizontalDivider()
+                    CategoryRow(AppIcons.Album, al.title, al.artist + S(R.string.separator) + S(R.string.tag_edit_n_files, al.tracks.size)) { open = al }
+                }
+            }
+        }
+        FilledTonalButton({ pick.launch(arrayOf("audio/*")) }) { Text(S(R.string.tag_edit_choose_files)) }
     }
 }
 
@@ -458,7 +507,20 @@ private fun AllFilesSection(vm: MainViewModel) {
 
 @Composable
 private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
+    LauncherIconSection()
     Section(S(R.string.appearance)) {
+        Segmented(S(R.string.ui_style), listOf(S(R.string.ui_style_standard), S(R.string.ui_style_glass)), s.appearance) { vm.set(Keys.appearance, it) }
+        Text(
+            if (s.appearance == 1) S(R.string.ui_style_glass_desc) else S(R.string.ui_style_standard_desc),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (s.appearance == 1) {
+            // 透け具合(画面では「透明度」。濃さの逆)
+            IntSlider(S(R.string.glass_transparency), 100 - s.glassOpacity, 5..90, { "$it%" }, S(R.string.glass_transparency_desc)) {
+                vm.set(Keys.glassOpacity, 100 - it)
+            }
+            GlassTintPicker(s.glassTint) { vm.set(Keys.glassTint, it) }
+        }
         Segmented(S(R.string.theme), listOf(S(R.string.auto), S(R.string.light), S(R.string.dark)), s.themeMode) { vm.set(Keys.themeMode, it) }
         // ダイナミックカラーは Android 12 から
         if (android.os.Build.VERSION.SDK_INT >= 31) {
@@ -483,6 +545,7 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
             S(R.string.hides_navigation_bar_at_bottom),
             s.hideNavBar,
         ) { vm.set(Keys.hideNavBar, it) }
+        SwitchRow(S(R.string.hide_status_bar), S(R.string.hide_status_bar_desc), s.hideStatusBar) { vm.set(Keys.hideStatusBar, it) }
         Segmented(S(R.string.tablet_mode), listOf(S(R.string.auto), S(R.string.on), S(R.string.off)), s.tabletMode) { vm.set(Keys.tabletMode, it) }
         Text(
             S(R.string.moves_tabs_to_left_side),
@@ -513,6 +576,118 @@ private fun PlayerScreenPage(vm: MainViewModel, s: AppSettings) {
                     S(R.string.blur_strength), s.ambientBlurLevel, 1..10, { "$it" },
                     S(R.string.blur_strength_desc),
                 ) { vm.set(Keys.ambientBlurLevel, it) }
+            }
+        }
+    }
+    // 音量の細かさ
+    Section(S(R.string.volume)) {
+        SwitchRow(S(R.string.fine_volume), S(R.string.fine_volume_desc), s.fineVolume) { vm.set(Keys.fineVolume, it) }
+        Segmented(S(R.string.usb_volume_step), listOf("1", "2", "4"), listOf(1, 2, 4).indexOf(s.usbVolumeStep).coerceAtLeast(0)) {
+            vm.set(Keys.usbVolumeStep, listOf(1, 2, 4)[it])
+        }
+        Text(S(R.string.usb_volume_step_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    // 再生操作のボタンの並び(左右の入れ替え)
+    Section(S(R.string.control_order)) {
+        val order = controlOrder(s.controlOrder)
+        val names = mapOf('R' to S(R.string.repeat_all), 'P' to S(R.string.previous_track), 'X' to S(R.string.play), 'N' to S(R.string.next_track), 'S' to S(R.string.shuffle_2))
+        val icons = mapOf('R' to AppIcons.Repeat, 'P' to AppIcons.SkipPrevious, 'X' to Icons.Filled.PlayArrow, 'N' to AppIcons.SkipNext, 'S' to AppIcons.Shuffle)
+        Text(S(R.string.control_order_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        order.forEachIndexed { i, c ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icons[c]!!, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(12.dp))
+                Text(names[c]!!, Modifier.weight(1f))
+                IconButton({ if (i > 0) vm.set(Keys.controlOrder, order.swap(i, i - 1)) }, enabled = i > 0) { Icon(Icons.Filled.KeyboardArrowUp, S(R.string.move_up)) }
+                IconButton({ if (i < 4) vm.set(Keys.controlOrder, order.swap(i, i + 1)) }, enabled = i < 4) { Icon(Icons.Filled.KeyboardArrowDown, S(R.string.move_down)) }
+            }
+        }
+        TextButton({ vm.set(Keys.controlOrder, "RPXNS") }) { Text(S(R.string.control_order_reset)) }
+    }
+    Section(S(R.string.spectrum)) {
+        SwitchRow(S(R.string.spectrum), S(R.string.spectrum_desc), s.spectrum) { vm.set(Keys.spectrum, it) }
+        if (s.spectrum) {
+            ChoiceList(S(R.string.spectrum_style), (0 until SpectrumStyle.COUNT).map { SpectrumStyle.label(it) }, s.spectrumStyle) {
+                vm.set(Keys.spectrumStyle, it)
+            }
+            SwitchRow(S(R.string.spectrum_vocal), S(R.string.spectrum_vocal_desc), s.spectrumVocal) { vm.set(Keys.spectrumVocal, it) }
+            IntSlider(
+                S(R.string.spectrum_refresh), s.spectrumRefreshMs, 8..200, { "$it ms (${1000 / it} fps)" },
+                S(R.string.spectrum_refresh_desc),
+            ) { vm.set(Keys.spectrumRefreshMs, it) }
+            IntSlider(
+                S(R.string.spectrum_delay), s.spectrumDelayMs, 0..500, { "$it ms" },
+                S(R.string.spectrum_delay_desc),
+            ) { vm.set(Keys.spectrumDelayMs, (it + 5) / 10 * 10) }
+            SpectrumColorPicker(s.spectrumColor) { vm.set(Keys.spectrumColor, it) }
+        }
+    }
+}
+
+/** リキッドグラスの色(0 = テーマに合わせる)。文字の色は、ガラスの上で読みやすいように自動で切り替わる */
+@Composable
+private fun GlassTintPicker(value: Int, onChange: (Int) -> Unit) {
+    var picking by remember { mutableStateOf(false) }
+    val auto = glassTint()
+    if (picking) {
+        ColorPickerDialog(
+            S(R.string.glass_color), if (value == 0) auto.toArgb() else value, { picking = false }, onChange,
+            onReset = { onChange(0) },
+        )
+    }
+    ColorSettingRow(
+        S(R.string.glass_color), if (value == 0) S(R.string.glass_color_auto) else hexOf(value) + S(R.string.separator) + S(R.string.glass_color_text_auto),
+        if (value == 0) auto else Color(value), value == 0,
+    ) { picking = true }
+}
+
+/** スペクトラムアナライザーの色(0 = 再生の画面の強調の色に合わせる) */
+@Composable
+private fun SpectrumColorPicker(value: Int, onChange: (Int) -> Unit) {
+    var picking by remember { mutableStateOf(false) }
+    val auto = MaterialTheme.colorScheme.primary
+    if (picking) {
+        ColorPickerDialog(
+            S(R.string.spectrum_color), if (value == 0) auto.toArgb() else value, { picking = false }, onChange,
+            onReset = { onChange(0) },
+        )
+    }
+    ColorSettingRow(
+        S(R.string.spectrum_color), if (value == 0) S(R.string.spectrum_color_auto) else hexOf(value),
+        if (value == 0) auto else Color(value), value == 0,
+    ) { picking = true }
+}
+
+/** ホーム画面のアイコンを選ぶ(画面を閉じたときに切り替わる) */
+@Composable
+private fun LauncherIconSection() {
+    val ctx = LocalContext.current
+    var cur by remember { mutableStateOf(LauncherIcons.current(ctx)) }
+    Section(S(R.string.launcher_icon)) {
+        Text(S(R.string.launcher_icon_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        LauncherIcons.ids.chunked(5).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (id in row) {
+                    val sel = id == cur
+                    Box(
+                        Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(14.dp))
+                            .then(if (sel) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(14.dp)) else Modifier)
+                            .clickable { cur = id; LauncherIcons.request(ctx, id) }
+                            .padding(4.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        val res = LauncherIcons.preview(id)
+                        if (res != null) {
+                            Image(painterResource(res), null, Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)))
+                        } else {
+                            // 今までのアイコン(背景の色の上に、前景の絵)
+                            Box(Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(colorResource(R.color.ic_launcher_background))) {
+                                Image(painterResource(R.drawable.ic_launcher_foreground), null, Modifier.fillMaxSize())
+                            }
+                        }
+                    }
+                }
+                repeat(5 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
@@ -548,7 +723,7 @@ private fun LogPage(vm: MainViewModel, s: AppSettings, onBack: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         PageHeader(S(R.string.log), onBack)
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp + barInset()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SwitchRow(S(R.string.verbose_log), S(R.string.also_records_scsi_command_errors), s.verboseLog) { vm.set(Keys.verboseLog, it) }
@@ -690,7 +865,7 @@ private fun LicenseTextPage(title: String, asset: String, onBack: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         PageHeader(title, onBack)
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp + barInset()),
         ) {
             SelectionContainer {
                 Text(text ?: S(R.string.loading_2), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
@@ -717,7 +892,7 @@ private fun LicensePage(vm: MainViewModel, s: AppSettings, onBack: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         PageHeader(S(R.string.about_this_app), onBack)
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp + barInset()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Section("Uyatame CD Ripping Tool (UCRT)") {
@@ -744,7 +919,7 @@ private fun LicensePage(vm: MainViewModel, s: AppSettings, onBack: () -> Unit) {
                 S(R.string.licenses_2), style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp, top = 4.dp),
             )
-            Card(Modifier.fillMaxWidth()) {
+            UCard(Modifier.fillMaxWidth()) {
                 LICENSES.forEachIndexed { i, l ->
                     if (i > 0) HorizontalDivider()
                     ListItem(
@@ -760,7 +935,7 @@ private fun LicensePage(vm: MainViewModel, s: AppSettings, onBack: () -> Unit) {
                 S(R.string.included_license_texts), style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp, top = 4.dp),
             )
-            Card(Modifier.fillMaxWidth()) {
+            UCard(Modifier.fillMaxWidth()) {
                 LICENSES.filter { it.asset != null }.distinctBy { it.asset }.forEachIndexed { i, l ->
                     if (i > 0) HorizontalDivider()
                     ListItem(
@@ -925,3 +1100,6 @@ internal fun ExternalMediaSection(vm: MainViewModel, s: AppSettings) {
         )
     }
 }
+
+
+private fun String.swap(a: Int, b: Int): String = toCharArray().also { val t = it[a]; it[a] = it[b]; it[b] = t }.concatToString()

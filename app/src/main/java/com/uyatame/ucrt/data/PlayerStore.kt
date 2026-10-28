@@ -218,6 +218,41 @@ class PlayerStore(ctx: Context) {
         save()
     }
 
+    /**
+     * いくつかの曲をまとめて動かす。how: -1 = 1 つ上へ、1 = 1 つ下へ、-2 = いちばん上へ、2 = いちばん下へ。
+     * 選んだ曲どうしの順番は変えない。動かしたあとの選んだ曲の位置を返す
+     */
+    fun movePlaylistItems(id: String, picked: Set<Int>, how: Int): Set<Int> {
+        val p = playlists.firstOrNull { it.id == id } ?: return picked
+        val n = p.uris.size
+        val sel = BooleanArray(n) { it in picked }
+        val list = p.uris.toMutableList()
+        when (how) {
+            -1 -> for (i in 1 until n) if (sel[i] && !sel[i - 1]) {
+                java.util.Collections.swap(list, i, i - 1); sel[i - 1] = true; sel[i] = false
+            }
+            1 -> for (i in n - 2 downTo 0) if (sel[i] && !sel[i + 1]) {
+                java.util.Collections.swap(list, i, i + 1); sel[i + 1] = true; sel[i] = false
+            }
+            -2, 2 -> {
+                val a = list.filterIndexed { i, _ -> sel[i] }
+                val b = list.filterIndexed { i, _ -> !sel[i] }
+                list.clear()
+                if (how == -2) { list.addAll(a); list.addAll(b) } else { list.addAll(b); list.addAll(a) }
+                for (i in 0 until n) sel[i] = if (how == -2) i < a.size else i >= b.size
+            }
+        }
+        playlists = playlists.map { if (it.id == id) it.copy(uris = list) else it }
+        save()
+        return (0 until n).filter { sel[it] }.toSet()
+    }
+
+    /** いくつかの曲をまとめて外す */
+    fun removePlaylistItems(id: String, picked: Set<Int>) {
+        playlists = playlists.map { p -> if (p.id == id) p.copy(uris = p.uris.filterIndexed { i, _ -> i !in picked }) else p }
+        save()
+    }
+
     // ---------- 履歴 ----------
 
     fun recordPlay(uri: String) {

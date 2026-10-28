@@ -1,5 +1,6 @@
 package com.uyatame.ucrt
 
+import com.uyatame.ucrt.data.rgEffective
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -106,7 +107,7 @@ private fun dsdSummary(s: AppSettings): String = when (s.dsdMode) {
 @Composable
 fun SoundMain(vm: MainViewModel, s: AppSettings, onOpen: (Int) -> Unit) {
     val direct = s.sourceDirect
-    NowOutputCard(s)
+    NowOutputCard(vm, s)
     SoundGroup(S(R.string.sound_quality)) {
         SoundRow(
             S(R.string.source_direct),
@@ -170,11 +171,11 @@ fun SoundMain(vm: MainViewModel, s: AppSettings, onOpen: (Int) -> Unit) {
 
 /** 今の出力の状態(出力先と、ビットパーフェクトかどうか) */
 @Composable
-private fun NowOutputCard(s: AppSettings) {
+private fun NowOutputCard(vm: MainViewModel, s: AppSettings) {
     val dev = AudioEngine.output
     val st = AudioEngine.outputStatus
     val perfect = AudioEngine.bitPerfectActive
-    Card(
+    UCard(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = if (perfect) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
@@ -206,6 +207,56 @@ private fun NowOutputCard(s: AppSettings) {
                 )
             }
         }
+        OutputRoute(vm, s)
+    }
+}
+
+/**
+ * 音の出力経路(再生中の曲 → アプリの中の処理 → 出力先)。再生画面の下から引き出す音質のシートなどに出す
+ */
+@Composable
+private fun OutputRoute(vm: MainViewModel, s: AppSettings) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val cur = vm.player.current ?: return
+    val detail = androidx.compose.runtime.produceState<com.uyatame.ucrt.player.AudioInfo.Detail?>(null, cur) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { com.uyatame.ucrt.player.AudioInfo.detail(ctx, cur) }.getOrNull()
+        }
+    }.value
+    val cast = com.uyatame.ucrt.player.cast.CastManager.connected
+    val steps = buildList {
+        add(S(R.string.route_source) to (detail?.text ?: cur.title))
+        val fx = buildList {
+            if (s.sourceDirect) add(S(R.string.source_direct))
+            else {
+                if (s.rgEffective != 0) add("ReplayGain")
+                if (s.eqEnabled) add(S(R.string.equalizer))
+                if (s.darMode != 0) add("DAR")
+            }
+        }
+        add(S(R.string.route_process) to (if (fx.isEmpty()) S(R.string.route_none) else fx.joinToString(" → ")) +
+            AudioEngine.darInfo.takeIf { it.isNotEmpty() }?.let { "\n$it" }.orEmpty())
+        val dev = AudioEngine.output
+        add(
+            S(R.string.route_output) to (
+                if (cast != null) S(R.string.cast_title) + ": " + cast.name
+                else listOfNotNull(dev?.name, dev?.spec?.takeIf { it.isNotEmpty() }, AudioEngine.outputStatus.takeIf { it.isNotEmpty() })
+                    .joinToString("\n").ifEmpty { S(R.string.output) }
+                ),
+        )
+    }
+    Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) {
+        Text(S(R.string.route_title), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        steps.forEachIndexed { i, (k, v) ->
+            if (i > 0) Text("↓", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp))
+            Row(Modifier.padding(top = 2.dp)) {
+                Text(k, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(56.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(v, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (AudioEngine.bitPerfectActive) {
+            Text(S(R.string.route_bitperfect), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 6.dp))
+        }
     }
 }
 
@@ -216,7 +267,7 @@ private fun SoundGroup(title: String, content: @Composable ColumnScope.() -> Uni
             title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(start = 8.dp, bottom = 6.dp, top = 4.dp),
         )
-        Card(Modifier.fillMaxWidth()) { Column(content = content) }
+        UCard(Modifier.fillMaxWidth()) { Column(content = content) }
     }
 }
 

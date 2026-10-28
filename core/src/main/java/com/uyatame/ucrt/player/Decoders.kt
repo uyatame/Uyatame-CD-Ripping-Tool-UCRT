@@ -81,15 +81,15 @@ internal object Decoders {
      * 曲を開いて、デコーダーを open() する。読めなければ IOException。
      * name は表示名(拡張子で形式を決める。分からなければ中身から)
      */
-    fun open(ctx: Context, uri: Uri, name: String): Opened {
+    fun open(ctx: Context, uri: Uri, name: String, hq: Boolean = false): Opened {
         var kind = kindOf(name)
-        if (kind == "dsd" || (kind == null && DsdFile.isDsd(name))) return openDsd(ctx, uri)
+        if (kind == "dsd" || (kind == null && DsdFile.isDsd(name))) return openDsd(ctx, uri, hq)
         val input = BuiltinCodecs.openInput(ctx, uri) ?: throw IOException("cannot open $uri")
         try {
             if (kind == null) kind = sniff(input)
             if (kind == "dsd") {
                 input.close()
-                return openDsd(ctx, uri)
+                return openDsd(ctx, uri, hq)
             }
             if (kind == null) throw IOException("unknown format: $name")
             val tried = if (kind == "mp3") listOf("mp3", "flac") else listOf(kind)
@@ -110,10 +110,11 @@ internal object Decoders {
         }
     }
 
-    private fun openDsd(ctx: Context, uri: Uri): Opened {
+    /** hq: ファイルの変換用の、雑音の少ない DSD → PCM(計算は重い) */
+    private fun openDsd(ctx: Context, uri: Uri, hq: Boolean = false): Opened {
         val f = RandomFile.open(ctx, uri) ?: throw IOException("cannot open $uri")
         try {
-            val d = DsdPcmDecoder(f)
+            val d = DsdPcmDecoder(f, hq)
             d.open()
             return Opened(d, f)
         } catch (e: Exception) {

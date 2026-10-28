@@ -66,16 +66,24 @@ class PlaybackService : Service() {
         val b = if (Build.VERSION.SDK_INT >= 26) Api26.builder(this, CHANNEL) else Notification.Builder(this)
         b.setContentTitle(title)
             .setContentText(artist)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_stat_ucrt)
             .setContentIntent(open)
             .setOngoing(playing)
-        // 通知のボタンは Android 4.1 から
+        // ジャケット(通知の右の大きな絵)
+        MediaControls.art?.let { b.setLargeIcon(it) }
+        // 通知のボタン(Android 4.1 から)。アイコンは Android に入っているものを使う
         @Suppress("DEPRECATION")
         if (Build.VERSION.SDK_INT >= 16) {
-            Api16.action(b, S(R.string.previous_track), svc(ACTION_PREV, 2))
-            Api16.action(b, S(if (playing) R.string.pause else R.string.play), svc(ACTION_TOGGLE, 1))
-            Api16.action(b, S(R.string.next_track), svc(ACTION_NEXT, 3))
+            Api16.action(b, S(R.string.previous_track), svc(ACTION_PREV, 2), android.R.drawable.ic_media_previous)
+            Api16.action(
+                b, S(if (playing) R.string.pause else R.string.play), svc(ACTION_TOGGLE, 1),
+                if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
+            )
+            Api16.action(b, S(R.string.next_track), svc(ACTION_NEXT, 3), android.R.drawable.ic_media_next)
+            if (Build.VERSION.SDK_INT < 21) Api16.priority(b)
         }
+        // Android 5.0 からは、Android 標準のメディアの通知(ジャケットとアイコンのボタン。ロック画面にも出る)
+        if (Build.VERSION.SDK_INT >= 21) com.uyatame.ucrt.legacy.compat.Api21Media.style(this, b)
         @Suppress("DEPRECATION")
         return if (Build.VERSION.SDK_INT >= 16) Api16.build(b) else b.notification
     }
@@ -102,7 +110,8 @@ class PlaybackService : Service() {
         /** 状態に合わせて通知を出し直す(曲が無くなったらサービスを止める) */
         fun update(ctx: Context, p: LegacyPlayer) {
             val cur = p.current
-            val sig = "${cur?.id}/${p.isPlaying}"
+            // ジャケットを読み終えたら、出し直す
+            val sig = "${cur?.id}/${p.isPlaying}/${MediaControls.art != null}"
             if (sig == lastSig) return
             lastSig = sig
             val i = Intent(ctx, PlaybackService::class.java)

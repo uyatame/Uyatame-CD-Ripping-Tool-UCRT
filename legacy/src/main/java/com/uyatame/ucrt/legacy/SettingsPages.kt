@@ -388,7 +388,7 @@ object SettingsPages {
             f.bgd(d)
             if (c == 0) {
                 val t = text(act, S(R.string.default_label), Type.LabelSmall, 0xFFFFFFFF.toInt())
-                t.textSize = 9f
+                t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, com.uyatame.ucrt.legacy.ui.Ui.sp(9f))
                 t.gravity = Gravity.CENTER
                 f.add(t, h = MATCH)
             }

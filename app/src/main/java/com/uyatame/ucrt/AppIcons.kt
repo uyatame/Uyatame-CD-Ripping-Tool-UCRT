@@ -120,4 +120,6 @@ object AppIcons {
     )
     val DragHandle = icon("DragHandle", "M20,9H4v2h16V9zM4,15h16v-2H4V15z")
     val Bars = icon("Bars", "M10,20h4V4h-4v16zM4,20h4v-8H4v8zM16,9v11h4V9h-4z")
+    /** アップサンプルのタブ(波形) */
+    val Upsample = icon("Upsample", "M7,18h2V6H7v12zM11,22h2V2h-2v20zM3,14h2v-4H3v4zM15,18h2V6h-2v12zM19,10v4h2v-4h-2z")
 }

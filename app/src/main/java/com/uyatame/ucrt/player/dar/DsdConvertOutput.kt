@@ -63,6 +63,7 @@ internal class DsdConvertOutput private constructor(
     override fun pause() = sink.pause()
     override fun release() {
         released = true
+        com.uyatame.ucrt.player.SpectrumTap.forget(this)
         conv.close()
         sink.release()
     }
@@ -91,6 +92,10 @@ internal class DsdConvertOutput private constructor(
         if (pcmBytes(enc) == 0) enc = android.media.AudioFormat.ENCODING_PCM_16BIT
         val frames = src.remaining() / (pcmBytes(enc) * srcChannels)
         if (frames <= 0) return
+        // スペクトラムアナライザー(DSD に変換する前の音を写す)
+        if (com.uyatame.ucrt.player.SpectrumTap.enabled) {
+            com.uyatame.ucrt.player.SpectrumTap.submit(this, src, enc, frames, srcChannels, sampleRate, framesWritten)
+        }
         framesWritten += frames
         // DSD の出力先は 2ch で開くので、モノラルは左右に同じ音を入れる
         val samples = frames * OUT_CH
