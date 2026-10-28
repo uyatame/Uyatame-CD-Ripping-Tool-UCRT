@@ -59,6 +59,19 @@ object DacKeepAlive {
         runCatching { ctx.stopService(Intent(ctx, DacKeepAliveService::class.java)) }
     }
 
+    /** 無音を最後に流していた時刻(SystemClock.elapsedRealtime。流していなければ 0) */
+    @Volatile var lastPlayedAt = 0L
+        internal set
+
+    /**
+     * すぐに止める(アプリを終了するとき。USB DAC を閉じる前に、無音を流すのをやめ終えておく)。
+     * stopService だけだと止まるのが後になり、閉じたあとの DAC にまた無音を流し始めることがある
+     */
+    fun stopNow(ctx: Context) {
+        val svc = DacKeepAliveService.current
+        if (svc != null) svc.shutdownNow() else stop(ctx)
+    }
+
     /** 起こしておく機器を選ぶ */
     internal fun pick(devices: Array<AudioDeviceInfo>): AudioDeviceInfo? {
         val usb = devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_HEADSET }
@@ -95,7 +108,22 @@ class DacKeepAliveService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        current = this
         am = androidx.core.content.ContextCompat.getSystemService(this, AudioManager::class.java)!!
+    }
+
+    /** その場で止める(無音のスレッドが終わるまで待つ)。メインのスレッドから呼ぶ */
+    @Suppress("DEPRECATION")
+    internal fun shutdownNow() {
+        main.removeCallbacks(poll)
+        unwatch?.invoke()
+        unwatch = null
+        stopSilence()
+        device = null
+        DacKeepAlive.running = false
+        DacKeepAlive.activeDevice = ""
+        runCatching { stopForeground(true) }
+        stopSelf()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -129,6 +157,7 @@ class DacKeepAliveService : Service() {
         stopSilence()
         DacKeepAlive.running = false
         DacKeepAlive.activeDevice = ""
+        if (current === this) current = null
         AudioEngine.log("dac keep-alive: stopped")
         super.onDestroy()
     }
@@ -163,7 +192,7 @@ class DacKeepAliveService : Service() {
     private fun stopSilence() {
         stopFlag = true
         thread?.interrupt()
-        thread?.let { runCatching { it.join(500) } }
+        thread?.let { runCatching { it.join(800) } }
         thread = null
         runCatching { wake?.takeIf { it.isHeld }?.release() }
         wake = null
@@ -192,6 +221,7 @@ class DacKeepAliveService : Service() {
         } finally {
             runCatching { t.stop() }
             t.release()
+            DacKeepAlive.lastPlayedAt = android.os.SystemClock.elapsedRealtime()
         }
     }
 
@@ -216,6 +246,7 @@ class DacKeepAliveService : Service() {
     }
 
     companion object {
+        @Volatile internal var current: DacKeepAliveService? = null
         const val ID = 3
     }
 }

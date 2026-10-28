@@ -1,5 +1,10 @@
 package com.uyatame.ucrt
 
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -127,99 +132,132 @@ fun MbSubmitSheet(vm: MainViewModel) {
     }
 
     val missing = title.isBlank() || artist.isBlank() || titles.any { it.isBlank() }
-    ModalBottomSheet(onDismissRequest = { vm.mbDraft = null }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).navigationBarsPadding()
-                .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(S(R.string.mb_upload), style = MaterialTheme.typography.titleLarge)
-            Text(S(R.string.mb_sheet_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-            // ---- アルバム ----
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (coverImage != null) {
-                    Image(
-                        coverImage, null, Modifier.size(72.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop,
-                    )
-                    Spacer(Modifier.width(12.dp))
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.album)) }, singleLine = true)
-                    OutlinedTextField(artist, { artist = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.artist)) }, singleLine = true)
-                }
-            }
-            ChipRow(S(R.string.mb_type), TYPES.map { it.label() }, TYPES.indexOfFirst { it.value == type }) { type = TYPES[it].value }
-            ChipRow(S(R.string.mb_status), STATUSES.map { it.label() }, STATUSES.indexOfFirst { it.value == status }) { status = STATUSES[it].value }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    date, { date = it }, Modifier.weight(1f), label = { Text(S(R.string.mb_date)) }, singleLine = true,
-                    placeholder = { Text("2024-03-05") },
-                )
-                OutlinedTextField(
-                    country, { country = it.take(2) }, Modifier.width(110.dp), label = { Text(S(R.string.mb_country)) }, singleLine = true,
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(label, { label = it }, Modifier.weight(1f), label = { Text(S(R.string.mb_label)) }, singleLine = true)
-                OutlinedTextField(catalog, { catalog = it }, Modifier.weight(1f), label = { Text(S(R.string.mb_catalog)) }, singleLine = true)
-            }
-            OutlinedTextField(
-                barcode, { barcode = it.filter { c -> c.isDigit() }.take(14) }, Modifier.fillMaxWidth(),
-                label = { Text(S(R.string.mb_barcode)) }, singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            )
-            ChipRow(S(R.string.mb_language), LANGUAGES.map { it.third() }, lang) { lang = it }
-            ChipRow(S(R.string.mb_packaging), PACKAGING.map { it.label() }, PACKAGING.indexOfFirst { it.value == packaging }) {
-                packaging = PACKAGING[it].value
-            }
-            OutlinedTextField(
-                comment, { comment = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.mb_comment)) }, singleLine = true,
-                supportingText = { Text(S(R.string.mb_comment_hint)) },
-            )
-
-            // ---- 曲 ----
-            HorizontalDivider()
-            Text(S(R.string.mb_tracks), style = MaterialTheme.typography.titleMedium)
-            var k = 0
-            d.discs.forEach { disc ->
-                if (d.discs.size > 1) {
-                    Text("Disc ${disc.position}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                }
-                disc.tracks.forEachIndexed { n, t ->
-                    val i = k++
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        OutlinedTextField(
-                            titles[i], { titles[i] = it }, Modifier.fillMaxWidth(), singleLine = true,
-                            label = { Text("${n + 1}. " + S(R.string.title) + if (t.lengthMs > 0) "（${fmtMs(t.lengthMs)}）" else "") },
+    // 3 つの手順に分ける: 1 アルバム(必須) → 2 曲 → 3 確認(ジャケット・歌詞と、このあと MusicBrainz の画面ですること)
+    var step by remember(d) { mutableIntStateOf(0) }
+    var more by remember(d) { mutableStateOf(false) }
+    val stepNames = listOf(S(R.string.mb_step_album), S(R.string.mb_step_tracks), S(R.string.mb_step_confirm))
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = { vm.mbDraft = null },
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        androidx.compose.material3.Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+            Column(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
+                // ---- 上の帯: 閉じる・題名・手順 ----
+                Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.IconButton({ vm.mbDraft = null }) {
+                        androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.Close, S(R.string.close))
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(S(R.string.mb_upload), style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            S(R.string.mb_step_n, step + 1, 3) + " · " + stepNames[step],
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        OutlinedTextField(
-                            artists[i], { artists[i] = it }, Modifier.fillMaxWidth(), singleLine = true,
-                            label = { Text(S(R.string.mb_track_artist)) },
-                            placeholder = { Text(artist) },
-                        )
-                        if (t.lyrics != null) {
+                    }
+                }
+                androidx.compose.material3.LinearProgressIndicator({ (step + 1) / 3f }, Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+                Column(
+                    Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    when (step) {
+                        0 -> {
+                            Text(S(R.string.mb_sheet_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (coverImage != null) {
+                                    Image(coverImage, null, Modifier.size(72.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
+                                    Spacer(Modifier.width(12.dp))
+                                }
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.album)) }, singleLine = true, isError = title.isBlank())
+                                    OutlinedTextField(artist, { artist = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.artist)) }, singleLine = true, isError = artist.isBlank())
+                                }
+                            }
+                            ChipRow(S(R.string.mb_type), TYPES.map { it.label() }, TYPES.indexOfFirst { it.value == type }) { type = TYPES[it].value }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    date, { date = it }, Modifier.weight(1f), label = { Text(S(R.string.mb_date)) }, singleLine = true,
+                                    placeholder = { Text("2024-03-05") },
+                                )
+                                OutlinedTextField(country, { country = it.take(2) }, Modifier.width(110.dp), label = { Text(S(R.string.mb_country)) }, singleLine = true)
+                            }
+                            // あまり使わない項目は、開いたときだけ
+                            TextButton({ more = !more }) { Text(if (more) S(R.string.mb_less) else S(R.string.mb_more)) }
+                            if (more) {
+                                ChipRow(S(R.string.mb_status), STATUSES.map { it.label() }, STATUSES.indexOfFirst { it.value == status }) { status = STATUSES[it].value }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(label, { label = it }, Modifier.weight(1f), label = { Text(S(R.string.mb_label)) }, singleLine = true)
+                                    OutlinedTextField(catalog, { catalog = it }, Modifier.weight(1f), label = { Text(S(R.string.mb_catalog)) }, singleLine = true)
+                                }
+                                OutlinedTextField(
+                                    barcode, { barcode = it.filter { c -> c.isDigit() }.take(14) }, Modifier.fillMaxWidth(),
+                                    label = { Text(S(R.string.mb_barcode)) }, singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                )
+                                ChipRow(S(R.string.mb_language), LANGUAGES.map { it.third() }, lang) { lang = it }
+                                ChipRow(S(R.string.mb_packaging), PACKAGING.map { it.label() }, PACKAGING.indexOfFirst { it.value == packaging }) {
+                                    packaging = PACKAGING[it].value
+                                }
+                                OutlinedTextField(
+                                    comment, { comment = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.mb_comment)) }, singleLine = true,
+                                    supportingText = { Text(S(R.string.mb_comment_hint)) },
+                                )
+                            }
+                        }
+                        1 -> {
+                            Text(S(R.string.mb_tracks_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            var k = 0
+                            d.discs.forEach { disc ->
+                                if (d.discs.size > 1) Text("Disc ${disc.position}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                                disc.tracks.forEachIndexed { n, t ->
+                                    val idx = k++
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        OutlinedTextField(
+                                            titles[idx], { titles[idx] = it }, Modifier.fillMaxWidth(), singleLine = true, isError = titles[idx].isBlank(),
+                                            label = { Text("${n + 1}. " + S(R.string.title) + if (t.lengthMs > 0) "（${fmtMs(t.lengthMs)}）" else "") },
+                                        )
+                                        OutlinedTextField(
+                                            artists[idx], { artists[idx] = it }, Modifier.fillMaxWidth(), singleLine = true,
+                                            label = { Text(S(R.string.mb_track_artist)) }, placeholder = { Text(artist) },
+                                        )
+                                        if (t.lyrics != null) {
+                                            Text(
+                                                S(R.string.mb_has_lyrics) + if (t.lyrics.synced) S(R.string.mb_synced) else "",
+                                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        else -> {
+                            // ---- 確認 ----
+                            Text(title, style = MaterialTheme.typography.titleMedium)
                             Text(
-                                S(R.string.mb_has_lyrics) + if (t.lyrics.synced) S(R.string.mb_synced) else "",
-                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
+                                artist + " · " + S(R.string.mb_n_tracks, titles.size) + (if (date.isNotBlank()) " · $date" else ""),
+                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            HorizontalDivider()
+                            if (d.cover != null) SwitchRow(S(R.string.mb_with_cover), S(R.string.mb_with_cover_desc), withCover) { withCover = it }
+                            if (lyricsCount > 0) SwitchRow(S(R.string.mb_with_lyrics, lyricsCount), S(R.string.mb_with_lyrics_desc), withLyrics) { withLyrics = it }
+                            HorizontalDivider()
+                            Text(S(R.string.mb_next_steps_title), style = MaterialTheme.typography.titleSmall)
+                            Text(S(R.string.mb_next_steps), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (missing) Text(S(R.string.mb_upload_fill_in), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
-            }
-
-            // ---- 一緒に登録するもの ----
-            HorizontalDivider()
-            if (d.cover != null) SwitchRow(S(R.string.mb_with_cover), S(R.string.mb_with_cover_desc), withCover) { withCover = it }
-            if (lyricsCount > 0) {
-                SwitchRow(S(R.string.mb_with_lyrics, lyricsCount), S(R.string.mb_with_lyrics_desc), withLyrics) { withLyrics = it }
-            }
-            if (missing) {
-                Text(S(R.string.mb_upload_fill_in), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                TextButton({ vm.mbDraft = null }, Modifier.weight(1f)) { Text(S(R.string.cancel)) }
-                Button({ submit() }, Modifier.weight(2f), enabled = !missing) { Text(S(R.string.mb_open_submit)) }
+                // ---- 下の帯: 戻る・次へ・登録 ----
+                HorizontalDivider()
+                Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton({ if (step == 0) vm.mbDraft = null else step-- }, Modifier.weight(1f)) {
+                        Text(if (step == 0) S(R.string.cancel) else S(R.string.back))
+                    }
+                    val canNext = when (step) { 0 -> title.isNotBlank() && artist.isNotBlank(); 1 -> titles.none { it.isBlank() }; else -> !missing }
+                    Button({ if (step < 2) step++ else submit() }, Modifier.weight(2f), enabled = canNext) {
+                        Text(if (step < 2) S(R.string.next) else S(R.string.mb_open_submit))
+                    }
+                }
             }
         }
     }

@@ -61,7 +61,7 @@ fun StreamingScreen(
     }
     WideCenter {
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp + barInset()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             ScreenHeader(S(R.string.streaming))

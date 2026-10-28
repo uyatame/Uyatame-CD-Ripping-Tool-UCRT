@@ -197,7 +197,7 @@ class LegacyPlayer(ctx: Context) {
         changed()
     }
 
-    fun toggle() { if (isPlaying) pause() else resume() }
+    fun toggle() { duckedPause = false; if (isPlaying) pause() else resume() }
 
     /** キャスト先で曲を始める(端末の出力は止める) */
     private fun castStart(fromMs: Long, play: Boolean) {
@@ -500,15 +500,27 @@ class LegacyPlayer(ctx: Context) {
     private fun changed() = Bus.emit(Bus.PLAYER)
 
     // ---- オーディオフォーカス(ほかのアプリが鳴らすときは止める) ----
+    // (本家と同じ: カメラ・決済アプリなどに取られたまま(LOSS)のときも覚えておき、30 分以内に画面に戻ったら続きを再生する)
     private var duckedPause = false
+    private var interruptedAt = 0L
     private val focus = AudioManager.OnAudioFocusChangeListener { f ->
         main.post {
             when (f) {
-                AudioManager.AUDIOFOCUS_LOSS -> pause()
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> if (isPlaying) { duckedPause = true; pause() }
+                AudioManager.AUDIOFOCUS_LOSS, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> if (isPlaying) {
+                    duckedPause = true
+                    interruptedAt = android.os.SystemClock.elapsedRealtime()
+                    pause()
+                }
                 AudioManager.AUDIOFOCUS_GAIN -> if (duckedPause) { duckedPause = false; resume() }
             }
         }
+    }
+
+    /** ほかのアプリに音を取られて止めたあと、画面に戻ってきたとき(LegacyActivity.onResume) */
+    fun resumeAfterInterruption() {
+        if (!duckedPause || isPlaying) return
+        duckedPause = false
+        if (android.os.SystemClock.elapsedRealtime() - interruptedAt < 30 * 60_000L) resume()
     }
 
     @Suppress("DEPRECATION")
@@ -749,7 +761,10 @@ class LegacyPlayer(ctx: Context) {
     }
 
     private fun formatOf(name: String, d: com.uyatame.ucrt.player.PcmDecoder, c: Converter): String {
-        val ext = if (name.startsWith("cd:")) "CD" else name.substringAfterLast('.', "").uppercase().let { if (it == "M4A" || it == "MP4") "M4A" else it }
+        // M4A / MP4 は中身で分ける(AAC を ALAC と取り違えないように)
+        val ext = if (name.startsWith("cd:")) "CD" else name.substringAfterLast('.', "").uppercase().let {
+            if (it == "M4A" || it == "MP4") (if (d is com.uyatame.ucrt.player.AlacDecoder) "ALAC" else "AAC") else it
+        }
         fun khz(r: Int) = if (r % 1000 == 0) "${r / 1000}kHz" else String.format(java.util.Locale.US, "%.1fkHz", r / 1000.0)
         val src = ext + " " + khz(d.sampleRate) + (if (d.bitsPerSample > 0 && ext != "MP3" && ext != "OGG" && ext != "AAC") "/${d.bitsPerSample}bit" else "")
         val dac = c.dac

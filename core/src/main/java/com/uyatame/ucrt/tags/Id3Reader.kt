@@ -114,6 +114,39 @@ object Id3Reader {
         return text(b)
     }
 
+    /**
+     * SYLT(時刻付きの歌詞)を LRC の文章にする。文字コード(1) 言語(3) 時刻の単位(1。2 = ミリ秒) 種類(1) 説明(終端まで)、
+     * そのあと「文字(終端まで) + 時刻(4)」の繰り返し。時刻がミリ秒でなければ使わない
+     */
+    private fun syltOf(body: ByteArray): String? {
+        if (body.size < 7 || body[4].toInt() != 2) return null
+        val enc = body[0].toInt()
+        val wide = enc == 1 || enc == 2
+        fun end(from: Int): Int {
+            var p = from
+            if (wide) { while (p + 1 < body.size && !(body[p].toInt() == 0 && body[p + 1].toInt() == 0)) p += 2 }
+            else while (p < body.size && body[p].toInt() != 0) p++
+            return p
+        }
+        fun str(a: Int, b: Int): String {
+            val cs = when (enc) { 1 -> Charsets.UTF_16; 2 -> Charsets.UTF_16BE; 3 -> Charsets.UTF_8; else -> Charsets.ISO_8859_1 }
+            return String(body, a, (b - a).coerceAtLeast(0), cs)
+        }
+        var p = end(6) + (if (wide) 2 else 1)
+        val sb = StringBuilder()
+        while (p < body.size) {
+            val e = end(p)
+            val t = str(p, e).trim('\uFEFF', '\n', '\r')
+            p = e + (if (wide) 2 else 1)
+            if (p + 4 > body.size) break
+            val ms = ((body[p].toLong() and 0xFF) shl 24) or ((body[p + 1].toLong() and 0xFF) shl 16) or
+                ((body[p + 2].toLong() and 0xFF) shl 8) or (body[p + 3].toLong() and 0xFF)
+            p += 4
+            sb.append("[%02d:%02d.%02d]".format(ms / 60000, ms / 1000 % 60, ms / 10 % 100)).append(t).append('\n')
+        }
+        return sb.toString().takeIf { it.isNotBlank() }
+    }
+
     /** COMM / USLT の説明(言語の後ろ)が空か(iTunNORM などの説明付きのコメントは、利用者のコメントではない) */
     private fun emptyDesc(body: ByteArray): Boolean {
         if (body.size < 5) return false
@@ -237,6 +270,7 @@ object Id3Reader {
         var pic: ByteArray? = null
         var genre: String? = null
         var lyrics: String? = null
+        var synced: String? = null
         var composer: String? = null
         var lyricist: String? = null
         var comment: String? = null
@@ -253,6 +287,7 @@ object Id3Reader {
                 "TPOS", "TPA" -> pos = text(body)
                 "TCON", "TCO" -> if (genre == null) genre = text(body)
                 "USLT", "ULT" -> if (lyrics == null) lyrics = lyricsOf(body)
+                "SYLT", "SLT" -> if (synced == null) synced = runCatching { syltOf(body) }.getOrNull()
                 "TCOM", "TCM" -> if (composer == null) composer = text(body)
                 "TEXT", "TXT" -> if (lyricist == null) lyricist = text(body)
                 "COMM", "COM" -> if (comment == null && emptyDesc(body)) comment = lyricsOf(body)
@@ -265,7 +300,8 @@ object Id3Reader {
         val (t, tt) = num(trk)
         val (d, dt) = num(pos)
         return Id3Data(
-            title, artist, album, albumArtist, year, t, tt, d, dt, pic, apics, genre = genre, lyrics = lyrics,
+            // 時刻付きの歌詞(SYLT)があれば、そちらを使う(流れる歌詞になる)
+            title, artist, album, albumArtist, year, t, tt, d, dt, pic, apics, genre = genre, lyrics = synced ?: lyrics,
             composer = composer, lyricist = lyricist, comment = comment,
         )
     }

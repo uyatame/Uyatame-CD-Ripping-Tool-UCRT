@@ -25,6 +25,7 @@ import com.uyatame.ucrt.legacy.compat.Api23
 import com.uyatame.ucrt.legacy.ui.ArtView
 import com.uyatame.ucrt.legacy.ui.Btn
 import com.uyatame.ucrt.legacy.ui.Icons
+import com.uyatame.ucrt.legacy.ui.marquee
 import com.uyatame.ucrt.legacy.ui.ListPage
 import com.uyatame.ucrt.legacy.ui.MATCH
 import com.uyatame.ucrt.legacy.ui.Menu
@@ -245,14 +246,14 @@ class NowPlayingView(private val act: LegacyActivity, private val inPane: Boolea
 
     private fun buildPlayerPage() {
         val portrait = inPane || !act.landscape
-        val small = act.resources.displayMetrics.let { it.heightPixels / it.density < 640 || it.widthPixels / it.density < 340 }
+        val small = act.resources.displayMetrics.let { it.heightPixels / com.uyatame.ucrt.legacy.ui.Ui.density < 640 || it.widthPixels / com.uyatame.ucrt.legacy.ui.Ui.density < 340 }
         val playSize = if (small) 64 else 80
         val skipSize = if (small) 50 else 60
         // ジャケット(または歌詞)
         cover.square = false
         coverBox.add(cover, h = MATCH)
         seekOverlay.gravity = Gravity.CENTER
-        seekOverlay.textSize = 44f
+        seekOverlay.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, com.uyatame.ucrt.legacy.ui.Ui.sp(44f))
         seekOverlay.bold()
         seekOverlay.bgd(rounded(0x73000000, 12f))
         seekOverlay.visibility = View.GONE
@@ -291,7 +292,11 @@ class NowPlayingView(private val act: LegacyActivity, private val inPane: Boolea
         val tcol = vbox(act, Gravity.CENTER_HORIZONTAL)
         title.gravity = Gravity.CENTER
         title.bold()
-        if (small) { title.style(Type.TitleLarge, col.content); title.bold(); title.maxLines = 1 }
+        if (small) { title.style(Type.TitleLarge, col.content); title.bold() }
+        // 長い曲名・狭い画面では 1 行に収めて流す
+        title.marquee()
+        artist.marquee()
+        album.marquee()
         tcol.add(title)
         artist.gravity = Gravity.CENTER
         tcol.add(artist)
@@ -320,7 +325,8 @@ class NowPlayingView(private val act: LegacyActivity, private val inPane: Boolea
         ops.add(prev, w = skipSize, h = skipSize)
         ops.add(View(act), w = 0, h = 1, weight = 1f)
         playBtn.setIcon(Icons.PlayArrow, col.content, (playSize * 0.52f).toInt())
-        val circ = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(2.5f), col.content) }
+        // 塗りの色を決めないと、Android 4.x では黒く塗られる
+        val circ = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0); setStroke(dp(2.5f), col.content) }
         playBtn.tap(oval = true, base = circ) { p.toggle() }
         ops.add(playBtn, w = playSize, h = playSize)
         ops.add(View(act), w = 0, h = 1, weight = 1f)

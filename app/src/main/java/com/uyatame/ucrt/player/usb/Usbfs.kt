@@ -52,13 +52,13 @@ internal object Usbfs {
     fun speed(fd: Int): Int = runCatching { ioctl(fd, GET_SPEED, null) }.getOrDefault(0).coerceAtLeast(0)
 
     /** 切り離していたカーネル側のドライバー(Android の USB オーディオ)を、インターフェースに再び接続する */
-    fun reconnectKernelDriver(fd: Int, iface: Int) {
+    fun reconnectKernelDriver(fd: Int, iface: Int): Boolean {
         val m = Memory((8 + PS).toLong())
         m.clear()
         m.setInt(0, iface)
         m.setInt(4, CONNECT)
         if (PS == 8) m.setLong(8, 0) else m.setInt(8, 0)
-        runCatching { ioctl(fd, IOCTL, m) }
+        return runCatching { ioctl(fd, IOCTL, m) >= 0 }.getOrDefault(false)
     }
 }
 

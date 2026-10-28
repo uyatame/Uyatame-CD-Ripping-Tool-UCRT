@@ -21,7 +21,9 @@ object MediaControls {
     private var rcc: RemoteControlClient? = null
     private var registered = false
     private var lastKey = ""
-    private var art: Bitmap? = null
+    /** 今の曲のジャケット(通知にも出す) */
+    var art: Bitmap? = null
+        private set
     private var artKey = ""
 
     private val receiver: ComponentName get() = ComponentName(app, MediaButtonReceiver::class.java)
@@ -41,7 +43,7 @@ object MediaControls {
             artKey = key
             art = null
             if (cur.uri.startsWith("cd:")) art = Disc.cover
-            else Art.load(ctx, Actions.artRef(ctx, cur.track), 512) { b -> if (artKey == key) { art = b; lastKey = ""; update(ctx) } }
+            else Art.load(ctx, Actions.artRef(ctx, cur.track), 512) { b -> if (artKey == key) { art = b; lastKey = ""; update(ctx); PlaybackService.update(ctx, LegacyApp.app.player) } }
         }
         LegacyWidget.update(ctx, LegacyWidget.State(cur.title, cur.artist, p.isPlaying, art))
         val sig = "${cur.id}/${p.isPlaying}/${art != null}"

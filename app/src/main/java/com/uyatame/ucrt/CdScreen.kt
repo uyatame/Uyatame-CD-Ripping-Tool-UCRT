@@ -102,7 +102,7 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
 
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp + barInset()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
@@ -392,7 +392,7 @@ private fun MetaChooserDialog(vm: MainViewModel) {
             LazyColumn(
                 Modifier.fillMaxWidth().imePadding().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
-                contentPadding = PaddingValues(bottom = 32.dp),
+                contentPadding = PaddingValues(bottom = 32.dp + barInset()),
             ) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -528,6 +528,7 @@ private fun EditMetaPage(vm: MainViewModel, s: AppSettings, onDone: () -> Unit) 
                     t.composer, t.lyricist, t.comment, t.lyrics,
                 )
             },
+            discNo = m.discNo.coerceAtLeast(1).toString(), discTotal = m.discTotal.coerceAtLeast(1).toString(),
         )
     }
     TagEditorPage(
@@ -538,6 +539,8 @@ private fun EditMetaPage(vm: MainViewModel, s: AppSettings, onDone: () -> Unit) 
             vm.updateMeta(
                 m.copy(
                     title = form.album.trim(), artist = artist, date = form.date.trim(), genre = form.genre.trim(),
+                    discTotal = (form.discTotal.toIntOrNull() ?: m.discTotal).coerceAtLeast(1),
+                    discNo = (form.discNo.toIntOrNull() ?: m.discNo).coerceIn(1, (form.discTotal.toIntOrNull() ?: m.discTotal).coerceAtLeast(1)),
                     tracks = m.tracks.mapIndexed { i, tm ->
                         val f = form.tracks.getOrNull(i) ?: return@mapIndexed tm
                         tm.copy(

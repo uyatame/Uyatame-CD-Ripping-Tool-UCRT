@@ -53,6 +53,15 @@ object Api21Media {
         if (!s.isActive) s.isActive = true
     }
 
+    /**
+     * 通知を Android 標準のメディアの形にする(ジャケット・ボタン 3 つ。ロック画面にも出る)。
+     * compact: 小さく畳んだときに出すボタンの番号
+     */
+    fun style(ctx: Context, b: android.app.Notification.Builder) {
+        b.setStyle(android.app.Notification.MediaStyle().setMediaSession(session(ctx).sessionToken).setShowActionsInCompactView(0, 1, 2))
+        b.setVisibility(android.app.Notification.VISIBILITY_PUBLIC)
+    }
+
     fun stop() {
         val s = session ?: return
         s.setPlaybackState(PlaybackState.Builder().setState(PlaybackState.STATE_STOPPED, 0, 0f).build())

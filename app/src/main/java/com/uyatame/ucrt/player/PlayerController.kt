@@ -94,8 +94,8 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     /** ロック画面・通知・Bluetooth機器からの操作用 */
     val session = MediaSession(ctx, "UCRT").apply {
         setCallback(object : MediaSession.Callback() {
-            override fun onPlay() = this@PlayerController.resume()
-            override fun onPause() = this@PlayerController.pause()
+            override fun onPlay() { interruptedAt = 0L; this@PlayerController.resume() }
+            override fun onPause() { interruptedAt = 0L; this@PlayerController.pause() }
             override fun onSkipToNext() = this@PlayerController.next()
             override fun onSkipToPrevious() = this@PlayerController.prev()
             override fun onSeekTo(pos: Long) = this@PlayerController.seek(pos)
@@ -145,8 +145,34 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
         .build()
     private val am = androidx.core.content.ContextCompat.getSystemService(ctx, AudioManager::class.java)!!
+    /**
+     * ほかのアプリ(カメラ・決済アプリの音・通話など)に音を取られて止めたか(戻ってきたら続きを再生する)。
+     * 一時的なとき(LOSS_TRANSIENT)は返してもらったら再開し、取られたまま(LOSS。カメラなど)のときは、
+     * この画面に戻ってきたとき(resumeAfterInterruption)に 30 分以内なら再開する。自分で再生・停止したら忘れる
+     */
+    @Volatile private var interruptedAt = 0L
+
     private val focusListener = AudioManager.OnAudioFocusChangeListener { ch ->
-        if (ch == AudioManager.AUDIOFOCUS_LOSS || ch == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) main.post { pause() }
+        main.post {
+            when (ch) {
+                AudioManager.AUDIOFOCUS_LOSS, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> if (isPlaying) {
+                    pause()
+                    interruptedAt = android.os.SystemClock.elapsedRealtime()
+                }
+                AudioManager.AUDIOFOCUS_GAIN -> if (interruptedAt != 0L) {
+                    interruptedAt = 0L
+                    resume()
+                }
+            }
+        }
+    }
+
+    /** ほかのアプリに音を取られて止めたあと、アプリの画面に戻ってきたとき(MainActivity.onResume) */
+    fun resumeAfterInterruption() {
+        val t = interruptedAt
+        if (t == 0L || isPlaying) return
+        interruptedAt = 0L
+        if (android.os.SystemClock.elapsedRealtime() - t < 30 * 60_000L) resume()
     }
     /** 音声フォーカスの要求(Android 8.0 から。それより前は古い方法で要求する) */
     private val focus: Any? = if (android.os.Build.VERSION.SDK_INT >= 26) AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
@@ -264,11 +290,14 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
      * 合図には上げる・下げるのほかにミュート関係の値(100 や 101)もあるので、種類ごとに扱う
      * (以前は値をそのまま 4 倍して足していたため、ミュートの切り替えで最大音量になっていた)
      */
+    /** 本体の音量ボタンで USB DAC の音量を変える幅(設定。1・2・4) */
+    @Volatile var usbVolumeStep = 4
+
     private fun adjustUsbVolume(direction: Int) {
         val cur = UsbDac.volume()
         when (direction) {
-            AudioManager.ADJUST_RAISE -> { mutedFrom = -1; setUsbVolume(cur + 4, true) }
-            AudioManager.ADJUST_LOWER -> { mutedFrom = -1; setUsbVolume(cur - 4, true) }
+            AudioManager.ADJUST_RAISE -> { mutedFrom = -1; setUsbVolume(cur + usbVolumeStep, true) }
+            AudioManager.ADJUST_LOWER -> { mutedFrom = -1; setUsbVolume(cur - usbVolumeStep, true) }
             AudioManager.ADJUST_MUTE -> mute(cur)
             AudioManager.ADJUST_UNMUTE -> unmute()
             AudioManager.ADJUST_TOGGLE_MUTE -> if (mutedFrom >= 0) unmute() else mute(cur)
@@ -778,7 +807,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         startCurrent(positionMs, isPlaying)
     }
 
-    fun toggle() { if (isPlaying) pause() else resume() }
+    fun toggle() { interruptedAt = 0L; if (isPlaying) pause() else resume() }
 
     fun pause() {
         if (!isPlaying) return
@@ -1039,9 +1068,16 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 val chunk = 8192
                 val bufs = Array(info.channels) { ByteArray(chunk) }
                 val use = Array(ch) { bufs[it] }
+                // スペクトラムアナライザー: DSD のまま出すときは、ここで DSD を写す(PCM に変換するときは出力の側で写す)
+                val tapDsd = s.label != "PCM"
+                val bytesPerSec = info.rate / 8L
+                val head = { s.headFrames() * bytesPerSec / s.sampleRate.coerceAtLeast(1) }
+                var written = 0L
                 while (!stopFlag && !s.failed) {
                     val n = reader.read(bufs, chunk)
                     if (n <= 0) break
+                    if (tapDsd && SpectrumTap.enabled) SpectrumTap.submitDsd(s, head, use, n, ch, info.rate, written)
+                    written += n
                     s.write(use, n) { stopFlag }
                 }
                 if (s.failed) {
@@ -1055,6 +1091,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 val reason = "${e.javaClass.simpleName}: ${e.message ?: ""}"
                 if (!stopFlag) main.post { if (file === this) skipAfterError(reason) }
             } finally {
+                sink?.let { SpectrumTap.forget(it) }
                 sink?.release()
                 rf.close()
             }

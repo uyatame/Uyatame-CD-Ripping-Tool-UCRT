@@ -105,12 +105,37 @@ class IconDrawable(private val d: String, color: Int, private val sizePx: Int) :
 
     override fun draw(canvas: Canvas) {
         val b = bounds
+        if (b.width() <= 0 || b.height() <= 0) return
+        // Android 4.3 より前は、画面の描画(ハードウェア)でパスの塗りが出ないことがあるので、
+        // いったん画像に描いてから貼る(大きさと色ごとに覚えておく)
+        if (android.os.Build.VERSION.SDK_INT < 18 && canvas.isHardwareAccelerated) {
+            val key = d.hashCode().toString() + "/" + paint.color + "/" + paint.alpha + "/" + b.width() + "x" + b.height()
+            val bmp = synchronized(bitmaps) {
+                bitmaps.get(key) ?: android.graphics.Bitmap.createBitmap(b.width(), b.height(), android.graphics.Bitmap.Config.ARGB_8888).also { bm ->
+                    val c = Canvas(bm)
+                    val s = minOf(b.width(), b.height()) / 24f
+                    m.setScale(s, s)
+                    m.postTranslate((b.width() - 24 * s) / 2, (b.height() - 24 * s) / 2)
+                    p.reset()
+                    Icons.path(d).transform(m, p)
+                    c.drawPath(p, paint)
+                    bitmaps.put(key, bm)
+                }
+            }
+            canvas.drawBitmap(bmp, b.left.toFloat(), b.top.toFloat(), null)
+            return
+        }
         val s = minOf(b.width(), b.height()) / 24f
         m.setScale(s, s)
         m.postTranslate(b.left + (b.width() - 24 * s) / 2, b.top + (b.height() - 24 * s) / 2)
         p.reset()
         Icons.path(d).transform(m, p)
         canvas.drawPath(p, paint)
+    }
+
+    private companion object {
+        /** Android 4.3 より前のための、描いたアイコンの画像(使った順に 300 個まで) */
+        val bitmaps = object : android.util.LruCache<String, android.graphics.Bitmap>(300) {}
     }
 
     override fun getIntrinsicWidth() = sizePx

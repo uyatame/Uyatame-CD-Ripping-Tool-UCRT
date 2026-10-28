@@ -73,12 +73,50 @@ data class AppSettings(
     val spotifyEnabled: Boolean = false,
     /** USB DAC 直接出力の音切れ対策(試験的。端末の省電力で転送が遅れるのを防ぐ) */
     val usbStabilize: Boolean = true,
+    /** アプリを終了するときに、USB DAC を Android に返す(返さなければ、挿し直すまでほかのアプリの音は DAC から出ない) */
+    val usbDacReturnOnExit: Boolean = true,
     /** DAC を常に起こしておく(ほかのアプリの再生にも効く。試験的) */
     val dacKeepAlive: Boolean = false,
     /** 起こしておく機器: 0 = 自動、1 = USB DAC、2 = イヤホン端子 */
     val dacKeepAliveTarget: Int = 0,
     /** 背景のぼかしの強さ(1〜10。1 段階で半径 14dp。5 が以前と同じ 70dp) */
     val ambientBlurLevel: Int = 5,
+    /** アップサンプルのタブの設定(DSRE・DSD 変換) */
+    val upSpec: com.uyatame.ucrt.convert.ConvertSpec = com.uyatame.ucrt.convert.ConvertSpec(),
+    /** アップサンプルの書き出し先のフォルダ(SAF のツリー。null なら未設定) */
+    val upOutUri: String? = null,
+    /** 保存した DSRE のプリセット(JSON の配列) */
+    val dsrePresets: String = "[]",
+    /** 見た目: 0 = 標準、1 = リキッドグラス(下のタブとミニプレーヤーを浮かぶガラスに) */
+    val appearance: Int = 0,
+    /** 再生画面の操作ボタンの並び(R: リピート、P: 前、X: 再生、N: 次、S: シャッフル) */
+    val controlOrder: String = "RPXNS",
+    /** お気に入りの並び: 0 = 追加した順、1 = 曲名・アルバム名、2 = アーティスト、3 = アルバム(曲)・年(アルバム) */
+    val favSort: Int = 0,
+    /** 細かい音量(通常の出力で、アプリの中の音量を 0.5 dB ごとに変える) */
+    val fineVolume: Boolean = false,
+    /** ステータスバー(上の時計など)も隠して全画面にする */
+    val hideStatusBar: Boolean = false,
+    /** アプリの中の音量の段階(0〜200。200 = 0 dB) */
+    val appVolumeStep: Int = 200,
+    /** 本体の音量ボタンで USB DAC の音量を変える幅(1・2・4) */
+    val usbVolumeStep: Int = 4,
+    /** リキッドグラスの濃さ(%。10〜95。小さいほど透ける) */
+    val glassOpacity: Int = 55,
+    /** リキッドグラスの色(0 = テーマに合わせる) */
+    val glassTint: Int = 0,
+    /** 再生の画面のスペクトラムアナライザー(初めはオフ) */
+    val spectrum: Boolean = false,
+    /** 見せ方(SpectrumStyle) */
+    val spectrumStyle: Int = 0,
+    /** 声の帯域を強めて見せる */
+    val spectrumVocal: Boolean = false,
+    /** 計算する間隔(ミリ秒。8〜200) */
+    val spectrumRefreshMs: Int = 24,
+    /** 色(0 = 再生の画面の強調の色に合わせる) */
+    val spectrumColor: Int = 0,
+    /** 表示を遅らせる時間(ミリ秒。Bluetooth などで音が遅れて聞こえるときの補正。0〜500) */
+    val spectrumDelayMs: Int = 0,
     val bitPerfect: Boolean = false,
     val usbDirect: Boolean = false,
     /** -1 = 自動(USB から音量を変えられる DAC は 50、変えられない DAC は 100) */
@@ -207,9 +245,28 @@ object Keys {
     val externalMedia = booleanPreferencesKey("externalMedia")
     val spotifyEnabled = booleanPreferencesKey("spotifyEnabled")
     val usbStabilize = booleanPreferencesKey("usbStabilize")
+    val usbDacReturnOnExit = booleanPreferencesKey("usbDacReturnOnExit")
     val dacKeepAlive = booleanPreferencesKey("dacKeepAlive")
     val dacKeepAliveTarget = intPreferencesKey("dacKeepAliveTarget")
     val ambientBlurLevel = intPreferencesKey("ambientBlurLevel")
+    val spectrum = booleanPreferencesKey("spectrum")
+    val appearance = intPreferencesKey("appearance")
+    val controlOrder = stringPreferencesKey("controlOrder")
+    val favSort = intPreferencesKey("favSort")
+    val fineVolume = booleanPreferencesKey("fineVolume")
+    val hideStatusBar = booleanPreferencesKey("hideStatusBar")
+    val appVolumeStep = intPreferencesKey("appVolumeStep")
+    val usbVolumeStep = intPreferencesKey("usbVolumeStep")
+    val glassOpacity = intPreferencesKey("glassOpacity")
+    val glassTint = intPreferencesKey("glassTint")
+    val upSpec = stringPreferencesKey("upSpec")
+    val upOutUri = stringPreferencesKey("upOutUri")
+    val dsrePresets = stringPreferencesKey("dsrePresets")
+    val spectrumStyle = intPreferencesKey("spectrumStyle")
+    val spectrumVocal = booleanPreferencesKey("spectrumVocal")
+    val spectrumRefreshMs = intPreferencesKey("spectrumRefreshMs")
+    val spectrumColor = intPreferencesKey("spectrumColor")
+    val spectrumDelayMs = intPreferencesKey("spectrumDelayMs")
     val bitPerfect = booleanPreferencesKey("bitPerfect")
     val usbDirect = booleanPreferencesKey("usbDirect")
     val usbVolume = intPreferencesKey("usbVolume")
@@ -287,9 +344,28 @@ class SettingsRepository(private val context: Context) {
             externalMedia = p[Keys.externalMedia] ?: d.externalMedia,
             spotifyEnabled = p[Keys.spotifyEnabled] ?: d.spotifyEnabled,
             usbStabilize = p[Keys.usbStabilize] ?: d.usbStabilize,
+            usbDacReturnOnExit = p[Keys.usbDacReturnOnExit] ?: d.usbDacReturnOnExit,
             dacKeepAlive = p[Keys.dacKeepAlive] ?: d.dacKeepAlive,
             dacKeepAliveTarget = p[Keys.dacKeepAliveTarget] ?: d.dacKeepAliveTarget,
             ambientBlurLevel = (p[Keys.ambientBlurLevel] ?: d.ambientBlurLevel).coerceIn(1, 10),
+            spectrum = p[Keys.spectrum] ?: d.spectrum,
+            appearance = (p[Keys.appearance] ?: d.appearance).coerceIn(0, 1),
+            controlOrder = p[Keys.controlOrder] ?: d.controlOrder,
+            favSort = (p[Keys.favSort] ?: d.favSort).coerceIn(0, 3),
+            fineVolume = p[Keys.fineVolume] ?: d.fineVolume,
+            hideStatusBar = p[Keys.hideStatusBar] ?: d.hideStatusBar,
+            appVolumeStep = (p[Keys.appVolumeStep] ?: d.appVolumeStep).coerceIn(0, 200),
+            usbVolumeStep = (p[Keys.usbVolumeStep] ?: d.usbVolumeStep).let { if (it in setOf(1, 2, 4)) it else 4 },
+            glassOpacity = (p[Keys.glassOpacity] ?: d.glassOpacity).coerceIn(10, 95),
+            glassTint = p[Keys.glassTint] ?: d.glassTint,
+            upSpec = com.uyatame.ucrt.convert.decodeConvertSpec(p[Keys.upSpec]),
+            upOutUri = p[Keys.upOutUri],
+            dsrePresets = p[Keys.dsrePresets] ?: d.dsrePresets,
+            spectrumStyle = (p[Keys.spectrumStyle] ?: d.spectrumStyle).coerceIn(0, 4),
+            spectrumVocal = p[Keys.spectrumVocal] ?: d.spectrumVocal,
+            spectrumRefreshMs = (p[Keys.spectrumRefreshMs] ?: d.spectrumRefreshMs).coerceIn(8, 200),
+            spectrumColor = p[Keys.spectrumColor] ?: d.spectrumColor,
+            spectrumDelayMs = (p[Keys.spectrumDelayMs] ?: d.spectrumDelayMs).coerceIn(0, 500),
             bitPerfect = p[Keys.bitPerfect] ?: d.bitPerfect,
             usbDirect = p[Keys.usbDirect] ?: d.usbDirect,
             usbVolume = p[Keys.usbVolume] ?: d.usbVolume,

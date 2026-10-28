@@ -42,6 +42,8 @@ internal class DacFormat(val rate: Int, val channels: Int, val subslot: Int, val
  */
 object UsbDac {
     private const val ACTION_PERMISSION = "com.uyatame.ucrt.DAC_PERMISSION"
+    /** 音が止まってから、Android が出力を休ませる(USB オーディオのカードを閉じる)までの時間(ゆとりを持たせて) */
+    private const val ANDROID_STANDBY_MS = 3500L
     private val main = Handler(Looper.getMainLooper())
 
     private lateinit var app: Context
@@ -662,15 +664,61 @@ object UsbDac {
         }
     }
 
+    /** アプリを終了するときに、DAC を Android に返すか(設定。返さなければ、挿し直すまでほかのアプリの音は DAC から出ない) */
+    @Volatile var returnOnExit = true
+
+    /**
+     * アプリを終了するとき(メイン以外のスレッドから): DAC を起こしておく無音を止めてから、設定に従って DAC を返して閉じる。
+     * 返すときは、Android の音声が前の DAC を手放すのを待つので、数秒かかることがある
+     */
+    fun closeForExit() {
+        AudioEngine.log("usb dac: closing for exit (return to Android: $returnOnExit)")
+        close(reattach = returnOnExit)
+    }
+
+    /**
+     * Android の音声の経路が、前の DAC を手放すまで待つ(DAC を返す前)。
+     *
+     * DAC を確保すると Android の USB オーディオ(ALSA のカード)は切り離されるが、Android 自身は DAC がつながったままだと
+     * 思っているので、その間に Android の経路で鳴っていた音(音切れ対策の無音・DAC を起こしておく無音・ほかのアプリの音)は
+     * 切り離されたカードを開いたままにする。開いたまま返すとカードが別の番号で作り直され、Android は古い番号に出し続けて
+     * 音が出なくなる。音が止まってから Android が出力を休ませる(カードを閉じる)まで約 3 秒かかるので、それを待つ
+     */
+    private fun waitAndroidIdle() {
+        val am = runCatching { ContextCompat.getSystemService(app, android.media.AudioManager::class.java) }.getOrNull()
+        val t0 = SystemClock.elapsedRealtime()
+        var last = max(UsbStabilizer.lastPlayedAt, com.uyatame.ucrt.player.DacKeepAlive.lastPlayedAt)
+        // ほかのアプリの音が鳴っている間は、止まるまで待つ(2 秒まで)
+        while (am?.isMusicActive == true && SystemClock.elapsedRealtime() - t0 < 2000) {
+            runCatching { Thread.sleep(100) }
+            last = SystemClock.elapsedRealtime()
+        }
+        if (last <= 0) return
+        val wait = (last + ANDROID_STANDBY_MS - SystemClock.elapsedRealtime()).coerceAtMost(ANDROID_STANDBY_MS)
+        if (wait > 0) {
+            AudioEngine.log("usb dac: waiting ${wait}ms for Android audio to let go of the DAC")
+            runCatching { Thread.sleep(wait) }
+        }
+    }
+
     /** DAC を手放す。reattach なら Android の USB オーディオに戻す */
     fun close(reattach: Boolean = true) = synchronized(lock) {
         val c = conn
+        // 音切れ対策の無音を、Android の経路から確実に下ろしてから止める(返すとき)
+        if (reattach && c != null && Looper.myLooper() != Looper.getMainLooper()) UsbStabilizer.stopAndAwait()
         stopStream()
         if (c != null) {
             suppressNoisy()
             val fd = c.fileDescriptor
             for (ui in claimed) runCatching { c.releaseInterface(ui) }
-            if (reattach) for (ui in claimed) Usbfs.reconnectKernelDriver(fd, ui.id)
+            if (reattach) {
+                // メインのスレッドで待つと画面が固まるので、そのときは待たない(閉じる処理は別のスレッドで呼ぶ)
+                if (Looper.myLooper() != Looper.getMainLooper()) waitAndroidIdle()
+                suppressNoisy()
+                // 制御インターフェースを先に戻す(USB オーディオのドライバーは、そこで再生インターフェースもまとめて引き取る)
+                val failed = claimed.filterNot { Usbfs.reconnectKernelDriver(fd, it.id) }.map { it.id }
+                AudioEngine.log("usb dac: returned to Android" + if (failed.isEmpty()) "" else " (reconnect failed: if${failed.joinToString(",if")})")
+            }
             runCatching { c.close() }
             AudioEngine.log("usb dac: closed")
         }

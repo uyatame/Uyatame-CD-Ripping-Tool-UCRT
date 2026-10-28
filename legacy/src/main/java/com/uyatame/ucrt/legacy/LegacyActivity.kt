@@ -110,6 +110,8 @@ class LegacyActivity : Activity() {
         super.onResume()
         current = this
         Disc.scan()
+        // カメラ・決済アプリなどに音を取られて止まっていたら、続きを再生する
+        app.player.resumeAfterInterruption()
         if (Burn.session != null) Burn.dialog()
         keepOn()
     }
@@ -616,8 +618,9 @@ class LegacyActivity : Activity() {
         if (Build.VERSION.SDK_INT < 19) return
         val hide = app.prefs.sp.getBoolean("hideNavBar", false)
         @Suppress("DEPRECATION")
+        // 中身をナビゲーションバーの場所まで広げる(LAYOUT_HIDE_NAVIGATION。これが無いと、隠した場所に余白が残る)
         window.decorView.systemUiVisibility = if (hide) {
-            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or 0x00001000 /* SYSTEM_UI_FLAG_IMMERSIVE_STICKY */ or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or 0x00001000 /* SYSTEM_UI_FLAG_IMMERSIVE_STICKY */ or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
         } else 0
     }
 

@@ -91,7 +91,7 @@ object Volume {
 
         init {
             setWillNotDraw(false)
-            num.textSize = 56f
+            num.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, com.uyatame.ucrt.legacy.ui.Ui.sp(56f))
             num.gravity = Gravity.CENTER
             val c = vbox(ctx, Gravity.CENTER)
             c.add(num, w = WRAP)

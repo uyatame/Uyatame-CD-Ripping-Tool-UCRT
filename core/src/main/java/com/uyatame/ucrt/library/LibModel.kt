@@ -73,7 +73,8 @@ val LIB_COVER_NAMES = setOf(
 /** ライブラリの一覧の保存・読み込みと、アルバムへのまとめ方 */
 object LibCore {
     /** 一覧の形式の版(音質・ジャンルを追加したので 2) */
-    const val CACHE_VERSION = 3
+    // 4: m4a の AAC を ALAC と取り違えていたので、読み直す
+    const val CACHE_VERSION = 4
 
     /**
      * 保存した一覧を読む。2 つ目の値は、前回の版で作った一覧で音質やジャンルの情報が入っていない(全曲を読み直す)とき true。
@@ -377,11 +378,13 @@ class TagScan(
             // MPEG-H 3D Audio(360 Reality Audio など)なら、そう記録する
             if (com.uyatame.ucrt.player.Mp4Probe.isMpegH(entry)) return readTagsRetriever(uri, name, folder, cover, mod).copy(codec = "MPEG-H")
             val t = readTagsRetriever(uri, name, folder, cover, mod)
-            // ALAC: Android 10 より前は周波数・ビット数を教えてくれないので、中身から読む(AAC なら 0 のまま)
-            if (entry != "alac" || t.bits > 0) return t
+            // AAC: Android はビット数(16 など)を返すことがあり、ALAC と取り違えないよう形式を記録し、ビット数は使わない
+            if (entry != null && entry != "alac") return t.copy(codec = "AAC", bits = 0)
+            // ALAC: Android 10 より前は周波数・ビット数を教えてくれないので、中身から読む
+            if (entry != "alac" || t.bits > 0) return t.copy(codec = "ALAC")
             val info = com.uyatame.ucrt.player.BuiltinCodecs.openInput(ctx, uri)?.use { com.uyatame.ucrt.player.BuiltinCodecs.info("alac", it) }
                 ?: return t
-            return t.copy(rate = info.rate, bits = info.bits, durationMs = if (t.durationMs > 0) t.durationMs else info.durationMs)
+            return t.copy(rate = info.rate, bits = info.bits, durationMs = if (t.durationMs > 0) t.durationMs else info.durationMs, codec = "ALAC")
         }
         return readTagsRetriever(uri, name, folder, cover, mod)
     }

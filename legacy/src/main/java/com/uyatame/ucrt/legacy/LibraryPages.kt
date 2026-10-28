@@ -156,7 +156,7 @@ object LibraryPages {
     /** 画面の幅(dp。横向きでは左のレールの分を除く) */
     fun widthDp(act: LegacyActivity): Int {
         val dm = act.resources.displayMetrics
-        return (dm.widthPixels / dm.density).toInt() - (if (act.useRail) 80 else 0) - act.paneWidthDp
+        return (dm.widthPixels / com.uyatame.ucrt.legacy.ui.Ui.density).toInt() - (if (act.useRail) 80 else 0) - act.paneWidthDp
     }
 
     /** アルバムのタイルの列の数(本家の GridCells.Adaptive(150dp)) */

@@ -2,6 +2,10 @@
 
 package com.uyatame.ucrt
 
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.foundation.basicMarquee
 import androidx.activity.compose.BackHandler
 import android.content.res.Configuration
 import androidx.compose.foundation.layout.WindowInsets
@@ -107,6 +111,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.calculateEndPadding
 import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
 import com.uyatame.ucrt.data.AppSettings
@@ -120,7 +128,7 @@ import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @Composable
-fun AppTheme(mode: Int, dynamic: Boolean, seed: Int, text: Int = 0, content: @Composable () -> Unit) {
+fun AppTheme(mode: Int, dynamic: Boolean, seed: Int, text: Int = 0, glass: Boolean = false, content: @Composable () -> Unit) {
     val dark = when (mode) { 1 -> false; 2 -> true; else -> isSystemInDarkTheme() }
     val ctx = LocalContext.current
     val scheme = if (dynamic && android.os.Build.VERSION.SDK_INT >= 31) {
@@ -138,14 +146,23 @@ fun AppTheme(mode: Int, dynamic: Boolean, seed: Int, text: Int = 0, content: @Co
             onSurfaceVariant = androidx.compose.ui.graphics.lerp(c, scheme.surface, 0.3f),
         )
     }
-    MaterialTheme(colorScheme = withText, content = content)
+    // リキッドグラス: メニュー・ダイアログ・シートの面を少し透かす(後ろの壁紙の色がにじむ。読みにくくならない程度に)
+    val glassy = if (!glass) withText else remember(withText) {
+        withText.copy(
+            surfaceContainer = withText.surfaceContainer.copy(alpha = 0.90f),
+            surfaceContainerHigh = withText.surfaceContainerHigh.copy(alpha = 0.92f),
+            surfaceContainerLow = withText.surfaceContainerLow.copy(alpha = 0.93f),
+            surfaceContainerHighest = withText.surfaceContainerHighest.copy(alpha = 0.70f),
+        )
+    }
+    MaterialTheme(colorScheme = glassy, content = content)
 }
 
 @Composable
 fun App(vm: MainViewModel) {
     val s by vm.settings.collectAsState()
     val sp: com.uyatame.ucrt.spotify.SpotifyViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-    AppTheme(s.themeMode, s.dynamicColor, s.themeColor, s.textColor) {
+    AppTheme(s.themeMode, s.dynamicColor, s.themeColor, s.textColor, s.appearance == 1) {
         val view = LocalView.current
         val keep = vm.busy && s.keepScreenOn
         DisposableEffect(keep) {
@@ -153,9 +170,14 @@ fun App(vm: MainViewModel) {
             onDispose { view.keepScreenOn = false }
         }
         // ナビゲーションバーを隠す(設定)。ほかのアプリから戻ったときなどに出てしまう分は MainActivity でかけ直す
-        DisposableEffect(s.hideNavBar) {
-            (view.context as? android.app.Activity)?.let { applyNavBar(it, view, s.hideNavBar) }
+        DisposableEffect(s.hideNavBar, s.hideStatusBar) {
+            (view.context as? android.app.Activity)?.let { applyNavBar(it, view, s.hideNavBar, s.hideStatusBar) }
             onDispose {}
+        }
+        // 窓の地の色もテーマの色にする(バーを隠したり出したりする間に、白い余白が見えないように)
+        val bg = MaterialTheme.colorScheme.background
+        androidx.compose.runtime.SideEffect {
+            (view.context as? android.app.Activity)?.window?.decorView?.setBackgroundColor(bg.toArgb())
         }
         var tab by rememberSaveable { mutableIntStateOf(0) }
         var settingsPage by rememberSaveable { mutableIntStateOf(0) }
@@ -245,12 +267,32 @@ fun App(vm: MainViewModel) {
             Triple(AppIcons.Library, S(R.string.library), 0),
             Triple(AppIcons.Album, S(R.string.disc), 1),
             Triple(AppIcons.Cloud, S(R.string.streaming), TAB_STREAMING),
+            Triple(AppIcons.Upsample, S(R.string.upsample), TAB_UPSAMPLE),
             Triple(Icons.Filled.Settings, S(R.string.settings), 2),
         )
-        CompositionLocalProvider(LocalTablet provides tablet, LocalShowArt provides s.listArt, LocalTrackArt provides s.trackArt) {
-        Box(Modifier.fillMaxSize()) {
+        // リキッドグラス: 下のタブとミニプレーヤーなどを、中身の上に浮かぶガラスにする
+        val glass = s.appearance == 1
+        val backdrop = rememberBackdrop()
+        var barsPx by remember { mutableIntStateOf(0) }
+        val barsDp = with(LocalDensity.current) { barsPx.toDp() }
+        CompositionLocalProvider(LocalTablet provides tablet, LocalShowArt provides s.listArt, LocalTrackArt provides s.trackArt, LocalGlass provides glass,
+            LocalGlassStyle provides GlassStyle(s.glassOpacity / 100f, if (s.glassTint == 0) null else Color(s.glassTint))) {
+        val sch = MaterialTheme.colorScheme
+        val darkUi = sch.surface.luminance() < 0.5f
+        Box(
+            Modifier.fillMaxSize().then(
+                if (glass) Modifier.glassWallpaper(sch.primary, sch.tertiary, sch.secondary, sch.background, darkUi) else Modifier,
+            ),
+        ) {
         Row(Modifier.fillMaxSize()) {
-        if (land) {
+        if (land && glass) {
+            Box(
+                Modifier.fillMaxHeight().windowInsetsPadding(
+                    WindowInsets.systemBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Vertical + WindowInsetsSides.Start),
+                ).padding(start = 10.dp, top = 8.dp, bottom = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) { GlassRail(tabs, tab, onTab) }
+        } else if (land) {
             NavigationRail(
                 Modifier.fillMaxHeight(),
                 containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -266,14 +308,16 @@ fun App(vm: MainViewModel) {
         }
         Scaffold(
             modifier = Modifier.weight(1f),
+            // リキッドグラスでは、後ろの壁紙を見せる
+            containerColor = if (glass) Color.Transparent else MaterialTheme.colorScheme.background,
             // 全画面の再生画面を出している間は、お知らせをその上に出す(下の重ね書きを参照)
-            snackbarHost = { if (!playerOverlay) SnackbarHost(snackHost) },
+            snackbarHost = { if (!playerOverlay) SnackbarHost(snackHost, if (glass) Modifier.padding(bottom = barsDp) else Modifier) },
             // 横向き: 左の端はレールが受け持つので、中身は上・右・下だけ避ける
             contentWindowInsets = if (land) {
                 WindowInsets.systemBars.union(WindowInsets.displayCutout)
                     .only(WindowInsetsSides.Top + WindowInsetsSides.End + WindowInsetsSides.Bottom)
             } else ScaffoldDefaults.contentWindowInsets,
-            bottomBar = {
+            bottomBar = if (glass) ({}) else ({
                 Column(
                     if (land) {
                         Modifier.windowInsetsPadding(
@@ -294,17 +338,49 @@ fun App(vm: MainViewModel) {
                         }
                     }
                 }
-            },
+            }),
         ) { pad ->
             // タブごとに、スクロールの位置などを覚えておく(タブを切り替えて戻ったときに、元の位置に戻れるように)
             val tabStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
-            Box(Modifier.padding(pad).fillMaxSize()) {
+            val screens: @Composable () -> Unit = {
                 tabStates.SaveableStateProvider("tab$tab") {
                     when (tab) {
                         0 -> LibraryScreen(vm, s)
                         1 -> CdScreen(vm, s) { tab = 2; settingsPage = 0 }
                         TAB_STREAMING -> StreamingScreen(vm, sp, s, spotifyOpen, { spotifyOpen = it }) { showSpotifyPlayer = true }
+                        TAB_UPSAMPLE -> UpsampleScreen(vm, s)
                         else -> SettingsScreen(vm, s, settingsPage) { settingsPage = it }
+                    }
+                }
+            }
+            if (!glass) {
+                Box(Modifier.padding(pad).fillMaxSize()) { screens() }
+            } else {
+                // 中身は画面の下の端まで広げ(ガラスの下までスクロールできる)、いちばん下にはガラスの分の余白を足す
+                val dir = LocalLayoutDirection.current
+                // 後ろの中身をぼかして映すのは Android 12 から(それより前は、記録もしない)
+                val blurOk = android.os.Build.VERSION.SDK_INT >= 31
+                CompositionLocalProvider(LocalBackdrop provides (if (blurOk) backdrop else null)) {
+                    Box(Modifier.fillMaxSize()) {
+                        Box(
+                            Modifier.fillMaxSize().padding(top = pad.calculateTopPadding(), start = pad.calculateStartPadding(dir), end = pad.calculateEndPadding(dir))
+                                .then(if (blurOk) Modifier.backdropSource(backdrop) else Modifier),
+                        ) {
+                            CompositionLocalProvider(LocalBarInset provides barsDp) { screens() }
+                        }
+                        Column(
+                            Modifier.align(Alignment.BottomCenter).fillMaxWidth().onSizeChanged { barsPx = it.height }
+                                .windowInsetsPadding(
+                                    WindowInsets.navigationBars.union(WindowInsets.displayCutout)
+                                        .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
+                                )
+                                .padding(bottom = 8.dp),
+                        ) {
+                            if (vm.busy) RipBar(vm) { tab = 1 }
+                            if (vm.player.current != null && !pane) MiniPlayer(vm) { showPlayer = true }
+                            if (s.spotifyEnabled && sp.connected && sp.hasTrack && (tab == TAB_STREAMING || !sp.paused)) SpotifyBar(sp) { showSpotifyPlayer = true }
+                            if (!land) GlassTabBar(tabs, tab, onTab, Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp))
+                        }
                     }
                 }
             }
@@ -371,14 +447,17 @@ fun App(vm: MainViewModel) {
 // ---------------- 共通部品 ----------------
 
 /** ナビゲーションバーを隠す・出す。隠している間も、画面の下の端からスワイプすると一時的に出る */
-fun applyNavBar(activity: android.app.Activity, view: android.view.View, hide: Boolean) {
+fun applyNavBar(activity: android.app.Activity, view: android.view.View, hide: Boolean, hideStatus: Boolean = false) {
     val c = androidx.core.view.WindowCompat.getInsetsController(activity.window, view)
-    if (hide) {
+    val nav = androidx.core.view.WindowInsetsCompat.Type.navigationBars()
+    val status = androidx.core.view.WindowInsetsCompat.Type.statusBars()
+    // 中身は画面の端まで描く(隠したバーの場所に、白い余白が残らないように)
+    androidx.core.view.WindowCompat.setDecorFitsSystemWindows(activity.window, false)
+    if (hide || hideStatus) {
         c.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        c.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-    } else {
-        c.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
     }
+    if (hide) c.hide(nav) else c.show(nav)
+    if (hideStatus) c.hide(status) else c.show(status)
 }
 
 /** タブレットモードか(設定と画面の大きさで決まる) */
@@ -432,7 +511,7 @@ fun PageHeader(title: String, onBack: () -> Unit) {
 
 @Composable
 fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
+    UCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             content()
@@ -667,7 +746,7 @@ fun RipBar(vm: MainViewModel, onOpen: () -> Unit) {
             dismissButton = { TextButton({ confirmCancel = false }) { Text(S(R.string.continue_label)) } },
         )
     }
-    Surface(color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+    BarSurface(onOpen, MaterialTheme.colorScheme.primaryContainer) {
         Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(AppIcons.Download, null, Modifier.size(20.dp))
@@ -697,7 +776,7 @@ fun MiniPlayer(vm: MainViewModel, onOpen: () -> Unit) {
     val shift = remember { Animatable(0f) }
     val density = LocalDensity.current
     val limit = with(density) { 72.dp.toPx() }
-    Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+    BarSurface(onOpen) {
         Column {
             LinearProgressIndicator(
                 progress = { if (p.durationMs > 0) (p.positionMs.toFloat() / p.durationMs).coerceIn(0f, 1f) else 0f },
@@ -733,11 +812,14 @@ fun MiniPlayer(vm: MainViewModel, onOpen: () -> Unit) {
                     PlayArt(vm, cur, Modifier.size(44.dp), 6.dp, 44.dp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(cur.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            cur.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, softWrap = false,
+                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000, repeatDelayMillis = 3000),
+                        )
                         Text(
                             (if (p.isCd) S(R.string.cd) else "") + cur.artist,
                             style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.72f),
                         )
                     }
                 }

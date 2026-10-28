@@ -35,6 +35,12 @@ class ArtView(ctx: Context, var cornerDp: Float = 8f) : View(ctx) {
     private val placeholder = IconDrawable(Icons.Album, Pal.onSurfaceVariant, dp(24))
     private val bars = IconDrawable(Icons.Bars, 0xFFFFFFFF.toInt(), dp(20))
 
+    init {
+        // Android 4.3 より前の画面の描画(ハードウェア)は、画像の拡大・縮小(シェーダーの行列)を途中で変えると反映されず、
+        // ジャケットが枠に合わずに伸びて見えるので、この部品だけソフトウェアで描く
+        if (android.os.Build.VERSION.SDK_INT < 18) setLayerType(LAYER_TYPE_SOFTWARE, null)
+    }
+
     override fun onMeasure(w: Int, h: Int) {
         if (square && MeasureSpec.getMode(w) == MeasureSpec.EXACTLY && MeasureSpec.getMode(h) != MeasureSpec.EXACTLY) {
             val s = MeasureSpec.getSize(w)
@@ -92,8 +98,10 @@ class ArtView(ctx: Context, var cornerDp: Float = 8f) : View(ctx) {
             val crop = ratio in 0.8f..1.25f
             val sc: Float
             if (crop) {
-                sc = maxOf(w / b.width, h / b.height)
-                r.set(0f, 0f, w, h)
+                // 正方形に近い画像は、枠の中の正方形に描く(縦長・横長の枠でも、ジャケットの比率を崩さない)
+                val side = minOf(w, h)
+                r.set((w - side) / 2, (h - side) / 2, (w + side) / 2, (h + side) / 2)
+                sc = maxOf(side / b.width, side / b.height)
             } else {
                 sc = minOf(w / b.width, h / b.height)
                 val dw = b.width * sc; val dh = b.height * sc

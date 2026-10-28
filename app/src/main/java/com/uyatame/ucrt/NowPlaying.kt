@@ -2,6 +2,9 @@
 
 package com.uyatame.ucrt
 
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.foundation.basicMarquee
 import android.app.Activity
 import android.graphics.Bitmap
 import android.media.AudioManager
@@ -314,7 +317,7 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
     val col = playerColors(ambient)
 
     // 下にある画面へタッチが抜けないよう、空の pointerInput で受け止める
-    Box(Modifier.fillMaxSize().background(if (ambient) Color.Black else MaterialTheme.colorScheme.surface).pointerInput(Unit) {}) {
+    Box(Modifier.fillMaxSize().playerBackdrop(ambient).pointerInput(Unit) {}) {
         PlayerBackground(ambient, s.ambientBlur, s.ambientBlurLevel, art, tint, dim)
         CompositionLocalProvider(LocalContentColor provides col.content) {
             // 横向きでは、カメラの切り欠きが左右に来るので、そこも避ける
@@ -331,7 +334,8 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (inPane) Spacer(Modifier.size(48.dp))
                     else IconButton(onClose) { Icon(Icons.Filled.KeyboardArrowDown, S(R.string.close), tint = col.content) }
-                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.Center) {
+                    // ページの切り替え(リキッドグラスではガラスのカプセルの中に並べる)
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { GlassIf(RoundedCornerShape(22.dp)) { Row(horizontalArrangement = Arrangement.Center) {
                         listOf(S(R.string.favorites), S(R.string.playing), S(R.string.queue)).forEachIndexed { i, l ->
                             val sel = pager.currentPage == i
                             Column(
@@ -341,7 +345,8 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                             ) {
                                 Text(
                                     l, style = MaterialTheme.typography.labelLarge, maxLines = 1,
-                                    color = if (sel) col.content else col.sub.copy(alpha = 0.6f),
+                                    // (ガラスの中では、ガラスに合わせた読みやすい色)
+                                    color = if (sel) LocalContentColor.current else LocalContentColor.current.copy(alpha = 0.55f),
                                     fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
                                 )
                                 Box(
@@ -350,7 +355,7 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                                 )
                             }
                         }
-                    }
+                    } } }
                     // キャスト(Chromecast)
                     val castTo = com.uyatame.ucrt.player.cast.CastManager.connected
                     IconButton({ showCast = true }) {
@@ -547,6 +552,7 @@ private fun PlayerPage(
                 Text(
                     detail?.text ?: " ", style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.titleSmall,
                     color = col.accent, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000),
                 )
             }
             Spacer(Modifier.height(if (compact) 2.dp else 6.dp))
@@ -585,17 +591,13 @@ private fun PlayerPage(
                             .padding(vertical = 2.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Text(
-                            cur.title, style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
-                            textAlign = TextAlign.Center, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold,
+                        // 長い曲名・狭い画面では、1 行に収めて流す
+                        MarqueeText(
+                            cur.title, if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
+                            LocalContentColor.current, FontWeight.Bold,
                         )
-                        Text(
-                            cur.artist, style = if (compact) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleMedium,
-                            color = col.sub, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
-                        if (cur.album.isNotEmpty() && !tiny) {
-                            Text(cur.album, style = MaterialTheme.typography.bodyMedium, color = col.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
+                        MarqueeText(cur.artist, if (compact) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleMedium, col.sub)
+                        if (cur.album.isNotEmpty() && !tiny) MarqueeText(cur.album, MaterialTheme.typography.bodyMedium, col.sub)
                     }
                     if (lib != null) {
                         DropdownMenu(related, { related = false }) {
@@ -624,6 +626,16 @@ private fun PlayerPage(
                 }
             }
             Spacer(Modifier.height(if (compact) 4.dp else 12.dp))
+            // ---- スペクトラムアナライザー(設定でオンにしたとき。とても狭い画面では出さない) ----
+            if (s.spectrum && !tiny && !tight) {
+                SpectrumView(
+                    s.spectrumStyle, s.spectrumVocal, s.spectrumRefreshMs, s.spectrumDelayMs,
+                    if (s.spectrumColor == 0) col.accent else Color(s.spectrumColor),
+                    if (compact) 40.dp else 56.dp,
+                    onStyle = { vm.set(com.uyatame.ucrt.data.Keys.spectrumStyle, it) },
+                )
+                Spacer(Modifier.height(if (compact) 4.dp else 8.dp))
+            }
             // ---- 再生位置 ----
             SeekBar(p, dur, seeking, col, { seeking = it }) {
                 seeking?.let { p.seek((it * dur).toLong()) }
@@ -631,29 +643,32 @@ private fun PlayerPage(
             }
             Spacer(Modifier.height(if (compact) 2.dp else 10.dp))
             // ---- 再生操作 ----
+            // ボタンの並びは設定で変えられる(R: リピート、P: 前、X: 再生、N: 次、S: シャッフル)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                IconButton({ p.cycleRepeat() }) {
-                    Icon(
-                        if (p.repeatMode == 2) AppIcons.RepeatOne else AppIcons.Repeat,
-                        when (p.repeatMode) { 1 -> S(R.string.repeat_all); 2 -> S(R.string.repeat_one); else -> S(R.string.repeat_off) },
-                        tint = if (p.repeatMode != 0) col.accent else col.sub,
-                    )
-                }
-                OutlinedIconButton({ p.prev() }, Modifier.size(skipSize), border = BorderStroke(2.dp, col.content)) {
-                    Icon(AppIcons.SkipPrevious, S(R.string.previous_track), Modifier.size(skipSize * 0.47f), tint = col.content)
-                }
-                OutlinedIconButton({ p.toggle() }, Modifier.size(playSize), shape = CircleShape, border = BorderStroke(2.5.dp, col.content)) {
-                    Icon(
-                        if (p.isPlaying) AppIcons.Pause else Icons.Filled.PlayArrow,
-                        if (p.isPlaying) S(R.string.pause) else S(R.string.play),
-                        Modifier.size(playSize * 0.52f), tint = col.content,
-                    )
-                }
-                OutlinedIconButton({ p.next() }, Modifier.size(skipSize), border = BorderStroke(2.dp, col.content)) {
-                    Icon(AppIcons.SkipNext, S(R.string.next_track), Modifier.size(skipSize * 0.47f), tint = col.content)
-                }
-                IconButton({ p.toggleShuffle() }) {
-                    Icon(AppIcons.Shuffle, S(R.string.shuffle_2), tint = if (p.shuffle) col.accent else col.sub)
+                for (c in controlOrder(s.controlOrder)) when (c) {
+                    'R' -> IconButton({ p.cycleRepeat() }) {
+                        Icon(
+                            if (p.repeatMode == 2) AppIcons.RepeatOne else AppIcons.Repeat,
+                            when (p.repeatMode) { 1 -> S(R.string.repeat_all); 2 -> S(R.string.repeat_one); else -> S(R.string.repeat_off) },
+                            tint = if (p.repeatMode != 0) col.accent else col.sub,
+                        )
+                    }
+                    'P' -> OutlinedIconButton({ p.prev() }, Modifier.size(skipSize), border = BorderStroke(2.dp, col.content)) {
+                        Icon(AppIcons.SkipPrevious, S(R.string.previous_track), Modifier.size(skipSize * 0.47f), tint = col.content)
+                    }
+                    'X' -> OutlinedIconButton({ p.toggle() }, Modifier.size(playSize), shape = CircleShape, border = BorderStroke(2.5.dp, col.content)) {
+                        Icon(
+                            if (p.isPlaying) AppIcons.Pause else Icons.Filled.PlayArrow,
+                            if (p.isPlaying) S(R.string.pause) else S(R.string.play),
+                            Modifier.size(playSize * 0.52f), tint = col.content,
+                        )
+                    }
+                    'N' -> OutlinedIconButton({ p.next() }, Modifier.size(skipSize), border = BorderStroke(2.dp, col.content)) {
+                        Icon(AppIcons.SkipNext, S(R.string.next_track), Modifier.size(skipSize * 0.47f), tint = col.content)
+                    }
+                    'S' -> IconButton({ p.toggleShuffle() }) {
+                        Icon(AppIcons.Shuffle, S(R.string.shuffle_2), tint = if (p.shuffle) col.accent else col.sub)
+                    }
                 }
             }
             Spacer(Modifier.height(if (compact) 0.dp else 6.dp))
@@ -1093,9 +1108,12 @@ private fun VolumeSheet(vm: MainViewModel, onDismiss: () -> Unit, system: Boolea
     val ctx = LocalContext.current
     // ほかのアプリの音(system)は、DAC を直接使っていても Android の音量で変える
     val usb = !system && AudioEngine.output?.kind == OutputKind.UsbDirect
+    // 細かい音量: 通常の出力では、アプリの中の音量(0.5 dB ごと、200 段階)を変える
+    val st by vm.settings.collectAsState()
+    val fine = !system && !usb && st.fineVolume
     val am = remember { androidx.core.content.ContextCompat.getSystemService(ctx, AudioManager::class.java)!! }
-    val max = if (usb) 100 else am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-    fun read(): Int = if (usb) UsbDac.volume() else am.getStreamVolume(AudioManager.STREAM_MUSIC)
+    val max = if (usb) 100 else if (fine) 200 else am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+    fun read(): Int = if (usb) UsbDac.volume() else if (fine) vm.settings.value.appVolumeStep else am.getStreamVolume(AudioManager.STREAM_MUSIC)
     var v by remember(usb) { mutableIntStateOf(read()) }
     var touching by remember { mutableStateOf(false) }
     // 本体の音量ボタンで変えたときも表示を合わせる
@@ -1108,13 +1126,18 @@ private fun VolumeSheet(vm: MainViewModel, onDismiss: () -> Unit, system: Boolea
     fun setVol(nv: Int, save: Boolean) {
         val x = nv.coerceIn(0, max)
         v = x
-        if (usb) vm.setUsbVolume(x, save) else runCatching { am.setStreamVolume(AudioManager.STREAM_MUSIC, x, 0) }
+        if (usb) vm.setUsbVolume(x, save)
+        else if (fine) {
+            AudioEngine.appVolume = AudioEngine.appVolumeOf(x)
+            if (save) vm.set(com.uyatame.ucrt.data.Keys.appVolumeStep, x)
+        } else runCatching { am.setStreamVolume(AudioManager.STREAM_MUSIC, x, 0) }
     }
     val land = isLandscape()
     val title: @Composable () -> Unit = {
         Text(S(R.string.volume), style = MaterialTheme.typography.titleLarge)
         Text(
-            (AudioEngine.output?.name ?: S(R.string.output)) + if (usb) S(R.string.dac_volume_2) else "",
+            (AudioEngine.output?.name ?: S(R.string.output)) + (if (usb) S(R.string.dac_volume_2) else "") +
+                (if (fine) S(R.string.fine_volume_now, "%.1f".format((v - 200) * 0.5f)) else ""),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -1324,7 +1347,7 @@ fun ExternalPlayerScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit)
     var seeking by remember(n.title) { mutableStateOf<Float?>(null) }
     val dur = n.durationMs.coerceAtLeast(1)
 
-    Box(Modifier.fillMaxSize().background(if (ambient) Color.Black else MaterialTheme.colorScheme.surface).pointerInput(Unit) {}) {
+    Box(Modifier.fillMaxSize().playerBackdrop(ambient).pointerInput(Unit) {}) {
         PlayerBackground(ambient, s.ambientBlur, s.ambientBlurLevel, art, tint, dim)
         CompositionLocalProvider(LocalContentColor provides col.content) {
             val bars = if (isLandscape()) Modifier.windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
@@ -1401,19 +1424,14 @@ fun ExternalPlayerScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit)
                         }
                         Spacer(Modifier.height(if (compact) 4.dp else 10.dp))
                         // ---- 曲名 ----
-                        Text(
-                            n.title, style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
-                            textAlign = TextAlign.Center, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold,
+                        MarqueeText(
+                            n.title, if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
+                            LocalContentColor.current, FontWeight.Bold,
                         )
                         if (n.artist.isNotEmpty()) {
-                            Text(
-                                n.artist, style = if (compact) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleMedium,
-                                color = col.sub, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            )
+                            MarqueeText(n.artist, if (compact) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleMedium, col.sub)
                         }
-                        if (n.album.isNotEmpty() && !tiny) {
-                            Text(n.album, style = MaterialTheme.typography.bodyMedium, color = col.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
+                        if (n.album.isNotEmpty() && !tiny) MarqueeText(n.album, MaterialTheme.typography.bodyMedium, col.sub)
                         Spacer(Modifier.height(if (compact) 4.dp else 12.dp))
                         // ---- 再生位置(長さが分からない曲・シークできないアプリでは操作できない) ----
                         if (n.durationMs > 0) {
@@ -1502,3 +1520,31 @@ fun ExternalPlayerScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit)
         }
     }
 }
+
+
+/**
+ * 1 行に収まらない文字を、横に流して全部見せる(収まるときは真ん中に止めて出す)。
+ * 再生画面の曲名など。狭い画面でも途中で切れない
+ */
+@Composable
+fun MarqueeText(text: String, style: androidx.compose.ui.text.TextStyle, color: Color, weight: FontWeight? = null, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Text(
+            text, style = style, color = color, fontWeight = weight, maxLines = 1, softWrap = false,
+            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 1500, repeatDelayMillis = 2000, velocity = 40.dp),
+        )
+    }
+}
+
+
+/** 再生画面の背景(リキッドグラスでアンビエントモードでなければ、にじむ色の壁紙) */
+@Composable
+private fun Modifier.playerBackdrop(ambient: Boolean): Modifier {
+    val sch = MaterialTheme.colorScheme
+    return if (LocalGlass.current && !ambient) glassWallpaper(sch.primary, sch.tertiary, sch.secondary, sch.surface, sch.surface.luminance() < 0.5f)
+    else background(if (ambient) Color.Black else sch.surface)
+}
+
+
+/** 再生操作のボタンの並び(壊れた値なら初めの並び) */
+fun controlOrder(v: String): String = if (v.length == 5 && v.toSet() == "RPXNS".toSet()) v else "RPXNS"

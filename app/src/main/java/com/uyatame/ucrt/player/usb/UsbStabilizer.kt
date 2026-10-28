@@ -30,6 +30,9 @@ object UsbStabilizer {
     private var silence: Thread? = null
     private var track: AudioTrack? = null
     private var wake: PowerManager.WakeLock? = null
+    /** 無音を Android の音声の経路に最後に流していた時刻(SystemClock.elapsedRealtime。流していなければ 0) */
+    @Volatile var lastPlayedAt = 0L
+        private set
 
     private val frame = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
@@ -56,17 +59,24 @@ object UsbStabilizer {
         }
     }
 
-    fun stop() {
+    fun stop() = stopAndAwait(0L)
+
+    /** 止める。timeoutMs > 0 なら、無音を流すスレッドが AudioTrack を手放すまで待つ(DAC を Android に返す前) */
+    fun stopAndAwait(timeoutMs: Long = 800L) {
+        val worker: Thread?
         synchronized(lock) {
             if (!running) return
             running = false
+            if (track != null) lastPlayedAt = android.os.SystemClock.elapsedRealtime()
             runCatching { track?.pause(); track?.flush() }
-            silence?.interrupt()
+            worker = silence
+            worker?.interrupt()
             silence = null
             runCatching { wake?.takeIf { it.isHeld }?.release() }
             wake = null
             main.post { Choreographer.getInstance().removeFrameCallback(frame) }
         }
+        if (timeoutMs > 0 && worker != null && worker !== Thread.currentThread()) runCatching { worker.join(timeoutMs) }
     }
 
     /** 無音を Android の音声の経路に流し続ける(止めるまで) */
@@ -106,6 +116,7 @@ object UsbStabilizer {
             synchronized(lock) { if (track === t) track = null }
             runCatching { t.stop() }
             t.release()
+            lastPlayedAt = android.os.SystemClock.elapsedRealtime()
         }
     }
 }

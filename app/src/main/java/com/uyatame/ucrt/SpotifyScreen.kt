@@ -13,6 +13,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.foundation.layout.Spacer
@@ -213,7 +214,7 @@ private fun SpotifySetup(sp: SpotifyViewModel, onBack: () -> Unit) {
     val login = rememberSpotifyLogin(sp)
     var id by rememberSaveable { mutableStateOf(sp.clientId) }
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp + barInset()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         SpHeader(onBack)
@@ -222,7 +223,7 @@ private fun SpotifySetup(sp: SpotifyViewModel, onBack: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (!installed) {
-            Card(Modifier.fillMaxWidth()) {
+            UCard(Modifier.fillMaxWidth()) {
                 Text(S(R.string.spotify_app_is_not_installed), Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
             }
         }
@@ -294,7 +295,7 @@ private fun SpotifyHome(sp: SpotifyViewModel, play: SpPlay, onBack: () -> Unit) 
     val login = rememberSpotifyLogin(sp)
     val focus = LocalFocusManager.current
     var menu by remember { mutableStateOf(false) }
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = barInset())) {
         item {
             SpHeader(onBack) {
                 Box {
@@ -329,7 +330,7 @@ private fun SpotifyHome(sp: SpotifyViewModel, play: SpPlay, onBack: () -> Unit) 
         }
         if (sp.needsReauth) {
             item {
-                Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                UCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(S(R.string.spotify_please_allow_again), style = MaterialTheme.typography.bodyMedium)
                         Button(login) { Text(S(R.string.spotify_log_in_again)) }
@@ -575,7 +576,7 @@ private fun SpTrackPage(
     fetch: SpFetch,
 ) {
     val l = sp.list(key)
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = barInset())) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) { PageHeader(title) { sp.pop() } }
@@ -632,7 +633,7 @@ private fun SpCollectionPage(
     val l = sp.list(key)
     var creating by remember { mutableStateOf(false) }
     if (creating) NewPlaylistDialog({ creating = false }) { name -> creating = false; sp.createPlaylistAndAdd(name, emptyList()) }
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = barInset())) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) { PageHeader(title) { sp.pop() } }
@@ -655,7 +656,7 @@ private fun SpArtistPage(sp: SpotifyViewModel, play: SpPlay, artist: SpItem) {
     val key = "artist:${artist.id}"
     val fetch: SpFetch = { c, o, _ -> SpotifyApi.artistAlbums(c, artist.id, o) }
     val l = sp.list(key)
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = barInset())) {
         item { PageHeader(artist.title) { sp.pop() } }
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -786,7 +787,7 @@ fun SpotifyBar(sp: SpotifyViewModel, onOpen: () -> Unit) {
             delay(500)
         }
     }
-    Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+    BarSurface(onOpen) {
         Column {
             LinearProgressIndicator(
                 progress = { if (sp.durationMs > 0) (pos.toFloat() / sp.durationMs).coerceIn(0f, 1f) else 0f },
@@ -800,7 +801,7 @@ fun SpotifyBar(sp: SpotifyViewModel, onOpen: () -> Unit) {
                     Text(
                         "Spotify" + S(R.string.separator) + sp.trackArtist,
                         style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.72f),
                     )
                 }
                 IconButton({ sp.prev(ctx) }, enabled = sp.canSkipPrev) { Icon(AppIcons.SkipPrevious, S(R.string.spotify_previous_track)) }

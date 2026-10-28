@@ -7,7 +7,7 @@ import java.io.IOException
  * DSD(DSF / DSDIFF)を PCM にして読む(DsdToPcm で 176.4 kHz / 192 kHz の PCM にする)。24 ビットの整数で出す。
  * DSD を DSD のまま出せない出力先(古い Android の AudioTrack など)で使う
  */
-internal class DsdPcmDecoder(private val file: RandomFile) : PcmDecoder {
+internal class DsdPcmDecoder(private val file: RandomFile, private val hq: Boolean = false) : PcmDecoder {
     override var sampleRate = 0
         private set
     override var channels = 0
@@ -36,7 +36,7 @@ internal class DsdPcmDecoder(private val file: RandomFile) : PcmDecoder {
         info = DsdFile.parse(file)
         if (info.compressed) throw IOException("DSD: DST not supported")
         channels = info.channels
-        conv = DsdToPcm(info.rate, channels)
+        conv = DsdToPcm(info.rate, channels, hq)
         sampleRate = conv.outRate
         bytesPerOut = info.rate / 8 / sampleRate
         totalSamples = info.bytesPerChannel / bytesPerOut
