@@ -450,12 +450,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 com.uyatame.ucrt.player.AudioEngine.preferredKey = s.outputDevice
                 val eng = com.uyatame.ucrt.player.AudioEngine
                 val dar = s.darEffective
-                val darChanged = eng.darMode != dar || eng.darPcm != s.darPcm || eng.darDsd != s.darDsd || eng.darInteger != s.darInteger
+                val darChanged = eng.darMode != dar || eng.darPcm != s.darPcm || eng.darDsd != s.darDsd || eng.darDsd48 != s.darDsd48 || eng.darInteger != s.darInteger
                 // DSD の周波数を選び直したら、自動で下げた上限は解除する
                 if (eng.darDsd != s.darDsd) eng.darDsdLimit = 0
                 eng.darMode = dar
                 eng.darPcm = s.darPcm
                 eng.darDsd = s.darDsd
+                eng.darDsd48 = s.darDsd48
                 eng.darInteger = s.darInteger
                 // DAR は PCM の曲に使う(PCM アップサンプリングは通常の出力でも)。DAR の DSD 変換は DSD の出力の設定も使う。
                 // USB DAC 直接出力でイコライザーを入り切りしたときも、出力の状態(ビットパーフェクトか)を作り直す

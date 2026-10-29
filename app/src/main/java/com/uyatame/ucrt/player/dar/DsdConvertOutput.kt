@@ -25,8 +25,8 @@ internal class DsdConvertOutput private constructor(
     override val sampleRate: Int,
     private val srcChannels: Int,
     private val sink: DsdSink,
-    /** DSD の周波数 ÷ 入力の周波数 */
-    private val ratio: Int,
+    /** DSD の周波数 */
+    dsdRate: Int,
     align: Int,
     /** DSD64 なら 64 など(処理が追いつかないときに下げるため) */
     private val mult: Int,
@@ -35,13 +35,16 @@ internal class DsdConvertOutput private constructor(
         private set
     override val failed: Boolean get() = sink.failed
 
+    /** DSD の周波数 ÷ 入力の周波数(48 kHz 系の音源では整数にならない) */
+    private val ratio = dsdRate.toDouble() / sampleRate
+
     @Volatile private var released = false
     /** 変調が追いつかない状態が続いた回数(約 2 秒ごとに数える) */
     private var overload = 0
 
     /** 変換(複数のコアで流れ作業)。出来た DSD は変換のスレッドから出力先へ送る */
     private val conv = PcmToDsd(
-        sampleRate, ratio, align,
+        sampleRate, dsdRate, align,
         out = { bytes, n -> sink.write(bytes, n) { released } },
         onLoad = { load -> checkLoad(load) },
     )
@@ -125,11 +128,12 @@ internal class DsdConvertOutput private constructor(
          */
         fun open(ctx: Context, attrs: AudioAttributes, srcRate: Int, srcChannels: Int): DsdConvertOutput? {
             if (srcChannels !in 1..2) return null
-            val family = when {
-                srcRate % 44100 == 0 -> 44100
-                srcRate % 48000 == 0 -> 48000
-                else -> return null
-            }
+            if (srcRate % 44100 != 0 && srcRate % 48000 != 0) return null
+            // DSD は初めは 44.1 kHz 系(DSD64 = 2.8224 MHz など)にする。48 kHz 系の DSD(DSD64 = 3.072 MHz など)は
+            // 対応していない DAC が多く、周波数の設定は受け付けてもノイズになるため(48 kHz の WAV・MPEG-H などで起きていた)。
+            // 48 kHz 系の音源は、変換の途中の直線補間で 44.1 kHz 系に合わせる。
+            // 設定でオンにしたときは、48 kHz 系の音源を 48 kHz 系の DSD のまま送る(対応している DAC 向け。整数倍で変換できる)
+            val family = if (AudioEngine.darDsd48 && srcRate % 48000 == 0) 48000 else 44100
             val limit = AudioEngine.darDsdLimit
             val mults = when (AudioEngine.darDsd) {
                 2 -> listOf(256, 128, 64)
@@ -138,8 +142,7 @@ internal class DsdConvertOutput private constructor(
             }.filter { limit <= 0 || it <= limit }.ifEmpty { listOf(64) }
             for (m in mults) {
                 val dsdRate = family * m
-                if (dsdRate % srcRate != 0) continue
-                val ratio = dsdRate / srcRate
+                val ratio = dsdRate.toDouble() / srcRate
                 if (ratio < 2) continue
                 val sink = openSink(ctx, attrs, dsdRate) ?: continue
                 // ネイティブ DSD は 4 バイト、DoP は 2 バイト単位で送る
@@ -151,8 +154,8 @@ internal class DsdConvertOutput private constructor(
                     "DAR · DSD$m ($how) · ${AudioEngine.khz(srcRate)} → ${"%.4f".format(java.util.Locale.US, dsdRate / 1e6)} MHz · " +
                         AudioEngine.bitrateText(dsdRate.toLong() * OUT_CH),
                 )
-                AudioEngine.log("dar: pcm ${AudioEngine.khz(srcRate)} ${srcChannels}ch -> DSD$m ($dsdRate Hz, x$ratio) via $how")
-                return DsdConvertOutput(srcRate, srcChannels, sink, ratio, align, m)
+                AudioEngine.log("dar: pcm ${AudioEngine.khz(srcRate)} ${srcChannels}ch -> DSD$m ($dsdRate Hz, x${"%.4g".format(java.util.Locale.US, ratio)}) via $how")
+                return DsdConvertOutput(srcRate, srcChannels, sink, dsdRate, align, m)
             }
             return null
         }

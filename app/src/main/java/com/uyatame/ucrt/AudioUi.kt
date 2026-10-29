@@ -208,6 +208,7 @@ fun DarPanel(vm: MainViewModel, s: AppSettings) {
                 S(R.string.if_dac_doesnt_support_selected),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            SwitchRow(S(R.string.dar_dsd_48k_family), S(R.string.dar_dsd_48k_family_desc), s.darDsd48) { vm.set(Keys.darDsd48, it) }
         }
         Text(
             S(R.string.dar_applies_to_pcm_tracks),

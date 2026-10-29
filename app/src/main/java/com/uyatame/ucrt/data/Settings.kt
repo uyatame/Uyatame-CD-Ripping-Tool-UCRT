@@ -165,6 +165,8 @@ data class AppSettings(
     val darPcm: Int = 0,
     /** DAR の DSD 変換の周波数: 0 = DSD64, 1 = DSD128, 2 = DSD256 */
     val darDsd: Int = 0,
+    /** DAR の DSD 変換で、48 kHz 系の音源を 48 kHz 系の DSD のまま送る(オフなら 44.1 kHz 系の DSD に合わせる。対応していない DAC が多いため) */
+    val darDsd48: Boolean = false,
     /** DAR の PCM アップサンプリングを整数倍だけで行う(通常の出力で、整数倍にできない出力先なら仕方なく合わせる) */
     val darInteger: Boolean = true,
 )
@@ -302,6 +304,7 @@ object Keys {
     val darMode = intPreferencesKey("darMode")
     val darPcm = intPreferencesKey("darPcm")
     val darDsd = intPreferencesKey("darDsd")
+    val darDsd48 = booleanPreferencesKey("darDsd48")
     val darInteger = booleanPreferencesKey("darInteger")
 }
 
@@ -404,6 +407,7 @@ class SettingsRepository(private val context: Context) {
             darMode = p[Keys.darMode] ?: d.darMode,
             darPcm = p[Keys.darPcm] ?: d.darPcm,
             darDsd = p[Keys.darDsd] ?: d.darDsd,
+            darDsd48 = p[Keys.darDsd48] ?: d.darDsd48,
             darInteger = p[Keys.darInteger] ?: d.darInteger,
         )
     }
