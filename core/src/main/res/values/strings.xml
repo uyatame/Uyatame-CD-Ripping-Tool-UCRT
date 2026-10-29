@@ -1269,4 +1269,6 @@
     <string name="rg_analysis_used_tags">" (%1$d songs use the values in their tags and were not analyzed)"</string>
     <string name="usb_stabilize">"Prevent dropouts (experimental)"</string>
     <string name="usb_stabilize_desc">"For devices where sound breaks up only while you aren\'t touching the screen. During direct output, keeps the device from slowing down to save power (uses a little more battery)."</string>
+    <string name="dar_dsd_48k_family">"Send 48 kHz-family sources as 48 kHz-family DSD"</string>
+    <string name="dar_dsd_48k_family_desc">"Off (recommended): 48 kHz-family sources (48 kHz WAV, MPEG-H and so on) are converted to 44.1 kHz-family DSD (DSD256 = 11.2896 MHz), which almost every DAC supports. On: they are sent as 48 kHz-family DSD (DSD256 = 12.288 MHz) by an integer ratio. Turn it on only if your DAC supports 48 kHz-family DSD; on other DACs you\'ll hear noise"</string>
 </resources>

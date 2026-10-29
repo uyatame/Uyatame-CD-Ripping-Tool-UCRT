@@ -91,6 +91,8 @@ object AudioEngine {
     @Volatile var darPcm = 0
     /** DAR の DSD 変換の周波数: 0 = DSD64, 1 = DSD128, 2 = DSD256 */
     @Volatile var darDsd = 0
+    /** DAR の DSD 変換で、48 kHz 系の音源を 48 kHz 系の DSD のまま送るか(false なら 44.1 kHz 系の DSD に合わせる) */
+    @Volatile var darDsd48 = false
     /** この端末で間に合う DSD 変換の上限(DSD64 なら 64。0 なら制限なし。変換が追いつかなかったときに下げる) */
     @Volatile var darDsdLimit = 0
     /** DAR の PCM アップサンプリングを整数倍だけで行うか(通常の出力) */

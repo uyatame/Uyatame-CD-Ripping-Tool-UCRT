@@ -1265,4 +1265,6 @@
     <string name="rg_analysis_used_tags">"（%1$d 曲はタグの値を使うので、解析しませんでした）"</string>
     <string name="usb_stabilize">"音切れ対策（試験的）"</string>
     <string name="usb_stabilize_desc">"画面を操作していないときだけ音がプツプツ途切れる端末向けです。直接出力の間、端末が省電力のために処理を遅くしないようにします（電池の消費が少し増えます）。"</string>
+    <string name="dar_dsd_48k_family">"48 kHz系の音源は48 kHz系のDSDで送る"</string>
+    <string name="dar_dsd_48k_family_desc">"オフ（おすすめ）: 48 kHz系の音源（48 kHzのWAV・MPEG-Hなど）は、ほとんどのDACが対応している44.1 kHz系のDSD（DSD256なら11.2896 MHz）に合わせて変換します。オン: 48 kHz系のDSD（DSD256なら12.288 MHz）のまま、整数倍で変換して送ります。48 kHz系のDSDに対応しているDACでだけオンにしてください（対応していないDACではノイズになります）"</string>
 </resources>

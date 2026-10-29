@@ -7,11 +7,16 @@ import java.util.concurrent.TimeUnit
 
 /**
  * 1 チャンネル分のデルタシグマ変調(5 次)。直線補間で DSD の周波数まで上げながら 1bit にする。
+ * f2(1 サンプルあたりのビット数)は整数でなくてもよい(48 kHz 系の音源を 44.1 kHz 系の DSD にするとき)。
  *
  * ノイズシェーピングは NTF = (1 - z^-1)^5 / D(z)(D は高域の利得が 1.5 になるよう選んだ極)。
  * 誤差を返すフィルター (NTF - 1) を転置直接形 II で計算する(状態は 5 つ。値の入れ替えが少なく速い)。
  */
-internal class SdmChannel(private val f2: Int) {
+internal class SdmChannel(private val f2d: Double) {
+    /** f2 が整数ならその値(整数でなければ 0) */
+    private val f2: Int = if (f2d == Math.rint(f2d)) f2d.toInt() else 0
+    /** 整数でないとき: 次のビットの位置(前のサンプルからの距離。サンプルの間隔を 1 とする) */
+    private var phase = 1.0 / f2d
     private var prev = 0f
     private var s1 = 0.0; private var s2 = 0.0; private var s3 = 0.0; private var s4 = 0.0; private var s5 = 0.0
     /** 作りかけのバイトとそのビット数 */
@@ -34,6 +39,49 @@ internal class SdmChannel(private val f2: Int) {
         var p = prev
         // DSD の 0 dB(変調度 50%)に合わせて半分にし、変調器が不安定にならないよう ±0.5 で抑える
         val g = gain * 0.5f
+        if (f2 == 0) {
+            // 整数でないとき: ビットの位置を少しずつ進めて、前後のサンプルの間を直線補間する
+            val inc = 1.0 / f2d
+            var t = phase
+            for (i in 0 until n1) {
+                var cur = src[i] * g
+                if (cur > 0.5f) cur = 0.5f else if (cur < -0.5f) cur = -0.5f else if (cur.isNaN()) cur = 0f
+                val d = (cur - p).toDouble()
+                while (t <= 1.0) {
+                    val v0 = p + d * t
+                    t += inc
+                    val w = x1
+                    val v = v0 + w
+                    if (v > 8.0 || v < -8.0) {
+                        x1 = 0.0; x2 = 0.0; x3 = 0.0; x4 = 0.0; x5 = 0.0
+                        a = (a shl 1) or (if (v >= 0.0) 1 else 0)
+                    } else {
+                        val bit = v >= 0.0
+                        val e = (if (bit) 1.0 else -1.0) - v
+                        x1 = x2 + b1 * e - d1 * w
+                        x2 = x3 + b2 * e - d2 * w
+                        x3 = x4 + b3 * e - d3 * w
+                        x4 = x5 + b4 * e - d4 * w
+                        x5 = b5 * e - d5 * w
+                        a = (a shl 1) or (if (bit) 1 else 0)
+                    }
+                    bits++
+                    if (bits == 8) {
+                        dst[o++] = a.toByte()
+                        a = 0
+                        bits = 0
+                    }
+                }
+                t -= 1.0
+                p = cur
+            }
+            phase = t
+            prev = p
+            s1 = x1; s2 = x2; s3 = x3; s4 = x4; s5 = x5
+            acc = a
+            nb = bits
+            return o
+        }
         val inv = 1f / f2
         if (f2 % 8 == 0 && bits == 0) {
             // ほとんどの場合: 1 サンプルからちょうど f2 / 8 バイトできるので、8 ビットずつまとめて作る(バイトの区切りの判定が要らない)
@@ -117,27 +165,34 @@ internal class SdmChannel(private val f2: Int) {
  * 2. 左右それぞれ、直線補間で DSD の周波数まで上げて 5 次のデルタシグマ変調(左右で別々のスレッド)
  * 3. 左右をそろえ、出力先の単位(align バイト)にまとめて out を呼ぶ(専用のスレッド)
  *
- * ratio は DSD の周波数 ÷ 音源の周波数(整数)。out(左右のバイト列, バイト数)には先頭のビットが先、1 = プラスで渡す。
+ * dsdRate は DSD の周波数。音源の周波数の整数倍でなくてもよい(48 kHz 系の音源を 44.1 kHz 系の DSD にするとき。
+ * そのときは 2 の直線補間の倍率が整数でなくなる)。out(左右のバイト列, バイト数)には先頭のビットが先、1 = プラスで渡す。
  * onLoad には、変調のスレッドの忙しさ(計算にかかった時間 ÷ 音の長さ。1 を超えると追いつかない)を時々知らせる。
  */
 internal class PcmToDsd(
     private val srcRate: Int,
-    private val ratio: Int,
+    private val dsdRate: Int,
     private val align: Int,
     private val out: (Array<ByteArray>, Int) -> Unit,
     private val onLoad: (Double) -> Unit = {},
 ) {
-    /** 1 段目(FIR)の倍率。2 段目(直線補間)は ratio / f1 */
+    /** 1 段目(FIR)の倍率。2 段目(直線補間)は dsdRate ÷ (srcRate × f1) */
     private val f1: Int
-    private val f2: Int
+    private val f2: Double
 
     init {
         var f = 1
-        for (c in 1..ratio) {
-            if (ratio % c == 0 && srcRate.toLong() * c <= 384_000L) f = c
+        if (dsdRate % srcRate == 0) {
+            // 整数倍のとき: 2 段目も整数倍になるように選ぶ(これまでと同じ)
+            val ratio = dsdRate / srcRate
+            for (c in 1..ratio) {
+                if (ratio % c == 0 && srcRate.toLong() * c <= 384_000L) f = c
+            }
+        } else {
+            while (srcRate.toLong() * (f + 1) <= 384_000L) f++
         }
         f1 = f
-        f2 = ratio / f
+        f2 = dsdRate.toDouble() / (srcRate.toLong() * f)
     }
 
     private class Buf(val home: BlockingQueue<Buf>) {
@@ -234,7 +289,7 @@ internal class PcmToDsd(
                 while (!closed) {
                     val b = take(upQ[c]) ?: break
                     val o = take(bitFree[c]) ?: break
-                    val maxBytes = (b.n.toLong() * f2 / 8 + 2).toInt()
+                    val maxBytes = (b.n.toLong() * Math.ceil(f2).toLong() / 8 + 2).toInt()
                     if (o.b.size < maxBytes) o.b = ByteArray(maxBytes)
                     val t0 = System.nanoTime()
                     o.n = sdm.modulate(b.f, b.n, b.gain, o.b)
