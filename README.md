@@ -29,7 +29,7 @@
 
 ## 動作環境
 
-- Android 6.0以上（Android 6.0〜7.1は試験的な対応。Android 4.0〜5.1向けには、別のアプリ「UCRT Legacy」（α版。CDの取り込み・書き込み・再生などストリーミング以外の機能。[Releases](../../releases) の `legacy-v` で始まるもの）があります。ダイナミックカラーはAndroid 12以上、すべてのファイルへのアクセスはAndroid 11以上、アプリ別の表示言語はAndroid 13以上。Android 11以前の通常の出力は192 kHzまで）
+- Android 6.0以上（Android 6.0〜7.1は試験的な対応。Android 4.0〜5.1向けには、別のアプリ「UCRT Legacy」（CDの取り込み・書き込み・再生などストリーミング以外の機能。[Releases](../../releases) の `legacy-v` で始まるもの）があります。ダイナミックカラーはAndroid 12以上、すべてのファイルへのアクセスはAndroid 11以上、アプリ別の表示言語はAndroid 13以上。Android 11以前の通常の出力は192 kHzまで）
 - USB OTG（USBホスト）に対応した端末
 - USB接続の光学ドライブ（Bulk-Only Transport対応のもの。動作確認: Pioneer BDR-XS07JL）
 - スマートフォンからの給電で動かないドライブには、セルフパワーのUSBハブを使ってください
@@ -78,7 +78,7 @@ GitHubへのプッシュとプルリクエストのたびに、GitHub Actionsが
 
 ### 開発の流れ
 
-最新のソースは `main` ブランチにあります。リリースは `main` に版のタグ（`v0.6.0` など）を付けて作成し、APKを [Releases](../../releases) に添付します。UCRT Legacyのリリースは別の番号で、タグは `legacy-v0.1.0-alpha` のような形（プレリリース）です。
+最新のソースは `main` ブランチにあります。リリースは `main` に版のタグ（`v0.6.0` など）を付けて作成し、APKを [Releases](../../releases) に添付します。UCRT Legacyのリリースは別の番号で、タグは `legacy-v0.2.0` のような形です（`-alpha` などが付いた版はプレリリース）。
 
 ### 署名について
 
@@ -147,6 +147,12 @@ Android 13以降では、Google Play以外（GitHubなど）からインスト�
 
 Spotify、Qobuz、Amazon Music、YouTube Musicなど、本書とアプリに記載しているサービス名は各社の商標です。UCRTはこれらのサービスとは関係がなく、提携や承認を受けたものではありません。
 
+## コントリビューター
+
+UCRTに機能を提供してくださった方々です（敬称略）。
+
+- [CrossDarkrix](https://github.com/CrossDarkrix) — DSRE（高い音の補完）、ホーム画面のアイコンの切り替え、スペクトラムアナライザー（[#11](../../pull/11)。UCRTに合わせて作り直して取り込みました）
+
 ## ライセンス
 
 このアプリは [GNU General Public License v3.0](LICENSE) で公開しています。
@@ -178,6 +184,8 @@ UCRT turns an Android phone and a USB optical drive into a CD ripper and player.
 
 To build it yourself, run `./gradlew assembleRelease` (JDK 17 and the Android SDK are required). Unit tests run with `./gradlew testDebugUnitTest`, and GitHub Actions runs them on every push and pull request. The latest source is on the `main` branch.
 
-Requires Android 6.0 or later (Android 6.0–7.1 support is experimental; for Android 4.0–5.1 there is a separate app, "UCRT Legacy" (alpha; all features except streaming, released under `legacy-v*` tags)) and a device with USB OTG support. Licensed under GPL-3.0.
+Contributors: [CrossDarkrix](https://github.com/CrossDarkrix) (DSRE, selectable home-screen icons and the spectrum analyzer, from [#11](../../pull/11), reworked to fit UCRT).
+
+Requires Android 6.0 or later (Android 6.0–7.1 support is experimental; for Android 4.0–5.1 there is a separate app, "UCRT Legacy" (all features except streaming, released under `legacy-v*` tags)) and a device with USB OTG support. Licensed under GPL-3.0.
 
 Spotify, Qobuz, Amazon Music, YouTube Music and other service names mentioned here are trademarks of their respective owners. UCRT is not affiliated with or endorsed by these services.
