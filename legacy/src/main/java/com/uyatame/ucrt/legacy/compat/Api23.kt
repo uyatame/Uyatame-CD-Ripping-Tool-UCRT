@@ -4,6 +4,10 @@ import android.view.View
 
 /** Android 6.0 からの API(呼ぶ前に版を確かめる) */
 object Api23 {
+    /** AudioTrack の音が実際に出ている先の名前(分からなければ null) */
+    fun routedName(t: android.media.AudioTrack): String? =
+        runCatching { t.routedDevice?.productName?.toString()?.trim()?.ifEmpty { null } }.getOrNull()
+
     /** 状態バーの文字を暗い色にする(背景が明るいとき) */
     @Suppress("DEPRECATION")
     fun lightStatusBar(v: View, light: Boolean) {

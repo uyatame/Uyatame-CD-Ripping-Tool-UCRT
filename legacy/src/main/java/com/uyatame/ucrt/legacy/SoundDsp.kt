@@ -40,6 +40,7 @@ class SoundDsp(private val ctx: Context) : LegacyPlayer.Dsp {
         ReplayGain.mode = rgMode
         ReplayGain.preampDb = p.rgPreamp.toFloat()
         ReplayGain.preventClipping = p.rgNoClip
+        appGain = if (p.sp.getBoolean("fineVolume", false)) appGainOf(p.sp.getInt("appVolumeStep", 200)) else 1f
     }
 
     /** イコライザーを今すぐ変える(画面で動かしている途中。保存はしない) */
@@ -84,12 +85,22 @@ class SoundDsp(private val ctx: Context) : LegacyPlayer.Dsp {
         }
         var g = rgGain
         if (useEq) g *= preampGain()
+        // 細かい音量(USB DAC へ直接出しているときは DAC の音量を使うので掛けない)
+        if (!UsbAudio.inUse) g *= appGain
         val n = frames * channels
         if (g != 1f) for (i in 0 until n) buf[i] *= g
         if (useEq) e!!.process(buf, n)
     }
 
     companion object {
+        /**
+         * アプリの中の音量(倍率。設定の「細かい音量」をオンにすると、音量の画面で端末の音量より細かく(0.5 dB ごと)変えられる。本家と同じ)
+         */
+        @Volatile var appGain = 1f
+
+        /** 0〜200 の段階(200 = 0 dB、1 段 0.5 dB。0 は消音) → 倍率 */
+        fun appGainOf(step: Int): Float = if (step <= 0) 0f else Math.pow(10.0, (step - 200) * 0.5 / 20).toFloat()
+
         /** AudioTrack が受け付ける周波数の上限(Android の版で違う) */
         val trackMax: Int get() = when {
             Build.VERSION.SDK_INT >= 23 -> 192000

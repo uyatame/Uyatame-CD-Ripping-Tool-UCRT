@@ -158,12 +158,21 @@ internal class PcmToDsd(
     private val bitFree = Array(2) { pool() }
     private val bitQ = Array<BlockingQueue<Buf>>(2) { ArrayBlockingQueue(depth) }
 
-    private fun take(q: BlockingQueue<Buf>, stop: () -> Boolean = { false }): Buf? {
+    private val threads = ArrayList<Thread>()
+
+    /**
+     * 列から取り出す。流れ作業のスレッド(stop なし)は届くまで眠って待ち(止めるときは close が起こす)、
+     * 渡す側(stop あり)は stop を確かめながら待つ。止めたら null
+     */
+    private fun take(q: BlockingQueue<Buf>, stop: (() -> Boolean)? = null): Buf? {
+        if (stop == null) return if (closed) null else q.take()
         while (!closed && !stop()) q.poll(50, TimeUnit.MILLISECONDS)?.let { return it }
         return null
     }
 
-    private fun put(q: BlockingQueue<Buf>, b: Buf, stop: () -> Boolean = { false }): Boolean {
+    /** 列に入れる(take と同じく、流れ作業のスレッドは空くまで眠って待つ)。止めたら false */
+    private fun put(q: BlockingQueue<Buf>, b: Buf, stop: (() -> Boolean)? = null): Boolean {
+        if (stop == null) { if (closed) return false; q.put(b); return true }
         while (!closed && !stop()) if (q.offer(b, 50, TimeUnit.MILLISECONDS)) return true
         return false
     }
@@ -178,7 +187,7 @@ internal class PcmToDsd(
             } catch (e: Exception) {
                 com.uyatame.ucrt.player.AudioEngine.log("dsd convert error: ${e.javaClass.simpleName}: ${e.message}")
             }
-        }, name).apply { isDaemon = true }.start()
+        }, name).apply { isDaemon = true; threads.add(this) }.start()
     }
 
     init {
@@ -282,9 +291,10 @@ internal class PcmToDsd(
         return true
     }
 
-    /** 止める(スレッドは 50 ms 以内に終わる) */
+    /** 止める(待っているスレッドは起こして終わらせる) */
     fun close() {
         closed = true
+        for (t in threads) t.interrupt()
     }
 
     val isClosed: Boolean get() = closed

@@ -80,9 +80,13 @@ object Edit {
 
     // ================= 書き込み =================
 
+    /** 曲情報の編集で入力された番号(曲ごとのトラック番号・ディスク番号と、曲数・枚数。null は今のまま。本家と同じ) */
+    class TagNumbers(val tracks: List<Int?>, val trackTotal: Int?, val discs: List<Int?>, val discTotal: Int?)
+
     fun saveAlbumTags(
         a: LibAlbum, album: String, albumArtist: String, year: String,
         titles: List<String>, artists: List<String>, cover: ByteArray?, extras: List<TagExtra?>? = null,
+        numbers: TagNumbers? = null, onDone: (() -> Unit)? = null,
     ) {
         if (saving) return
         saving = true
@@ -92,14 +96,15 @@ object Edit {
         Thread({
             var msg: String
             try {
-                val trackTotal = maxOf(a.tracks.size, a.tracks.maxOf { it.track })
-                val discTotal = a.tracks.maxOf { it.disc }.coerceAtLeast(1)
+                val trackTotal = numbers?.trackTotal ?: maxOf(a.tracks.size, a.tracks.maxOf { it.track })
+                val discTotal = numbers?.discTotal ?: a.tracks.maxOf { it.disc }.coerceAtLeast(1)
                 var ok = 0; var skipped = 0; var failed = 0
                 a.tracks.forEachIndexed { i, t ->
                     try {
                         val v = TagValues(
                             titles.getOrElse(i) { t.title }.trim(), artists.getOrElse(i) { t.artist }.trim(),
-                            album.trim(), albumArtist.trim(), year.trim(), t.track, trackTotal, t.disc, discTotal,
+                            album.trim(), albumArtist.trim(), year.trim(),
+                            numbers?.tracks?.getOrNull(i) ?: t.track, trackTotal, numbers?.discs?.getOrNull(i) ?: t.disc, discTotal,
                             extras?.getOrNull(i) ?: TagExtra(),
                         )
                         if (TagEditor.edit(app, Uri.parse(t.uri), v, cover)) ok++ else skipped++
@@ -123,19 +128,28 @@ object Edit {
                 LegacyActivity.current?.snack(msg)
                 app.lib.refresh(false)
                 Bus.emit(Bus.LIBRARY or Bus.ART)
+                onDone?.invoke()
             }
         }, "ucrt-tag-save").start()
     }
 
     // ================= 編集の画面 =================
 
-    fun editAlbum(act: LegacyActivity, a: LibAlbum) {
+    /** onSaved: 保存し終えたあと(設定の「ファイルのタグを編集」で、読み直すため) */
+    fun editAlbum(act: LegacyActivity, a: LibAlbum, onSaved: (() -> Unit)? = null) {
         if (saving) return
+        fun num(v: Int) = if (v > 0) v.toString() else ""
         val form = TagForm(
             a.title, a.artist, a.first.year, a.first.genre,
             a.tracks.mapIndexed { i, t ->
-                TrackForm(trackLabel(if (t.track > 0) t.track else i + 1), t.title, t.artist, lengthText(t.durationMs), TagExtra.supported(t.uri))
+                TrackForm(
+                    trackLabel(if (t.track > 0) t.track else i + 1), t.title, t.artist, lengthText(t.durationMs), TagExtra.supported(t.uri),
+                    trackNo = num(t.track), discNo = num(t.disc),
+                )
             },
+            numbers = true,
+            trackTotal = num(maxOf(a.tracks.size, a.tracks.maxOf { it.track })),
+            discTotal = num(a.tracks.maxOf { it.disc }.coerceAtLeast(1)),
         )
         var newCover: ByteArray? = null
         var extras: List<TagExtra?>? = null
@@ -170,6 +184,12 @@ object Edit {
                     a, form.album, form.albumArtist, form.date,
                     form.tracks.map { it.title }, form.tracks.map { it.artist }, newCover,
                     form.tracks.mapIndexed { i, t -> if (read?.getOrNull(i) == null) null else t.extra(form.genre) },
+                    // 空欄の番号は今の値のまま
+                    TagNumbers(
+                        form.tracks.map { it.trackNo.toIntOrNull() }, form.trackTotal.toIntOrNull(),
+                        form.tracks.map { it.discNo.toIntOrNull() }, form.discTotal.toIntOrNull(),
+                    ),
+                    onSaved,
                 )
                 act.closeOverlay(ed.view)
             },
@@ -194,6 +214,60 @@ object Edit {
                 ed.reload()
             }
         }, "ucrt-tag-read").start()
+    }
+
+    // ================= 好きなファイルの曲情報 =================
+
+    /**
+     * 設定の「ファイルのタグを編集」(本家と同じ): 好きな音楽ファイルを選び、アルバムごとにまとめて、ライブラリと同じ編集画面で開く。
+     * いくつかのアルバムに分かれていれば、どれを編集するか選んでもらう
+     */
+    fun editFiles(act: LegacyActivity) {
+        act.pickFiles("audio/*", true, open = true) { uris -> openFiles(act, uris) }
+    }
+
+    private fun openFiles(act: LegacyActivity, uris: List<Uri>) {
+        Thread({
+            val scan = com.uyatame.ucrt.library.TagScan(app, { act.contentResolver.openInputStream(it) }, { u -> if (u.scheme == "file") java.io.File(u.path ?: "") else null })
+            val tracks = uris.mapNotNull { u ->
+                runCatching {
+                    var name = u.lastPathSegment.orEmpty().substringAfterLast('/')
+                    if (u.scheme == "content") {
+                        act.contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.let { c ->
+                            try { if (c.moveToFirst()) c.getString(0)?.let { name = it } } finally { c.close() }
+                        }
+                    }
+                    scan.readTags(u, name, "", null, 0L)
+                }.onFailure { AppLog.log(S(R.string.cannot_read_file) + ": $u (${it.message})") }.getOrNull()
+            }
+            val albums = tracks.groupBy { it.album to it.albumArtist.ifEmpty { it.artist } }.map { (k, ts) ->
+                val sorted = ts.sortedWith(compareBy({ it.disc }, { it.track }))
+                LibAlbum("file:" + sorted.first().uri, k.first, k.second, sorted)
+            }
+            main.post {
+                when {
+                    albums.isEmpty() -> act.snack(S(R.string.cannot_read_file))
+                    albums.size == 1 -> editAlbum(act, albums[0])
+                    else -> {
+                        val d = UDialog(act).title(S(R.string.tag_edit_files)).message(S(R.string.tag_edit_pick_album))
+                        albums.forEach { al ->
+                            val row = vbox(act)
+                            row.setPadding(dp(8), dp(10), dp(8), dp(10))
+                            row.add(text(act, al.title, Type.BodyLarge))
+                            row.add(text(act, al.artist + S(R.string.separator) + S(R.string.tag_edit_n_files, al.tracks.size), Type.BodySmall, Pal.onSurfaceVariant))
+                            row.tap(8f) {
+                                d.dismiss()
+                                // 保存したら、残りのアルバムを選べるように読み直す
+                                editAlbum(act, al) { openFiles(act, uris) }
+                            }
+                            d.view(row)
+                        }
+                        d.button(S(R.string.close)) { d.dismiss() }
+                        d.show()
+                    }
+                }
+            }
+        }, "ucrt-file-tags").start()
     }
 
     // ================= インターネットから探す =================

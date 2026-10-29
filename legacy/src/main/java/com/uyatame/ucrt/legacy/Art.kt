@@ -98,6 +98,15 @@ object Art {
         val bmp = bytes?.let { runCatching { ArtSource.decode(it, target, b <= DISK_MAX) }.getOrNull() }
         if (bmp == null) {
             if (!failed && bytes == null) synchronized(misses) { misses.add(r.key) }
+            // 再生画面用(大きな画像)で読めなかったときは、理由をログに残す(一覧では出るのに再生画面で出ないときに調べるため)
+            if (b > DISK_MAX) AppLog.log(
+                "art: ${r.trackUri?.let { android.net.Uri.decode(it).substringAfterLast('/') } ?: "-"}: " + when {
+                    failed -> "cannot read the file"
+                    bytes == null -> "no image in the file" + (if (r.fallbackUri != null) ", the album's first track" else "") +
+                        (if (r.coverUri != null) " or the folder image" else " (no folder image)")
+                    else -> "cannot decode the image (${bytes.size} bytes)"
+                },
+            )
             return null
         }
         if (b <= DISK_MAX) {

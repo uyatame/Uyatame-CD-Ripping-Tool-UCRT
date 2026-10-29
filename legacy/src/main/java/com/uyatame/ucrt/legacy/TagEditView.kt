@@ -43,6 +43,9 @@ class TrackForm(
     var lyricist: String = "",
     var comment: String = "",
     var lyrics: String = "",
+    /** 何曲目か・何枚目か(入力中の値。空なら書き換えない。CD の画面では使わない) */
+    var trackNo: String = "",
+    var discNo: String = "",
 ) {
     var open = false
     val hasDetail: Boolean get() = composer.isNotBlank() || lyricist.isNotBlank() || comment.isNotBlank() || lyrics.isNotBlank()
@@ -51,8 +54,20 @@ class TrackForm(
         if (!detailSupported) TagExtra() else TagExtra(genre.trim(), composer.trim(), lyricist.trim(), comment.trim(), lyrics.trim())
 }
 
-/** 曲情報の編集画面の全体(本家の TagForm) */
-class TagForm(var album: String, var albumArtist: String, var date: String, var genre: String, val tracks: List<TrackForm>)
+/**
+ * 曲情報の編集画面の全体(本家の TagForm)。
+ * numbers: トラック番号・曲数・ディスク番号・枚数も入力できるか(ライブラリ。CD は目次で決まるので、何枚目かと枚数だけ)
+ */
+class TagForm(
+    var album: String, var albumArtist: String, var date: String, var genre: String, val tracks: List<TrackForm>,
+    val numbers: Boolean = false,
+    /** 曲数(全体) */
+    var trackTotal: String = "",
+    /** 何枚目か(CD の画面。ライブラリでは曲ごと) */
+    var discNo: String = "",
+    /** 枚数(全体) */
+    var discTotal: String = "",
+)
 
 /** 何曲目かの表示 */
 fun trackLabel(n: Int): String = S(R.string.track_n, n)
@@ -133,6 +148,12 @@ class TagEditView(
         return f
     }
 
+    /** 番号の欄(数字だけ) */
+    private fun numberInput(parent: LinearLayout, value: String, label: String, set: (String) -> Unit) {
+        val f = labeledInput(parent, value, label, w = 0, weight = 1f) { set(it.filter { ch -> ch.isDigit() }) }
+        f.inputType = android.text.InputType.TYPE_CLASS_NUMBER
+    }
+
     private fun build() {
         cover?.let { list.add(it, b = 8) }
         if (note != null) list.add(text(act, note, Type.BodySmall, Pal.error, lines = 0), b = 8)
@@ -145,6 +166,14 @@ class TagEditView(
         row.add(View(act), w = 8, h = 1)
         genreField = labeledInput(row, form.genre, S(R.string.genre), w = 0, weight = 1f) { form.genre = it }
         list.add(row)
+        // 曲数・何枚目か・枚数
+        list.add(View(act), h = 8)
+        val nums = hbox(act, Gravity.TOP)
+        if (form.numbers) numberInput(nums, form.trackTotal, S(R.string.tag_track_total)) { form.trackTotal = it }
+        else numberInput(nums, form.discNo, S(R.string.tag_disc_no)) { form.discNo = it }
+        nums.add(View(act), w = 8, h = 1)
+        numberInput(nums, form.discTotal, S(R.string.tag_disc_total)) { form.discTotal = it }
+        list.add(nums)
         list.add(View(act), h = 8)
         list.addDivider()
         list.add(text(act, S(R.string.mb_tracks), Type.TitleMedium), t = 8)
@@ -156,6 +185,14 @@ class TagEditView(
         val c = card(act, Pal.containerHighest)
         c.setPadding(dp(12), dp(12), dp(12), dp(12))
         c.add(text(act, t.number + if (t.length.isNotEmpty()) S(R.string.legacy_paren, t.length) else "", Type.LabelLarge, Pal.primary), b = 6)
+        // 何曲目か・何枚目か(ライブラリ)
+        if (form.numbers) {
+            val nr = hbox(act, Gravity.TOP)
+            numberInput(nr, t.trackNo, S(R.string.tag_track_no)) { t.trackNo = it }
+            nr.add(View(act), w = 8, h = 1)
+            numberInput(nr, t.discNo, S(R.string.tag_disc_no)) { t.discNo = it }
+            c.add(nr, b = 6)
+        }
         labeledInput(c, t.title, S(R.string.title)) { t.title = it }
         c.add(View(act), h = 6)
         val artist = labeledInput(c, t.artist, S(R.string.artist)) { t.artist = it }

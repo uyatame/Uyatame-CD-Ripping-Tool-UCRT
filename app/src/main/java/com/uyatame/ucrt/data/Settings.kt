@@ -73,8 +73,12 @@ data class AppSettings(
     val spotifyEnabled: Boolean = false,
     /** USB DAC 直接出力の音切れ対策(試験的。端末の省電力で転送が遅れるのを防ぐ) */
     val usbStabilize: Boolean = true,
-    /** アプリを終了するときに、USB DAC を Android に返す(返さなければ、挿し直すまでほかのアプリの音は DAC から出ない) */
-    val usbDacReturnOnExit: Boolean = true,
+    /** ほかのアプリに音を取られて止めたあと、戻ってきたら自動で続きを再生する */
+    val autoResume: Boolean = true,
+    /** リスト(アルバム・アーティスト・プレイリストなど)を最後まで再生したら、次のリストを続けて再生する */
+    val autoNextList: Boolean = false,
+    /** Android Auto(試験的)で、車の画面にライブラリを出す */
+    val androidAuto: Boolean = true,
     /** DAC を常に起こしておく(ほかのアプリの再生にも効く。試験的) */
     val dacKeepAlive: Boolean = false,
     /** 起こしておく機器: 0 = 自動、1 = USB DAC、2 = イヤホン端子 */
@@ -245,7 +249,9 @@ object Keys {
     val externalMedia = booleanPreferencesKey("externalMedia")
     val spotifyEnabled = booleanPreferencesKey("spotifyEnabled")
     val usbStabilize = booleanPreferencesKey("usbStabilize")
-    val usbDacReturnOnExit = booleanPreferencesKey("usbDacReturnOnExit")
+    val autoResume = booleanPreferencesKey("autoResume")
+    val autoNextList = booleanPreferencesKey("autoNextList")
+    val androidAuto = booleanPreferencesKey("androidAuto")
     val dacKeepAlive = booleanPreferencesKey("dacKeepAlive")
     val dacKeepAliveTarget = intPreferencesKey("dacKeepAliveTarget")
     val ambientBlurLevel = intPreferencesKey("ambientBlurLevel")
@@ -344,7 +350,9 @@ class SettingsRepository(private val context: Context) {
             externalMedia = p[Keys.externalMedia] ?: d.externalMedia,
             spotifyEnabled = p[Keys.spotifyEnabled] ?: d.spotifyEnabled,
             usbStabilize = p[Keys.usbStabilize] ?: d.usbStabilize,
-            usbDacReturnOnExit = p[Keys.usbDacReturnOnExit] ?: d.usbDacReturnOnExit,
+            autoResume = p[Keys.autoResume] ?: d.autoResume,
+            autoNextList = p[Keys.autoNextList] ?: d.autoNextList,
+            androidAuto = p[Keys.androidAuto] ?: d.androidAuto,
             dacKeepAlive = p[Keys.dacKeepAlive] ?: d.dacKeepAlive,
             dacKeepAliveTarget = p[Keys.dacKeepAliveTarget] ?: d.dacKeepAliveTarget,
             ambientBlurLevel = (p[Keys.ambientBlurLevel] ?: d.ambientBlurLevel).coerceIn(1, 10),

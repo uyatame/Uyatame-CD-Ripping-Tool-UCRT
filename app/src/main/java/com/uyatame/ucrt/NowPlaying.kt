@@ -424,11 +424,11 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                                 onClick = { menu = false; showGuide = true },
                             )
                             HorizontalDivider()
-                            if (vm.usbDacInUse) {
+                            if (vm.usbDacPresent) {
                                 DropdownMenuItem(
-                                    text = { Text(S(R.string.release_usb_dac)) },
+                                    text = { Text(S(R.string.disconnect_usb_dac)) },
                                     leadingIcon = { Icon(AppIcons.Usb, null) },
-                                    onClick = { menu = false; vm.releaseUsbDac() },
+                                    onClick = { menu = false; vm.disconnectUsbDac() },
                                 )
                             }
                             DropdownMenuItem(
@@ -512,6 +512,15 @@ private fun PlayerPage(
         // 再生位置(0.25 秒ごとに変わる)は、ここでは読まない。読むのは SeekBar と歌詞の中だけにして、
         // 再生画面の全体が 0.25 秒ごとに描き直されないようにする(性能の低い端末向け)
         val lib = vm.libTrackOf(cur)
+
+        val spectrum: @Composable (androidx.compose.ui.unit.Dp) -> Unit = { h ->
+            SpectrumView(
+                s.spectrumStyle, s.spectrumVocal, s.spectrumRefreshMs, s.spectrumDelayMs,
+                if (s.spectrumColor == 0) col.accent else Color(s.spectrumColor),
+                h,
+                onStyle = { vm.set(com.uyatame.ucrt.data.Keys.spectrumStyle, it) },
+            )
+        }
 
         // ---- ジャケット(または歌詞) ----
         val artPane: @Composable (Modifier) -> Unit = { m ->
@@ -626,14 +635,9 @@ private fun PlayerPage(
                 }
             }
             Spacer(Modifier.height(if (compact) 4.dp else 12.dp))
-            // ---- スペクトラムアナライザー(設定でオンにしたとき。とても狭い画面では出さない) ----
-            if (s.spectrum && !tiny && !tight) {
-                SpectrumView(
-                    s.spectrumStyle, s.spectrumVocal, s.spectrumRefreshMs, s.spectrumDelayMs,
-                    if (s.spectrumColor == 0) col.accent else Color(s.spectrumColor),
-                    if (compact) 40.dp else 56.dp,
-                    onStyle = { vm.set(com.uyatame.ucrt.data.Keys.spectrumStyle, it) },
-                )
+            // ---- スペクトラムアナライザー(設定でオンにしたとき。とても狭い画面では出さない。横向きはジャケットの下に出す) ----
+            if (s.spectrum && !tiny && !land) {
+                spectrum(if (compact) 40.dp else 56.dp)
                 Spacer(Modifier.height(if (compact) 4.dp else 8.dp))
             }
             // ---- 再生位置 ----
@@ -711,7 +715,14 @@ private fun PlayerPage(
             // 横向き: 左にジャケット、右に情報と操作。高さが足りなければ右側だけスクロールする
             // (収まるときはスクロールを切り、下へのスワイプで閉じる操作を右側でも使えるようにする)
             Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                artPane(Modifier.weight(0.42f).fillMaxHeight().padding(vertical = 8.dp))
+                if (s.spectrum) {
+                    // スペクトラムはジャケットの下に(右の操作の列は高さが足りないことが多いので)。ジャケットはその分だけ小さくなる
+                    Column(Modifier.weight(0.42f).fillMaxHeight().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        artPane(Modifier.weight(1f).fillMaxWidth())
+                        Spacer(Modifier.height(6.dp))
+                        spectrum(if (tight) 32.dp else 48.dp)
+                    }
+                } else artPane(Modifier.weight(0.42f).fillMaxHeight().padding(vertical = 8.dp))
                 Spacer(Modifier.width(20.dp))
                 val st = rememberScrollState()
                 Column(Modifier.weight(0.58f).fillMaxHeight().verticalScroll(st, enabled = st.maxValue > 0)) {
@@ -1153,8 +1164,8 @@ private fun VolumeSheet(vm: MainViewModel, onDismiss: () -> Unit, system: Boolea
             modifier = Modifier.padding(top = 12.dp),
         )
     }
-    // 横向きでは高さが足りないので、半分だけ開かずに全体を出す
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = land)) {
+    // 半分だけ開くと、画面の高さが足りない端末ではダイヤルの下のボタンが隠れるので、いつも全体を出す
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         if (land) {
             // 横向き: 左にダイヤル、右に名前とボタン
             Row(
@@ -1170,10 +1181,15 @@ private fun VolumeSheet(vm: MainViewModel, onDismiss: () -> Unit, system: Boolea
                 }
             }
         } else {
-            Column(Modifier.fillMaxWidth().padding(bottom = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            // ダイヤルは画面の高さに合わせて小さくし(高さの 4 割まで)、それでも収まらなければスクロールできるようにする
+            val dial = minOf(240, (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.4f).toInt()).coerceAtLeast(160).dp
+            Column(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
                 title()
                 Spacer(Modifier.height(16.dp))
-                VolumeDial(v, max, { touching = it }, { setVol(it, false) }, { setVol(v, true) })
+                VolumeDial(v, max, { touching = it }, { setVol(it, false) }, { setVol(v, true) }, dial)
                 Spacer(Modifier.height(8.dp))
                 buttons()
             }

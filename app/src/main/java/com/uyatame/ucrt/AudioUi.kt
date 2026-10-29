@@ -61,10 +61,15 @@ fun BitPerfectPanel(vm: MainViewModel, s: AppSettings) {
             S(R.string.controls_usb_dac_directly_with),
             mode == 2,
         ) { vm.setOutputMode(if (it) 2 else 0) }
-        // USB DAC を Android に返す(ほかのアプリの音を USB DAC から出したいとき)
-        if (vm.usbDacInUse) {
-            androidx.compose.material3.OutlinedButton({ vm.releaseUsbDac() }) { Text(S(R.string.release_usb_dac)) }
-            Text(S(R.string.release_usb_dac_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (mode == 2) {
+            // 使用の許可をもう一度求める(許可の画面が出なかった・断ってしまったとき)
+            androidx.compose.material3.OutlinedButton({ vm.requestUsbPermission() }) { Text(S(R.string.usb_request_permission)) }
+            Text(S(R.string.usb_request_permission_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        // 抜き差ししたときに近い動作で、DAC の接続を解除する(Android に返して、USB でリセットする)
+        if (vm.usbDacPresent) {
+            androidx.compose.material3.OutlinedButton({ vm.disconnectUsbDac() }) { Text(S(R.string.disconnect_usb_dac)) }
+            Text(S(R.string.disconnect_usb_dac_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         val st = AudioEngine.outputStatus
         if (mode != 0 && st.isNotEmpty()) {
@@ -103,9 +108,6 @@ fun BitPerfectPanel(vm: MainViewModel, s: AppSettings) {
         if (mode == 2) {
             SwitchRow(S(R.string.usb_stabilize), S(R.string.usb_stabilize_desc), s.usbStabilize) {
                 vm.set(com.uyatame.ucrt.data.Keys.usbStabilize, it)
-            }
-            SwitchRow(S(R.string.usb_return_on_exit), S(R.string.usb_return_on_exit_desc), s.usbDacReturnOnExit) {
-                vm.set(com.uyatame.ucrt.data.Keys.usbDacReturnOnExit, it)
             }
             Text(
                 S(R.string.for_details_see_settings_log),

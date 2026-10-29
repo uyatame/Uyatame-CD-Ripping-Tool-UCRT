@@ -310,7 +310,12 @@ object ArtLoader {
     fun load(ctx: Context, key: String, trackUri: String?, coverUri: String?, size: Int = BUCKETS.last(), fallbackUri: String? = null): ImageBitmap? {
         val b = bucketOf(size)
         for (x in BUCKETS) if (x >= b) cache.get("$key@$x")?.let { return it }
-        synchronized(misses) { if (key in misses) return null }
+        synchronized(misses) {
+            if (key in misses) {
+                if (b > DISK_MAX) com.uyatame.ucrt.player.AudioEngine.log("art: ${artName(trackUri)}: no image (known from an earlier try)")
+                return null
+            }
+        }
         // 再生画面の大きな画像だけを読んだあとでも、forget で保存した小さな画像を消せるように
         if (diskDir == null) {
             diskDir = File(ctx.cacheDir, "art").also { it.mkdirs() }
@@ -359,6 +364,15 @@ object ArtLoader {
         if (bmp == null) {
             // 画像が無いと分かったときだけ覚える(読み込みに失敗しただけなら、次にまた試す)
             if (!failed && bytes == null) synchronized(misses) { misses.add(key) }
+            // 再生画面用(大きな画像)で読めなかったときは、理由をログに残す(一覧では出るのに再生画面で出ないときに調べるため)
+            if (b > DISK_MAX) com.uyatame.ucrt.player.AudioEngine.log(
+                "art: ${artName(trackUri0)}: " + when {
+                    failed -> "cannot read the file"
+                    bytes == null -> "no image in the file" + (if (fallbackUri != null) ", the album's first track" else "") +
+                        (if (coverUri != null) " or the folder image" else " (no folder image)")
+                    else -> "cannot decode the image (${bytes.size} bytes)"
+                },
+            )
             return null
         }
         // 小さな画像は保存しておく
@@ -375,6 +389,9 @@ object ArtLoader {
         cache.put("$key@$b", img)
         return img
     }
+
+    /** ログ用のファイル名 */
+    private fun artName(uri: String?): String = uri?.let { Uri.decode(it).substringAfterLast('/') } ?: "-"
 
     private fun thumbOptions() = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.RGB_565 }
 

@@ -310,6 +310,8 @@ fun App(vm: MainViewModel) {
             modifier = Modifier.weight(1f),
             // リキッドグラスでは、後ろの壁紙を見せる
             containerColor = if (glass) Color.Transparent else MaterialTheme.colorScheme.background,
+            // 透明の背景からは文字の色が決まらず黒になってしまう(ダークモードで見えない)ので、背景の上の文字の色を指定する
+            contentColor = MaterialTheme.colorScheme.onBackground,
             // 全画面の再生画面を出している間は、お知らせをその上に出す(下の重ね書きを参照)
             snackbarHost = { if (!playerOverlay) SnackbarHost(snackHost, if (glass) Modifier.padding(bottom = barsDp) else Modifier) },
             // 横向き: 左の端はレールが受け持つので、中身は上・右・下だけ避ける
@@ -366,7 +368,9 @@ fun App(vm: MainViewModel) {
                             Modifier.fillMaxSize().padding(top = pad.calculateTopPadding(), start = pad.calculateStartPadding(dir), end = pad.calculateEndPadding(dir))
                                 .then(if (blurOk) Modifier.backdropSource(backdrop) else Modifier),
                         ) {
-                            CompositionLocalProvider(LocalBarInset provides barsDp) { screens() }
+                            // 中身の中のガラスは、ぼかさない(記録している中身の中から、その記録を映すと描画が自分自身を含んで落ちるため。
+                            // ぼかすガラスの帯は、下の列(この記録の外)に置く)
+                            CompositionLocalProvider(LocalBarInset provides barsDp, LocalBackdrop provides null) { screens() }
                         }
                         Column(
                             Modifier.align(Alignment.BottomCenter).fillMaxWidth().onSizeChanged { barsPx = it.height }
@@ -376,6 +380,8 @@ fun App(vm: MainViewModel) {
                                 )
                                 .padding(bottom = 8.dp),
                         ) {
+                            // ライブラリで曲を選んでいる間の帯(選ぶモード)
+                            if (vm.selecting && tab == 0) SelectionBar(vm, Modifier)
                             if (vm.busy) RipBar(vm) { tab = 1 }
                             if (vm.player.current != null && !pane) MiniPlayer(vm) { showPlayer = true }
                             if (s.spotifyEnabled && sp.connected && sp.hasTrack && (tab == TAB_STREAMING || !sp.paused)) SpotifyBar(sp) { showSpotifyPlayer = true }

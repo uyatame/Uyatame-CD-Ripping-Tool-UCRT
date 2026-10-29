@@ -15,6 +15,7 @@ import com.uyatame.ucrt.legacy.ArtRef
 /**
  * ジャケット(本家の CoverBox・ArtImage)。角を丸くして描き、画像が無ければ目印を出す。
  * 正方形に近い画像は枠いっぱいに切り抜き、縦長・横長の画像(8cm CD の短冊など)は全体が収まるように縮める
+ * (一覧の正方形の枠では余白を塗り、再生画面ではジャケットの形のまま出す)
  */
 class ArtView(ctx: Context, var cornerDp: Float = 8f) : View(ctx) {
     private var bmp: Bitmap? = null
@@ -87,7 +88,9 @@ class ArtView(ctx: Context, var cornerDp: Float = 8f) : View(ctx) {
         val b = bmp
         if (b == null) {
             bg.color = Pal.surfaceVariant
-            r.set(0f, 0f, w, h)
+            // ジャケットが無いときは正方形(再生画面の縦長・横長の枠でも、真ん中の正方形に出す)
+            val side = minOf(w, h)
+            r.set((w - side) / 2, (h - side) / 2, (w + side) / 2, (h + side) / 2)
             c.drawRoundRect(r, rad, rad, bg)
             val s = (minOf(w, h) * 0.45f).toInt()
             placeholder.color = Pal.onSurfaceVariant
@@ -106,8 +109,12 @@ class ArtView(ctx: Context, var cornerDp: Float = 8f) : View(ctx) {
                 sc = minOf(w / b.width, h / b.height)
                 val dw = b.width * sc; val dh = b.height * sc
                 r.set((w - dw) / 2, (h - dh) / 2, (w + dw) / 2, (h + dh) / 2)
-                bg.color = Pal.surfaceVariant
-                c.drawRoundRect(RectF(0f, 0f, w, h), rad, rad, bg)
+                // 一覧の正方形の枠は、余白を塗って枠の形をそろえる。再生画面(square = false)は本家と同じく、
+                // 枠を塗らずにジャケットの形のまま(角を丸めて)出す
+                if (square) {
+                    bg.color = Pal.surfaceVariant
+                    c.drawRoundRect(RectF(0f, 0f, w, h), rad, rad, bg)
+                }
             }
             m.setScale(sc, sc)
             m.postTranslate(r.centerX() - b.width * sc / 2, r.centerY() - b.height * sc / 2)

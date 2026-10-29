@@ -53,15 +53,16 @@ internal class UpsamplePipeline(factor: Int, private val out: (FloatArray, Int, 
                 val free = newFree()
                 start("upsample-${si + 1}${if (c == 0) "L" else "R"}") {
                     while (!closed) {
-                        val b = take(src) ?: break
-                        val o = take(free) ?: break
+                        // 止めるまで待つ(前のスレッドから届けばすぐ起きる。届かない間は起きない)
+                        val b = src.take()
+                        val o = free.take()
                         val n = b.frames * st.factor
                         if (o.data.size < n) o.data = FloatArray(n)
                         st.process(b.data, b.frames, o.data)
                         o.frames = n
                         o.gain = b.gain
                         b.home.offer(b)
-                        if (!put(dst, o)) break
+                        dst.put(o)
                     }
                 }
             }
@@ -71,8 +72,8 @@ internal class UpsamplePipeline(factor: Int, private val out: (FloatArray, Int, 
         start("upsample-out") {
             var buf = FloatArray(0)
             while (!closed) {
-                val l = take(last[0]) ?: break
-                val r = take(last[1]) ?: break
+                val l = last[0].take()
+                val r = last[1].take()
                 val n = l.frames
                 if (buf.size < n * 2) buf = FloatArray(n * 2)
                 val ld = l.data
@@ -148,9 +149,10 @@ internal class UpsamplePipeline(factor: Int, private val out: (FloatArray, Int, 
         return true
     }
 
-    /** 止める(スレッドは 50 ms 以内に終わる) */
+    /** 止める(待っているスレッドは起こして終わらせる) */
     fun close() {
         closed = true
+        for (t in threads) t.interrupt()
     }
 
     val isClosed: Boolean get() = closed

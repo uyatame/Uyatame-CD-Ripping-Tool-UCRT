@@ -163,7 +163,7 @@ internal class DsdConvertOutput private constructor(
             // 「常に PCM に変換」のときは DSD で送らない
             if (mode == 2) return null
             if (mode == 0) {
-                val f = runCatching { UsbDac.prepareDsd(dsdRate, OUT_CH) }.getOrNull()
+                val f = runCatching { UsbDac.prepareDsd(dsdRate, OUT_CH, softGain = true) }.getOrNull()
                 if (f != null) return NativeDsdSink(f, OUT_CH, AudioEngine.dsdSwap)
             }
             if (dsdRate % 16 == 0) {

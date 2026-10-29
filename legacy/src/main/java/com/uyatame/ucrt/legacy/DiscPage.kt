@@ -340,6 +340,8 @@ class DiscPage(act: LegacyActivity) : Page(act) {
                     t.composer, t.lyricist, t.comment, t.lyrics,
                 )
             },
+            // CD の画面では、何枚目かと枚数だけ(曲の番号は目次で決まる)
+            discNo = m.discNo.toString(), discTotal = m.discTotal.toString(),
         )
         lateinit var ed: TagEditView
         ed = TagEditView(
@@ -349,6 +351,8 @@ class DiscPage(act: LegacyActivity) : Page(act) {
                 val artist = form.albumArtist.trim()
                 Disc.updateMeta(m.copy(
                     title = form.album.trim(), artist = artist, date = form.date.trim(), genre = form.genre.trim(),
+                    discNo = form.discNo.toIntOrNull()?.coerceAtLeast(1) ?: m.discNo,
+                    discTotal = form.discTotal.toIntOrNull()?.coerceAtLeast(1) ?: m.discTotal,
                     tracks = m.tracks.mapIndexed { i, tm ->
                         val f = form.tracks.getOrNull(i) ?: return@mapIndexed tm
                         tm.copy(

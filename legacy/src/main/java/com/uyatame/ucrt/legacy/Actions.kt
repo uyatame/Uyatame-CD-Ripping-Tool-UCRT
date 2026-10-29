@@ -84,12 +84,14 @@ object Actions {
 
     fun albumArt(a: LibAlbum) = ArtRef(a.key, a.first.uri, a.first.coverUri)
 
-    fun playTracks(list: List<LibTrack>, start: Int, shuffle: Boolean = false) {
+    /** source: どのリストか(設定の「最後まで再生したら次のリストへ」で、次のリストを探す) */
+    fun playTracks(list: List<LibTrack>, start: Int, shuffle: Boolean = false, source: ListQueue.Src? = null) {
         if (list.isEmpty()) return
+        ListQueue.source = source
         if (shuffle) app.player.play(list, (list.indices).random(), true) else app.player.play(list, start)
     }
 
-    fun playAlbum(a: LibAlbum, start: Int, shuffle: Boolean = false) = playTracks(a.tracks, start, shuffle)
+    fun playAlbum(a: LibAlbum, start: Int, shuffle: Boolean = false) = playTracks(a.tracks, start, shuffle, ListQueue.Src(ListQueue.ALBUM, a.key))
 
     fun shuffleAll() = playTracks(app.lib.albums.flatMap { it.tracks }, 0, shuffle = true)
 

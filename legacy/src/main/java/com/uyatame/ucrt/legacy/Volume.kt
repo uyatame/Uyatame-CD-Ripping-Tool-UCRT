@@ -36,8 +36,11 @@ object Volume {
     fun sheet(act: LegacyActivity) {
         val am = act.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val usb = UsbAudio.inUse && UsbAudio.hasVolume
-        val max = if (usb) 100 else am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-        fun read(): Int = if (usb) UsbAudio.volume else am.getStreamVolume(AudioManager.STREAM_MUSIC)
+        // 設定の「細かい音量」: アプリの中の音量を 0.5 dB ごと(200 段階)に変える(USB DAC 直接出力のときは DAC の音量)
+        val p = act.app.prefs
+        val fine = !UsbAudio.inUse && p.sp.getBoolean("fineVolume", false)
+        val max = if (usb) 100 else if (fine) 200 else am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        fun read(): Int = if (usb) UsbAudio.volume else if (fine) p.sp.getInt("appVolumeStep", 200) else am.getStreamVolume(AudioManager.STREAM_MUSIC)
         val s = Sheet(act)
         val col = vbox(act, Gravity.CENTER_HORIZONTAL)
         col.setPadding(0, 0, 0, dp(32))
@@ -47,7 +50,14 @@ object Volume {
         fun setVol(v: Int, save: Boolean) {
             val x = v.coerceIn(0, max)
             dial.value = x
-            if (usb) UsbAudio.setVolume(x, save) else runCatching { am.setStreamVolume(AudioManager.STREAM_MUSIC, x, 0) }
+            when {
+                usb -> UsbAudio.setVolume(x, save)
+                fine -> {
+                    SoundDsp.appGain = SoundDsp.appGainOf(x)
+                    if (save) p.set("appVolumeStep", x)
+                }
+                else -> runCatching { am.setStreamVolume(AudioManager.STREAM_MUSIC, x, 0) }
+            }
         }
         dial = Dial(act, read(), max) { v, done -> setVol(v, done) }
         col.add(dial, w = 240, h = 240, b = 8)

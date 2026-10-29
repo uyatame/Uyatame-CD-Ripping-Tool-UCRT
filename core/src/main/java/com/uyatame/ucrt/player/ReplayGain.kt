@@ -22,7 +22,9 @@ data class RgInfo(
  * - FLAC: Vorbis コメント(REPLAYGAIN_TRACK_GAIN など)
  * - MP3・AIFF・WAV・DSF: ID3v2 の TXXX
  * - M4A(AAC・ALAC): iTunes 形式の項目(----:com.apple.iTunes:replaygain_track_gain)
- * - WavPack・APE: APEv2 タグ
+ * - WavPack・APE: APEv2 タグ(MP3 の終わりに付いた APEv2 タグも)
+ * - Ogg Vorbis・Opus: Vorbis コメント。Opus の R128_TRACK_GAIN・R128_ALBUM_GAIN(foobar2000 などが書く)も読む
+ * foobar2000 などほかのソフトで解析して書いた値も、そのまま使う(UCRT で解析し直さなくてよい)
  * FLAC 以外は、タグのある範囲を読んで項目の名前を探し、その後ろの数値を読む(形式ごとの細かな違いに強くするため)
  */
 object ReplayGain {
@@ -37,6 +39,11 @@ object ReplayGain {
     private const val KEY_TP = "replaygain_track_peak"
     private const val KEY_AG = "replaygain_album_gain"
     private const val KEY_AP = "replaygain_album_peak"
+    /** Opus の値(1/256 dB 単位の整数。基準が EBU R128 の -23 LUFS なので、ReplayGain の -18 LUFS に合わせて 5 dB 足す) */
+    private const val KEY_R128_T = "r128_track_gain"
+    private const val KEY_R128_A = "r128_album_gain"
+
+    private fun r128(v: Float?): Float? = v?.let { it / 256f + 5f }
 
     /** 掛ける倍率(1 = そのまま)。値が書かれていない曲・使わない設定では 1 */
     fun linear(i: RgInfo?): Float {
@@ -56,6 +63,9 @@ object ReplayGain {
         val ext = name.substringAfterLast('.', "").lowercase()
         BuiltinCodecs.openInput(ctx, u)?.use { read(it, ext) }
     }.getOrNull()?.takeIf { !it.isEmpty }
+
+    /** 曲のタグに ReplayGain の値が書かれているか(書かれていれば、UCRT で解析しなくてよい) */
+    fun hasTags(ctx: Context, uri: String): Boolean = read(ctx, Uri.parse(uri))?.trackGain != null
 
     /** 診断用: 最後に読んだ曲の形式と、見つかったタグの名前(値が無かったときに、ログで理由が分かるように) */
     @Volatile var lastNote = ""
@@ -91,6 +101,7 @@ object ReplayGain {
             "m4a", "mp4", "alac" -> mp4Udta(src)?.let { parts.add(it) }
             "dsf" -> dsfMetadata(src)?.let { parts.add(it) }
         }
+        val specific = parts.isNotEmpty()
         if (parts.isEmpty()) {
             // そのほかの形式(とうまく見つからなかったとき): ファイルの初めと終わりを調べる(タグはどちらかにある)
             val n = min(src.size, HEAD).toInt()
@@ -102,6 +113,11 @@ object ReplayGain {
         }
         var out = RgInfo()
         for (p in parts) out = merge(out, scan(p))
+        // 形式ごとのタグに値が無ければ、ファイルの終わりも調べる(MP3 の終わりの APEv2 タグに書くソフトもある)
+        if (specific && out.isEmpty && src.size > HEAD) {
+            val t = min(src.size - HEAD, TAIL).toInt()
+            readAt(src, src.size - t, t)?.let { out = merge(out, scan(it)) }
+        }
         return out
     }
 
@@ -132,7 +148,10 @@ object ReplayGain {
             val c = b[i].toInt() and 0xFF
             low[i] = (if (c in 'A'.code..'Z'.code) c + 32 else c).toByte()
         }
-        return RgInfo(valueAfter(low, KEY_TG), valueAfter(low, KEY_TP), valueAfter(low, KEY_AG), valueAfter(low, KEY_AP))
+        return RgInfo(
+            valueAfter(low, KEY_TG) ?: r128(valueAfter(low, KEY_R128_T)), valueAfter(low, KEY_TP),
+            valueAfter(low, KEY_AG) ?: r128(valueAfter(low, KEY_R128_A)), valueAfter(low, KEY_AP),
+        )
     }
 
     private val NUMBER = Regex("[-+]?\\d+(?:\\.\\d+)?")
@@ -231,7 +250,7 @@ object ReplayGain {
         // 診断用: どんなタグが入っていたか(ReplayGain の値が無いときに、ログで分かるように)
         lastNote = "flac, vorbis comments: " + map.keys.take(16).joinToString(", ").ifEmpty { "(none)" }
         fun num(k: String) = map[k]?.let { NUMBER.find(it)?.value?.toFloatOrNull() }
-        return RgInfo(num(KEY_TG), num(KEY_TP), num(KEY_AG), num(KEY_AP))
+        return RgInfo(num(KEY_TG) ?: r128(num(KEY_R128_T)), num(KEY_TP), num(KEY_AG) ?: r128(num(KEY_R128_A)), num(KEY_AP))
     }
 
     // ---- MP3: 初めの ID3v2 タグ全体(大きな画像が入っていても読めるように) ----

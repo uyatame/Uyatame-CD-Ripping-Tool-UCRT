@@ -75,7 +75,9 @@ private class SpectrumMotion {
     val wave = FloatArray(128)
     private var last = 0L
 
-    fun step(a: SpectrumAnalyzer, vocal: Boolean, now: Long) {
+    /** 1 フレーム分動かす。いちばん大きく動いた量を返す(止まっていれば描き直さなくてよい) */
+    fun step(a: SpectrumAnalyzer, vocal: Boolean, now: Long): Float {
+        var moved = 0f
         val dt = if (last == 0L) 1f / 60 else ((now - last).coerceIn(1_000_000L, 200_000_000L) / 1e9f)
         last = now
         val up = 1f - exp(-60f * dt)
@@ -90,10 +92,18 @@ private class SpectrumMotion {
             }
             // 床を少し切って、真ん中あたりの動きを見やすくする
             t = ((t - 0.06f) / 0.94f).coerceIn(0f, 1f)
-            bands[i] += (t - bands[i]) * (if (t > bands[i]) up else down)
-            peaks[i] = if (bands[i] >= peaks[i]) bands[i] else max(bands[i], peaks[i] - 0.9f * dt)
+            val d = (t - bands[i]) * (if (t > bands[i]) up else down)
+            bands[i] += d
+            val p = if (bands[i] >= peaks[i]) bands[i] else max(bands[i], peaks[i] - 0.9f * dt)
+            moved = max(moved, max(kotlin.math.abs(d), kotlin.math.abs(p - peaks[i])))
+            peaks[i] = p
         }
-        for (i in wave.indices) wave[i] += ((a.wave[i] * 1.2f).coerceIn(-1f, 1f) - wave[i]) * wr
+        for (i in wave.indices) {
+            val d = ((a.wave[i] * 1.2f).coerceIn(-1f, 1f) - wave[i]) * wr
+            wave[i] += d
+            moved = max(moved, kotlin.math.abs(d))
+        }
+        return moved
     }
 }
 
@@ -113,8 +123,8 @@ fun SpectrumView(
     modifier: Modifier = Modifier,
 ) {
     DisposableEffect(Unit) {
-        SpectrumTap.enabled = true
-        onDispose { SpectrumTap.enabled = false }
+        SpectrumTap.acquire()
+        onDispose { SpectrumTap.release() }
     }
     val analyzer = remember { SpectrumAnalyzer() }
     val motion = remember { SpectrumMotion() }
@@ -124,14 +134,26 @@ fun SpectrumView(
     val vocalNow by rememberUpdatedState(vocal)
     LaunchedEffect(Unit) {
         var lastCalc = 0L
+        var still = false
         while (true) {
+            if (still) {
+                // 止まっている間(一時停止・無音)は、画面の描き直しを頼まずに間隔をあけて音を確かめるだけにする
+                kotlinx.coroutines.delay(refresh.toLong().coerceAtLeast(50L))
+                val before = analyzer.bands.copyOf()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { analyzer.update(delay) }
+                if (!analyzer.bands.contentEquals(before)) { still = false; lastCalc = 0L }
+                continue
+            }
             val now = withFrameNanos { it }
             if (now - lastCalc >= refresh * 1_000_000L) {
                 lastCalc = now
-                analyzer.update(delay)
+                // 周波数の計算(FFT)は、画面のスレッドの外で行う
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { analyzer.update(delay) }
             }
-            motion.step(analyzer, vocalNow, now)
+            val moved = motion.step(analyzer, vocalNow, now)
             tick++
+            // 動きがほとんど無くなったら、止まったものとして描き直しをやめる
+            if (moved < 0.0005f) still = true
         }
     }
     val hi = Color(

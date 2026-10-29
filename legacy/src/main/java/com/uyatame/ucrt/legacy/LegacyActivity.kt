@@ -93,6 +93,9 @@ class LegacyActivity : Activity() {
             it.getStringArrayList("libStack")?.let { s -> libStack.addAll(s) }
         }
         build()
+        // 新しい Android(Android 16 から。この版向けに作ったアプリ)では、戻る操作で onBackPressed が呼ばれず、
+        // 画面がすぐ閉じてしまうので、戻る操作を直接受け取る(何も開いていなければ、本家と同じく裏に回す)
+        if (Build.VERSION.SDK_INT >= 33) com.uyatame.ucrt.legacy.compat.Api33.onBack(this) { if (!handleBack()) moveTaskToBack(true) }
         unsubs += Bus.on(-1) { m -> onEvent(m) }
         app.player.onError = { snack(it) }
         Permissions.ask(this)
@@ -178,7 +181,7 @@ class LegacyActivity : Activity() {
     private fun build() {
         Pal.apply(this, app.prefs.themeMode, app.prefs.themeColor, app.prefs.textColor)
         themeSig = app.prefs.let { "${it.themeMode}/${it.themeColor}/${it.textColor}" }
-        layoutSig = "$tablet/${app.prefs.sp.getBoolean("hideNavBar", false)}"
+        layoutSig = "$tablet/${app.prefs.sp.getBoolean("hideNavBar", false)}/${app.prefs.sp.getBoolean("hideStatusBar", false)}"
         window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Pal.surface))
         if (Build.VERSION.SDK_INT >= 21) {
             Api21.statusBar(window, Pal.surface)
@@ -508,10 +511,64 @@ class LegacyActivity : Activity() {
         }
     }
 
+    private var docsCb: ((List<android.net.Uri>) -> Unit)? = null
+
+    /**
+     * ファイルを選ぶ(プレイリストなど)。multiple: いくつも選べるか(Android 4.3 から。それより前は 1 つ)。
+     * 選んだファイルは、この画面が開いている間だけ読める
+     */
+    fun pickFiles(mime: String, multiple: Boolean, open: Boolean = false, cb: (List<android.net.Uri>) -> Unit) {
+        docsCb = cb
+        // open: 書き換えるファイル(Android 4.4 からは OPEN_DOCUMENT で選んでもらう。GET_CONTENT だと読むだけのことがある)
+        val action = if (open && Build.VERSION.SDK_INT >= 19) "android.intent.action.OPEN_DOCUMENT" else Intent.ACTION_GET_CONTENT
+        val i = Intent(action).setType(mime).addCategory(Intent.CATEGORY_OPENABLE)
+        if (multiple && Build.VERSION.SDK_INT >= 18) i.putExtra("android.intent.extra.ALLOW_MULTIPLE", true)
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(if (open && Build.VERSION.SDK_INT >= 19) i else Intent.createChooser(i, null), REQ_DOCS)
+        } catch (e: Exception) {
+            docsCb = null
+            snack(S(R.string.cant_open_file))
+        }
+    }
+
+    private var createCb: ((android.net.Uri) -> Unit)? = null
+
+    /** 保存先のファイルを選んでもらう(Android 4.4 から)。選んだら cb にその場所を渡す */
+    fun createFile(name: String, mime: String, cb: (android.net.Uri) -> Unit) {
+        createCb = cb
+        val i = Intent("android.intent.action.CREATE_DOCUMENT").addCategory(Intent.CATEGORY_OPENABLE).setType(mime)
+            .putExtra(Intent.EXTRA_TITLE, name)
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(i, REQ_CREATE)
+        } catch (e: Exception) {
+            createCb = null
+            snack(S(R.string.cant_open_file))
+        }
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_DOCS) {
+            val cb = docsCb
+            docsCb = null
+            if (resultCode != RESULT_OK || data == null || cb == null) return
+            val list = ArrayList<android.net.Uri>()
+            if (Build.VERSION.SDK_INT >= 16) list.addAll(com.uyatame.ucrt.legacy.compat.Api16.clipUris(data))
+            if (list.isEmpty()) data.data?.let { list.add(it) }
+            if (list.isNotEmpty()) cb(list)
+            return
+        }
+        if (requestCode == REQ_CREATE) {
+            val cb = createCb
+            createCb = null
+            val u = data?.data
+            if (resultCode == RESULT_OK && u != null && cb != null) cb(u)
+            return
+        }
         if (requestCode == REQ_IMAGE) {
             val cb = imageCb
             imageCb = null
@@ -590,8 +647,8 @@ class LegacyActivity : Activity() {
             val p = app.prefs
             val sig = "${p.themeMode}/${p.themeColor}/${p.textColor}"
             if (sig != themeSig) { themeSig = sig; savePageScroll(); build(); return }
-            // タブレットモード・ナビゲーションバーの設定が変わったら作り直す
-            val lay = "$tablet/${p.sp.getBoolean("hideNavBar", false)}"
+            // タブレットモード・ナビゲーションバー・ステータスバーの設定が変わったら作り直す
+            val lay = "$tablet/${p.sp.getBoolean("hideNavBar", false)}/${p.sp.getBoolean("hideStatusBar", false)}"
             if (lay != layoutSig) { layoutSig = lay; savePageScroll(); build(); return }
         }
         if (m and Bus.PLAYER != 0 && wantPane != (paneView != null)) { savePageScroll(); build(); return }
@@ -613,15 +670,25 @@ class LegacyActivity : Activity() {
     private var themeSig = ""
     private var layoutSig = ""
 
-    /** ナビゲーションバーを隠す(設定。Android 4.4 から。画面の端からスワイプで一時的に出せる) */
+    /**
+     * ナビゲーションバー・ステータスバーを隠す(設定。画面の端からスワイプで一時的に出せる)。
+     * 隠した分は中身を広げる(LAYOUT_HIDE_NAVIGATION・LAYOUT_FULLSCREEN。これが無いと、隠した場所に余白が残る)。
+     * ナビゲーションバーは Android 4.4 から。ステータスバーは 4.4 より前は全画面のウィンドウにして隠す
+     */
+    @Suppress("DEPRECATION")
     private fun applyNavBar() {
-        if (Build.VERSION.SDK_INT < 19) return
-        val hide = app.prefs.sp.getBoolean("hideNavBar", false)
-        @Suppress("DEPRECATION")
-        // 中身をナビゲーションバーの場所まで広げる(LAYOUT_HIDE_NAVIGATION。これが無いと、隠した場所に余白が残る)
-        window.decorView.systemUiVisibility = if (hide) {
-            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or 0x00001000 /* SYSTEM_UI_FLAG_IMMERSIVE_STICKY */ or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-        } else 0
+        val hideNav = Build.VERSION.SDK_INT >= 19 && app.prefs.sp.getBoolean("hideNavBar", false)
+        val hideStatus = app.prefs.sp.getBoolean("hideStatusBar", false)
+        if (Build.VERSION.SDK_INT < 19) {
+            if (hideStatus) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            return
+        }
+        var f = 0
+        if (hideNav) f = f or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        if (hideStatus) f = f or View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+        if (f != 0) f = f or 0x00001000 /* SYSTEM_UI_FLAG_IMMERSIVE_STICKY */
+        window.decorView.systemUiVisibility = f
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -690,18 +757,41 @@ class LegacyActivity : Activity() {
 
     // ---- 戻るボタン ----
 
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (nowPlaying?.back() == true) return
-        if (nowPlaying != null) { closePlayer(); return }
-        overlays.lastOrNull()?.let { it.onBack(); return }
-        if (selecting) { endSelection(); return }
-        if (page?.back() == true) return
-        if (tab == 0 && libStack.isNotEmpty()) { libPop(); return }
+    /**
+     * 本体の音量ボタン: USB DAC へ直接出していて DAC に音量があれば、DAC の音量を変える(設定の幅。本家と同じ)。
+     * それ以外は Android の音量(いつも通り)
+     */
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        val up = keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP
+        val down = keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN
+        if ((up || down) && UsbAudio.inUse && UsbAudio.hasVolume) {
+            val step = app.prefs.sp.getInt("usbVolumeStep", 4)
+            val v = (UsbAudio.volume + if (up) step else -step).coerceIn(0, 100)
+            UsbAudio.setVolume(v, true)
+            snack(S(R.string.dac_volume) + " " + v)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    /** 戻る操作を、開いているもの(再生画面・ダイアログ・選ぶモード・ページ)の順に受け取る。受け取ったら true */
+    private fun handleBack(): Boolean {
+        if (nowPlaying?.back() == true) return true
+        if (nowPlaying != null) { closePlayer(); return true }
+        overlays.lastOrNull()?.let { it.onBack(); return true }
+        if (selecting) { endSelection(); return true }
+        if (page?.back() == true) return true
+        if (tab == 0 && libStack.isNotEmpty()) { libPop(); return true }
         if (tab == 2 && settingsPage != 0) {
             settingsPage = if (settingsPage in 81..89) 8 else 0
-            show(); return
+            show(); return true
         }
+        return false
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (handleBack()) return
         @Suppress("DEPRECATION")
         super.onBackPressed()
     }
@@ -716,5 +806,7 @@ class LegacyActivity : Activity() {
         /** いま出ている画面(取り込みなどの知らせを出す先) */
         @Volatile var current: LegacyActivity? = null
         private const val REQ_IMAGE = 7101
+        private const val REQ_DOCS = 7102
+        private const val REQ_CREATE = 7103
     }
 }

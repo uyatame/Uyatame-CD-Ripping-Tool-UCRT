@@ -218,10 +218,10 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
                 S(R.string.version) + BuildConfigVersion.name(ctx) + S(R.string.licenses),
             ) { onPage(7) }
         }
-        // ---- USB DAC の解放・アプリの終了 ----
+        // ---- USB DAC の接続解除・アプリの終了 ----
         UCard(Modifier.fillMaxWidth()) {
-            if (vm.usbDacInUse) {
-                CategoryRow(AppIcons.Usb, S(R.string.release_usb_dac), S(R.string.release_usb_dac_desc)) { vm.releaseUsbDac() }
+            if (vm.usbDacPresent) {
+                CategoryRow(AppIcons.Usb, S(R.string.disconnect_usb_dac), S(R.string.disconnect_usb_dac_desc)) { vm.disconnectUsbDac() }
                 HorizontalDivider()
             }
             CategoryRow(Icons.AutoMirrored.Filled.ExitToApp, S(R.string.quit_app), S(R.string.quit_app_desc)) {
@@ -476,15 +476,12 @@ private fun LibraryFoldersPage(vm: MainViewModel, s: AppSettings) {
 private fun AllFilesSection(vm: MainViewModel) {
     val ctx = LocalContext.current
     var granted by remember { mutableStateOf(com.uyatame.ucrt.library.StorageAccess.allFiles) }
-    // 設定画面から戻ってきたときに反映する
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(1000)
-            val now = com.uyatame.ucrt.library.StorageAccess.allFiles
-            if (now != granted) {
-                granted = now
-                if (now) vm.refreshLibrary(fresh = true)
-            }
+    // 設定画面から戻ってきたときに反映する(アプリの画面に戻ったときに 1 回だけ確かめる)
+    LaunchedEffect(vm.resumeTick) {
+        val now = com.uyatame.ucrt.library.StorageAccess.allFiles
+        if (now != granted) {
+            granted = now
+            if (now) vm.refreshLibrary(fresh = true)
         }
     }
     Section(S(R.string.all_files_access)) {
@@ -582,10 +579,37 @@ private fun PlayerScreenPage(vm: MainViewModel, s: AppSettings) {
     // 音量の細かさ
     Section(S(R.string.volume)) {
         SwitchRow(S(R.string.fine_volume), S(R.string.fine_volume_desc), s.fineVolume) { vm.set(Keys.fineVolume, it) }
+        SwitchRow(S(R.string.auto_resume), S(R.string.auto_resume_desc), s.autoResume) { vm.set(Keys.autoResume, it) }
+        SwitchRow(S(R.string.auto_next_list), S(R.string.auto_next_list_desc), s.autoNextList) { vm.set(Keys.autoNextList, it) }
         Segmented(S(R.string.usb_volume_step), listOf("1", "2", "4"), listOf(1, 2, 4).indexOf(s.usbVolumeStep).coerceAtLeast(0)) {
             vm.set(Keys.usbVolumeStep, listOf(1, 2, 4)[it])
         }
         Text(S(R.string.usb_volume_step_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    // Android Auto(試験的)。Google Play から入れていないと、Android Auto の設定を変えないと出てこないので、手順を必ず見せる
+    Section(S(R.string.android_auto)) {
+        SwitchRow(S(R.string.android_auto), S(R.string.android_auto_desc), s.androidAuto) { vm.set(Keys.androidAuto, it) }
+        UCard(
+            Modifier.fillMaxWidth(),
+            colors = androidx.compose.material3.CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            ),
+        ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(S(R.string.android_auto_steps_title), style = MaterialTheme.typography.titleSmall)
+                Text(S(R.string.android_auto_steps_why), style = MaterialTheme.typography.bodySmall)
+                listOf(
+                    S(R.string.android_auto_step1), S(R.string.android_auto_step2), S(R.string.android_auto_step3),
+                    S(R.string.android_auto_step4), S(R.string.android_auto_step5),
+                ).forEachIndexed { i, t ->
+                    Row {
+                        Text("${i + 1}.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(22.dp))
+                        Text(t, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                Text(S(R.string.android_auto_steps_note), style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
     // 再生操作のボタンの並び(左右の入れ替え)
     Section(S(R.string.control_order)) {

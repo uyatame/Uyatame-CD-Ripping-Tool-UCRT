@@ -8,6 +8,7 @@ import android.widget.TextView
 import com.uyatame.ucrt.EqCustom
 import com.uyatame.ucrt.R
 import com.uyatame.ucrt.S
+import com.uyatame.ucrt.library.Quality
 import com.uyatame.ucrt.eqPresetNameOf
 import com.uyatame.ucrt.player.EqBand
 import com.uyatame.ucrt.player.EqBands
@@ -73,7 +74,8 @@ object Sound {
     // ---- 今の設定 ----
     private val simple: FloatArray get() = EqBands.decode(p.eqSimpleGains.ifEmpty { p.sp.getString("eqGains", "") ?: "" })
     private val bandList: List<EqBand> get() = if (p.eqBands.isNotEmpty()) ParamEq.decode(p.eqBands) else ParamEq.fromGains(EqBands.decode(p.sp.getString("eqGains", "") ?: ""))
-    private val darMode get() = p.sp.getInt("darMode", 0)
+    /** DAR(0 = オフ、1 = PCM アップサンプリング。DSD への変換は Legacy には無いので、前に選んでいてもオフ) */
+    private val darMode get() = p.sp.getInt("darMode", 0).let { if (it == 1) 1 else 0 }
     private val darPcm get() = p.sp.getInt("darPcm", 0)
     private val darInteger get() = p.sp.getBoolean("darInteger", true)
 
@@ -83,7 +85,6 @@ object Sound {
     private fun eqSummary(): String = if (!p.eqEnabled) S(R.string.off) else (if (p.eqMode == 1) "PRO · " else "") + eqName()
     private fun darSummary(): String = when (darMode) {
         1 -> S(R.string.pcm_upsampling) + " · " + listOf(S(R.string.dac_max), "×2", "×4", "×8", "×16").getOrElse(darPcm) { "" }
-        2 -> S(R.string.convert_to_dsd) + " · " + listOf("DSD64", "DSD128", "DSD256").getOrElse(p.sp.getInt("darDsd", 0)) { "" }
         else -> S(R.string.off)
     }
     private fun rgSummary(): String = if (!p.rgEnabled) S(R.string.off) else
@@ -143,6 +144,30 @@ object Sound {
         }, Type.BodySmall, Pal.onSurfaceVariant, lines = 2))
         now.add(nc, w = 0, weight = 1f)
         col.add(now, b = 12)
+        // 音の出力経路(本家と同じ。音源 → アプリの中の処理 → 出力先)
+        app.player.current?.let { cur ->
+            val fx = ArrayList<String>()
+            if (direct) fx.add(S(R.string.source_direct)) else {
+                if (p.rgEnabled) fx.add("ReplayGain")
+                if (p.eqEnabled) fx.add(S(R.string.equalizer))
+                if (darMode != 0) fx.add("DAR")
+            }
+            val route = vbox(act)
+            route.setPadding(dp(8), 0, dp(8), 0)
+            route.add(text(act, S(R.string.route_title), Type.LabelLarge, Pal.primary), b = 4)
+            listOf(
+                S(R.string.route_source) to (Quality.detail(cur.track).ifEmpty { cur.title }),
+                S(R.string.route_process) to (if (fx.isEmpty()) S(R.string.route_none) else fx.joinToString(" → ")),
+                S(R.string.route_output) to (Output.name(act) + app.player.outputText().let { if (it.isEmpty()) "" else "\n$it" }),
+            ).forEachIndexed { i, (k, v) ->
+                if (i > 0) route.add(text(act, "↓", Type.LabelMedium, Pal.onSurfaceVariant), l = 8)
+                val row = hbox(act)
+                row.add(text(act, k, Type.LabelMedium, Pal.onSurfaceVariant), w = 56)
+                row.add(text(act, v, Type.BodySmall, Pal.onSurface, lines = 0), w = 0, weight = 1f)
+                route.add(row)
+            }
+            col.add(route, b = 12)
+        }
         // 音質
         col.add(text(act, S(R.string.sound_quality), Type.LabelLarge, Pal.primary), l = 8, b = 6, t = 4)
         val c1 = card(act)
@@ -150,7 +175,7 @@ object Sound {
         c1.addDivider()
         c1.add(soundRow(act, S(R.string.equalizer), eqSummary(), p.eqEnabled, !direct, onToggle = { p.set("eqEnabled", it) }) { onOpen(EQ) })
         c1.addDivider()
-        c1.add(soundRow(act, "DAR", S(R.string.upsampling_dsd_conversion) + " · " + darSummary(), darMode != 0, !direct, onToggle = { p.set("darMode", if (it) 1 else 0) }) { onOpen(DAR) })
+        c1.add(soundRow(act, "DAR", S(R.string.pcm_upsampling) + " · " + darSummary(), darMode != 0, !direct, onToggle = { p.set("darMode", if (it) 1 else 0) }) { onOpen(DAR) })
         c1.addDivider()
         c1.add(soundRow(act, "ReplayGain", S(R.string.evens_out_loudness) + " · " + rgSummary(), p.rgEnabled, !direct, onToggle = { p.set("rgEnabled", it) }) { onOpen(RG) })
         if (direct) c1.add(note(act, S(R.string.equalizer_and_dar_are_bypassed), Pal.primary).also { it.setPadding(dp(16), dp(8), dp(16), dp(8)) })
@@ -529,11 +554,10 @@ object Sound {
     // =====================================================================
 
     private fun darPanel(act: LegacyActivity): View {
-        val sec = Section(act, S(R.string.dar_upsampling_dsd_conversion))
+        val sec = Section(act, S(R.string.legacy_dar_title))
         val options = listOf(
             S(R.string.off) to S(R.string.sends_source_unaltered_bit_perfect),
             S(R.string.pcm_upsampling) to S(R.string.upsamples_source_by_integer_multiple),
-            S(R.string.convert_to_dsd) to S(R.string.converts_source_to_dsd_and),
         )
         sec.add(radioRows(act, options, darMode) { p.set("darMode", it) })
         if (darMode == 1) {
@@ -542,13 +566,7 @@ object Sound {
             sec.add(switchRow(act, S(R.string.integer_multiples_only), S(R.string.on_upsamples_only_by_integer), darInteger) { p.set("darInteger", it) })
             sec.add(note(act, S(R.string.legacy_dar_limit, "${SoundDsp.trackMax / 1000}kHz")))
         }
-        if (darMode == 2) {
-            sec.add(text(act, S(R.string.dsd_rate), Type.LabelLarge))
-            sec.add(chipChoice(act, listOf("DSD64", "DSD128", "DSD256"), p.sp.getInt("darDsd", 0)) { p.set("darDsd", it) })
-            sec.add(note(act, S(R.string.if_dac_doesnt_support_selected)))
-        }
-        sec.add(note(act, S(R.string.dar_applies_to_pcm_tracks),
-            if (darMode != 0 && (p.sourceDirect || (darMode == 2 && !p.usbDirect))) Pal.error else Pal.onSurfaceVariant))
+        sec.add(note(act, S(R.string.legacy_dar_note), if (darMode != 0 && p.sourceDirect) Pal.error else Pal.onSurfaceVariant))
         return sec.view
     }
 

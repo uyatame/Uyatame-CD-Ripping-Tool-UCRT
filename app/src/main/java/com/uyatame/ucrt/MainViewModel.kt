@@ -337,6 +337,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var snack by mutableStateOf<String?>(null)
 
+    /** アプリの画面に戻ってくるたびに増える(ほかのアプリの設定画面から戻ったときに、状態を確かめ直すため) */
+    var resumeTick by mutableIntStateOf(0)
+
     /** ほかの音楽アプリの曲の再生画面を開いているか */
     var externalPlayerOpen by mutableStateOf(false)
 
@@ -419,15 +422,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val keep = com.uyatame.ucrt.player.DacKeepAlive
                 keep.target = s.dacKeepAliveTarget
                 if (s.dacKeepAlive && !keep.running) keep.start(ctx) else if (!s.dacKeepAlive && keep.running) keep.stop(ctx)
-                com.uyatame.ucrt.player.usb.UsbDac.returnOnExit = s.usbDacReturnOnExit
                 player.usbVolumeStep = s.usbVolumeStep
-                com.uyatame.ucrt.player.AudioEngine.appVolume =
-                    if (s.fineVolume) com.uyatame.ucrt.player.AudioEngine.appVolumeOf(s.appVolumeStep) else 1f
+                player.autoResume = s.autoResume
+                AutoBridge.enabled = s.androidAuto
                 val stab = com.uyatame.ucrt.player.usb.UsbStabilizer
                 if (stab.enabled != s.usbStabilize) {
                     stab.enabled = s.usbStabilize
-                    if (!s.usbStabilize) stab.stop() else if (com.uyatame.ucrt.player.usb.UsbDac.streaming) stab.start(ctx)
+                    // 転送している間に切り替えたら、掛け直す(オフでも CPU を起こしておくのは続ける)
+                    stab.stop()
+                    if (com.uyatame.ucrt.player.usb.UsbDac.streaming) stab.start(ctx)
                 }
+                com.uyatame.ucrt.player.AudioEngine.appVolume =
+                    if (s.fineVolume) com.uyatame.ucrt.player.AudioEngine.appVolumeOf(s.appVolumeStep) else 1f
                 player.gapless = s.gapless
                 val rg = com.uyatame.ucrt.player.ReplayGain
                 val rgMode = s.rgEffective
@@ -463,6 +469,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // 以前の版で保存した連絡先メールアドレスは不要になったので消す
         viewModelScope.launch { repo.set(com.uyatame.ucrt.data.Keys.contactEmail, "") }
         player.onNotice = { snack = it }
+        player.onQueueEnd = { playNextList() }
+        // Android Auto(試験的)から、この再生を使えるようにする
+        AutoBridge.register(this)
         player.onStateChanged = {
             updateService()
             loadPlayerArt()
@@ -535,6 +544,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val done = java.util.concurrent.atomic.AtomicInteger()
             val analyzed = java.util.concurrent.atomic.AtomicInteger()
             val failed = java.util.concurrent.atomic.AtomicInteger()
+            val tagged = java.util.concurrent.atomic.AtomicInteger()
             val pool = java.util.concurrent.Executors.newFixedThreadPool(n) { r ->
                 Thread({
                     runCatching { android.os.Process.setThreadPriority(prio) }
@@ -554,6 +564,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     // アルバムごとに、残りの曲数と結果を数える。最後の曲が終わったスレッドがアルバムの値を求めて保存する
                     val futures = ArrayList<java.util.concurrent.Future<*>>()
                     for (a in targets) {
+                        if (rgStop) break
+                        // foobar2000 などで解析してタグに書いた値がある曲は、その値をそのまま使うので解析しない(アルバムの全曲にあるとき)
+                        if (a.tracks.all { com.uyatame.ucrt.player.ReplayGain.hasTags(ctx, it.uri) }) {
+                            tagged.addAndGet(a.tracks.size)
+                            done.addAndGet(a.tracks.size)
+                            continue
+                        }
                         val left = java.util.concurrent.atomic.AtomicInteger(a.tracks.size)
                         val results = java.util.Collections.synchronizedList(ArrayList<RgTrack>())
                         for (t in a.tracks) futures.add(pool.submit {
@@ -575,7 +592,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 ui.cancel()
                 rgAnalyzing = false
                 rgStatus = ""
-                val msg = S(R.string.rg_analysis_finished, analyzed.get(), failed.get())
+                val msg = S(R.string.rg_analysis_finished, analyzed.get(), failed.get()) +
+                    (if (tagged.get() > 0) S(R.string.rg_analysis_used_tags, tagged.get()) else "")
                 log(msg)
                 snack = msg
             }
@@ -632,13 +650,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** USB DAC を使っているか(「USB DAC を解放」を出すため) */
     val usbDacInUse: Boolean get() = com.uyatame.ucrt.player.usb.UsbDac.inUse
 
-    /** 再生を一時停止して、USB DAC を Android に返す(ほかのアプリの音が USB DAC から出るようにする) */
-    fun releaseUsbDac() {
+    /**
+     * USB DAC の接続を解除する(抜き差ししたときに近い動作)。一時停止して Android に返したうえで、DAC を USB でリセットする。
+     * DAC は挿した直後と同じ初期状態からやり直し、Android の USB オーディオのドライバーも DAC を見つけ直す
+     */
+    fun disconnectUsbDac() {
         player.releaseOutput()
-        // 再生の出力を閉じたあとも開いたままなら、ここで閉じる(Android の USB オーディオに戻す)
-        Thread({ com.uyatame.ucrt.player.usb.UsbDac.close(reattach = true) }, "usb-dac-release").start()
-        snack = S(R.string.usb_dac_released)
+        Thread({ com.uyatame.ucrt.player.usb.UsbDac.disconnect() }, "usb-dac-disconnect").start()
+        snack = S(R.string.usb_dac_disconnecting)
     }
+
+    /** USB DAC の使用の許可をもう一度求める(許可の画面が出なかった・断ってしまったとき) */
+    fun requestUsbPermission() {
+        snack = when (com.uyatame.ucrt.player.usb.UsbDac.requestPermissionAgain()) {
+            0 -> S(R.string.usb_dac_not_connected)
+            1 -> S(R.string.usb_permission_already)
+            else -> S(R.string.usb_permission_requested)
+        }
+    }
+
+    /** USB DAC がつながっているか(「接続解除」を出すため) */
+    val usbDacPresent: Boolean get() = com.uyatame.ucrt.player.usb.UsbDac.findDac() != null
 
     private var quitting = false
 
@@ -653,6 +685,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         writeResume()
         resumeReady = false
         player.onStateChanged = null
+        player.onQueueEnd = null
+        AutoBridge.unregister(this)
         player.release()
         runCatching { com.uyatame.ucrt.player.cast.CastManager.disconnect() }
         // DAC を起こしておく無音は、DAC を閉じる前に止め終えておく(閉じたあとにまた流し始めないように)
@@ -686,6 +720,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         writeResume()
         resumeReady = false
         player.onStateChanged = null
+        player.onQueueEnd = null
+        AutoBridge.unregister(this)
         com.uyatame.ucrt.player.AudioEngine.logger = null
         com.uyatame.ucrt.player.AudioEngine.onUsbVolume = null
         runCatching { ctx.unregisterReceiver(permReceiver) }
@@ -768,6 +804,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** DAC の音量(画面のスライダーから) */
     fun setUsbVolume(v: Int, save: Boolean) {
+        // ネイティブ DSD・DoP で音量を変えられないときは変えない(知らせるだけ)
+        if (player.usbVolumeLocked()) return
         player.setUsbVolume(v)
         if (save) set(com.uyatame.ucrt.data.Keys.usbVolume, v)
     }
@@ -1631,7 +1669,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val b = withContext(Dispatchers.IO) {
-                    val raw = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: throw IOException(S(R.string.cannot_open_image))
+                    val raw = ctx.contentResolver.openInputStream(uri)?.use { com.uyatame.ucrt.tags.readCoverImage(it) } ?: throw IOException(S(R.string.cannot_open_image))
                     prepareCoverImage(raw)
                 }
                 coverBytes = b
@@ -2547,7 +2585,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val coverBytes = coverData ?: newCover?.let { u ->
                     withContext(Dispatchers.IO) {
-                        val raw = ctx.contentResolver.openInputStream(u)?.use { it.readBytes() } ?: throw IOException(S(R.string.cannot_open_image))
+                        val raw = ctx.contentResolver.openInputStream(u)?.use { com.uyatame.ucrt.tags.readCoverImage(it) } ?: throw IOException(S(R.string.cannot_open_image))
                         prepareCoverImage(raw)
                     }
                 }
@@ -2620,11 +2658,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
-    fun playAlbum(a: LibAlbum, start: Int, shuffle: Boolean = false) = playTracks(a.tracks, start, shuffle)
+    fun playAlbum(a: LibAlbum, start: Int, shuffle: Boolean = false) = playTracks(a.tracks, start, shuffle, PlaySource(PlaySource.ALBUM, a.key))
 
-    /** 曲の一覧を再生する(shuffle なら順番を混ぜる) */
-    fun playTracks(list: List<com.uyatame.ucrt.library.LibTrack>, start: Int, shuffle: Boolean = false) {
+    /**
+     * 再生しているリストの出どころ(アルバム・アーティスト・ジャンル・年・プレイリスト・フォルダ)。
+     * 設定の「最後まで再生したら次のリストへ」で、次のリストを探すのに使う。null = それ以外(曲の一覧・検索など)
+     */
+    class PlaySource(val kind: String, val key: String) {
+        companion object {
+            const val ALBUM = "album"
+            const val ARTIST = "artist"
+            const val GENRE = "genre"
+            const val YEAR = "year"
+            const val PLAYLIST = "playlist"
+            const val FOLDER = "folder"
+        }
+    }
+
+    var playSource: PlaySource? = null
+        private set
+
+    /** 曲の一覧を再生する(shuffle なら順番を混ぜる)。source: どのリストか(次のリストへ進むため) */
+    fun playTracks(list: List<com.uyatame.ucrt.library.LibTrack>, start: Int, shuffle: Boolean = false, source: PlaySource? = null) {
         if (list.isEmpty()) return
+        playSource = source
         val items = list.map { itemOf(it) }
         if (shuffle) {
             if (!player.shuffle) player.toggleShuffle()
@@ -2632,6 +2689,97 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             player.playFiles(items, start)
         }
+    }
+
+    // ---------------- 最後まで再生したら次のリストへ ----------------
+
+    private fun folderOf(t: com.uyatame.ucrt.library.LibTrack): String = Uri.decode(t.folderId).substringAfter(':', "")
+
+    /** アーティストの曲(アーティストのページと同じ並び: そのアーティストのアルバムを新しい順に、そのあと参加した曲) */
+    fun artistTracks(name: String): List<com.uyatame.ucrt.library.LibTrack> {
+        val main = albums.filter { it.artist == name }.sortedByDescending { it.year }
+        val guest = albums.filter { a -> a.artist != name && a.tracks.any { it.artist == name } }
+        return main.flatMap { it.tracks } + guest.flatMap { a -> a.tracks.filter { it.artist == name } }
+    }
+
+    /** ジャンルの曲(ジャンルのページと同じく、アルバムごとにまとめる) */
+    fun genreTracks(g: String): List<com.uyatame.ucrt.library.LibTrack> =
+        albums.flatMap { a -> a.tracks.filter { it.genre == g } }.groupBy { albumKeyOf(it.uri) ?: it.album }.values.flatten()
+
+    /** フォルダの曲(子フォルダも含め、フォルダ・曲順に並べる) */
+    fun folderTracksOf(path: String): List<com.uyatame.ucrt.library.LibTrack> =
+        albums.asSequence().flatMap { it.tracks }
+            .filter { val p = folderOf(it); p == path || path.isEmpty() || p.startsWith("$path/") }
+            .sortedWith(compareBy({ folderOf(it).lowercase() }, { it.disc }, { it.track }, { Uri.decode(it.uri).lowercase() }))
+            .toList()
+
+    /**
+     * 今のリストの次のリスト(ライブラリの画面の並び順で次。最後なら最初へ戻る。曲の無いリストは飛ばす)。
+     * 次のリストの出どころ・名前・曲を返す。見つからなければ null
+     */
+    private fun nextList(src: PlaySource): Triple<PlaySource, String, List<com.uyatame.ucrt.library.LibTrack>>? {
+        fun <T> after(keys: List<T>, cur: T): List<T> {
+            val i = keys.indexOf(cur)
+            return if (i < 0) keys else keys.drop(i + 1) + keys.take(i)
+        }
+        when (src.kind) {
+            PlaySource.ALBUM -> {
+                val order = albums.sortedWith(compareBy({ it.artist.lowercase() }, { it.title.lowercase() }))
+                val a = after(order.map { it.key }, src.key).firstNotNullOfOrNull { k -> order.firstOrNull { it.key == k && it.tracks.isNotEmpty() } } ?: return null
+                return Triple(PlaySource(src.kind, a.key), a.title, a.tracks)
+            }
+            PlaySource.ARTIST -> {
+                val names = albums.map { it.artist }.distinct().sortedBy { it.lowercase() }
+                for (n in after(names, src.key)) {
+                    val t = artistTracks(n)
+                    if (t.isNotEmpty()) return Triple(PlaySource(src.kind, n), n, t)
+                }
+            }
+            PlaySource.GENRE -> {
+                val gs = albums.flatMap { it.tracks }.map { it.genre }.distinct().sortedWith(compareBy({ it.isEmpty() }, { it.lowercase() }))
+                for (g in after(gs, src.key)) {
+                    val t = genreTracks(g)
+                    if (t.isNotEmpty()) return Triple(PlaySource(src.kind, g), g.ifEmpty { S(R.string.unknown_genre) }, t)
+                }
+            }
+            PlaySource.YEAR -> {
+                val ys = albums.map { it.year }.distinct().sortedWith(compareBy<String> { it.isEmpty() }.thenByDescending { it })
+                for (y in after(ys, src.key)) {
+                    val t = albums.filter { it.year == y }.flatMap { it.tracks }
+                    if (t.isNotEmpty()) return Triple(PlaySource(src.kind, y), y.ifEmpty { S(R.string.unknown_year) }, t)
+                }
+            }
+            PlaySource.PLAYLIST -> {
+                val pls = store.playlists
+                for (id in after(pls.map { it.id }, src.key)) {
+                    val p = pls.firstOrNull { it.id == id } ?: continue
+                    val t = playlistTracks(p)
+                    if (t.isNotEmpty()) return Triple(PlaySource(src.kind, id), p.name, t)
+                }
+            }
+            PlaySource.FOLDER -> {
+                // 曲の入っているフォルダを名前順に並べ、今のフォルダ(とその中)より後ろの最初のフォルダ
+                val dirs = albums.asSequence().flatMap { it.tracks }.map { folderOf(it) }.distinct().sortedBy { it.lowercase() }.toList()
+                val cur = src.key
+                val later = dirs.filter { it.lowercase() > cur.lowercase() && !it.startsWith("$cur/") && it != cur }
+                for (d in later + dirs.filter { it !in later && it != cur && !it.startsWith("$cur/") }) {
+                    val t = folderTracksOf(d)
+                    if (t.isNotEmpty()) return Triple(PlaySource(src.kind, d), d.substringAfterLast('/').ifEmpty { "/" }, t)
+                }
+            }
+        }
+        return null
+    }
+
+    /** 並びを最後まで再生し終えたとき: 設定がオンなら、次のリストを続けて再生する(シャッフルはそのまま) */
+    private fun playNextList(): Boolean {
+        if (!settings.value.autoNextList || player.repeatMode != 0) return false
+        val src = playSource ?: return false
+        val (ns, name, tracks) = nextList(src) ?: return false
+        log("auto next list: ${src.kind} -> ${ns.key}")
+        playTracks(tracks, 0, player.shuffle, ns)
+        snack = S(R.string.auto_next_now, name)
+        return true
     }
 
     /** ライブラリ全体をシャッフル再生 */

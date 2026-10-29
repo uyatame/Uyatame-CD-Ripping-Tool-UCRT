@@ -59,6 +59,8 @@ object UsbDac {
      * USB の転送の取りこぼしが続いたとき(メインスレッドで呼ぶ)。知らせる文と、周波数を下げたか(下げたら出力を作り直す)
      */
     @Volatile var onTransferTrouble: ((String, Boolean) -> Unit)? = null
+    /** DAC を Android に返したが、Android が前の接続のままになっていそうなとき(知らせる文) */
+    @Volatile var onReturnTrouble: ((String) -> Unit)? = null
 
     /**
      * 取りこぼしが続いたために下げた、アップサンプリングの上限の周波数(この値未満にする)。
@@ -110,6 +112,11 @@ object UsbDac {
 
     private val lock = Object()
 
+    /** USB DAC がつながった時刻(SystemClock.elapsedRealtime。つないだ直後は Android の準備が終わるまで待ってから確保する) */
+    @Volatile private var attachedAt = 0L
+    /** 取りこぼしが続いたために、開き直したことのある DAC(1 回だけ開き直す) */
+    private var reopenedKey: String? = null
+
     fun init(ctx: Context) {
         if (inited) return
         inited = true
@@ -131,6 +138,8 @@ object UsbDac {
                     }
                     UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
                         if (dev != null && isDac(dev)) {
+                            attachedAt = SystemClock.elapsedRealtime()
+                            reopenedKey = null
                             // 挿し直したら、改めて許可を求められるようにする
                             asked.remove(dev.deviceName)
                             // ビットパーフェクト再生がオンなら、再生を始める前に許可をもらっておく
@@ -166,6 +175,22 @@ object UsbDac {
         )
         main.post { runCatching { usb().requestPermission(dev, pi) } }
         AudioEngine.log("usb dac: requesting permission for ${dev.productName}")
+    }
+
+    /**
+     * 使用の許可をもう一度求める(設定の「USB DACの接続リクエストを再送」)。
+     * 戻り値: 0 = DAC が無い、1 = もう許可されている(そのまま DAC を開き直す)、2 = 許可を求めた
+     */
+    fun requestPermissionAgain(): Int {
+        if (!inited) return 0
+        val dev = findDac() ?: return 0
+        if (usb().hasPermission(dev)) {
+            main.post { onChanged?.invoke() }
+            return 1
+        }
+        asked.remove(dev.deviceName)
+        requestPermissionIfNeeded()
+        return 2
     }
 
     /** USB オーディオの再生用インターフェースを持つ機器か */
@@ -213,6 +238,15 @@ object UsbDac {
     /** 今の音量(自動のときは実際に使っている値) */
     fun volume(): Int = if (volumePercent < 0) (if (hwVolume) 50 else 100) else volumePercent
 
+    /** 今の再生に音量を掛けられないか(ネイティブ DSD・DoP は音量を掛けないので、ソフトウェア音量しか無い DAC では変えても音が変わらない) */
+    @Volatile private var noGainNow = false
+
+    /**
+     * 音量を変えても音が変わらない状態か(ソフトウェア音量しか無い DAC で、ネイティブ DSD・DoP を流しているとき)。
+     * このときに下げてしまうと、PCM の曲になったとたんに小さく・無音になるので、変えないようにする
+     */
+    val volumeFixed: Boolean get() = noGainNow && !hwVolume && active
+
     /** 0〜100 を dB に。上の方ほど細かく調整できるよう二乗のカーブにする(50 で -15 dB) */
     private fun percentToDb(p: Int): Double = -60.0 * (1 - p / 100.0) * (1 - p / 100.0)
 
@@ -236,11 +270,13 @@ object UsbDac {
      * darMaxRate が 0 より大きければ(DAR の PCM アップサンプリング)、その周波数までで DAC が対応するいちばん高い整数倍に上げる。
      */
     internal fun prepare(srcRate: Int, srcCh: Int, srcBits: Int, exact: Boolean = false, darMaxRate: Int = 0): DacFormat? {
+        noGainNow = exact
         return synchronized(lock) { prepareLocked(srcRate, srcCh, srcBits, exact, darMaxRate) }
     }
 
-    /** ネイティブ DSD 用に準備する。DAC が対応していなければ null */
-    internal fun prepareDsd(dsdRate: Int, ch: Int): DacFormat? {
+    /** ネイティブ DSD 用に準備する。DAC が対応していなければ null。softGain: 送る前に音量を掛けている(DAR の DSD 変換) */
+    internal fun prepareDsd(dsdRate: Int, ch: Int, softGain: Boolean = false): DacFormat? {
+        noGainNow = !softGain
         return synchronized(lock) {
             if (!ensureOpen()) return@synchronized null
             val inf = info ?: return@synchronized null
@@ -329,6 +365,15 @@ object UsbDac {
                 S(R.string.transfers_to_usb_dac_keep, khz(rate)),
                 true,
             )
+        } else if (reopenedKey != devKey()) {
+            // 元の周波数でも取りこぼすときは、挿し直したときと同じように DAC を開き直す(1 回だけ)。
+            // DAC を確保したときに、Android 側がまだ DAC を使っていて、DAC の状態が乱れたままになっていることがあるため
+            reopenedKey = devKey()
+            AudioEngine.log("usb dac: transfers keep failing at ${khz(rate)}, reopening the DAC")
+            Thread {
+                close(reattach = false)
+                main.post { onChanged?.invoke() }
+            }.start()
         } else {
             AudioEngine.log("usb dac: transfers keep failing at ${khz(rate)} (source rate, can't lower)")
             onTransferTrouble?.invoke(
@@ -402,7 +447,76 @@ object UsbDac {
         return r in rates
     }
 
+    /**
+     * DAC を確保する前に、Android が DAC を使い終えるのを待つ(メイン以外のスレッドから。最大 3.5 秒)。
+     * Android の音声(このアプリの通常の出力・ほかのアプリの音・通知音)が DAC で鳴っている最中にドライバーから切り離すと、
+     * DAC の状態が乱れて、直接出力の音がプツプツ途切れることがある(挿し直すと直る)。
+     * つないだ直後は、Android が DAC を出力先に登録し終えるまでも待つ
+     */
+    private fun waitBeforeClaim() {
+        if (Looper.myLooper() == Looper.getMainLooper()) return
+        val am = runCatching { ContextCompat.getSystemService(app, android.media.AudioManager::class.java) }.getOrNull()
+        val t0 = SystemClock.elapsedRealtime()
+        var active = false
+        while (am?.isMusicActive == true && SystemClock.elapsedRealtime() - t0 < 1500) {
+            active = true
+            runCatching { Thread.sleep(100) }
+        }
+        val now = SystemClock.elapsedRealtime()
+        var until = if (attachedAt > 0) attachedAt + ANDROID_STANDBY_MS else 0L
+        // 鳴っていたなら、Android が出力を休ませる(DAC を閉じる)まで
+        if (active) until = max(until, now + ANDROID_STANDBY_MS)
+        val wait = (until - now).coerceAtMost(ANDROID_STANDBY_MS - (now - t0)).coerceAtLeast(0L)
+        if (wait > 0) {
+            AudioEngine.log("usb dac: waiting ${wait}ms for Android audio to let go of the DAC before claiming")
+            runCatching { Thread.sleep(wait) }
+        }
+    }
+
+    /** 次に閉じるときに、USB でリセットする(接続解除) */
+    @Volatile private var resetOnClose = false
+
+    /**
+     * 「USB DACの接続解除」(メイン以外のスレッドから): Android に返したうえで、DAC を USB でリセットする。
+     * DAC は挿した直後と同じ初期状態からやり直し、Android の USB オーディオのドライバーも DAC を見つけ直す
+     * (アプリからは電源を切って抜いた状態にはできないので、これがいちばん挿し直しに近い)。
+     * UCRT が DAC を開いていなければ、リセットのためだけに開く(使用の許可があるとき)
+     */
+    fun disconnect() {
+        synchronized(lock) {
+            if (conn != null) {
+                resetOnClose = true
+                close(reattach = true)
+                return
+            }
+        }
+        val dev = findDac() ?: run { AudioEngine.log("usb dac: disconnect: no USB DAC found"); return }
+        if (!usb().hasPermission(dev)) { AudioEngine.log("usb dac: disconnect: no permission"); requestPermissionIfNeeded(); return }
+        val c = usb().openDevice(dev) ?: run { AudioEngine.log("usb dac: disconnect: openDevice failed"); return }
+        try {
+            AudioEngine.log("usb dac: USB reset (disconnect, not in use) -> " + Usbfs.resetDevice(c.fileDescriptor))
+        } finally {
+            runCatching { c.close() }
+        }
+    }
+
+    /** 確保する前の、Android の USB オーディオのカードの番号(返したあとに、同じ番号で戻ったかを確かめる) */
+    @Volatile private var cardAtClaim: Int? = null
+
+    /**
+     * Android の USB オーディオ(ALSA)のカードの番号(/proc/asound/cards の「USB-Audio」。読めない端末・無ければ null)。
+     * 返したあとに番号が変わると、Android は前の番号に出し続けて、ほかのアプリの音が DAC から出なくなる(挿し直すまで)
+     */
+    private fun usbCardIndex(): Int? = runCatching {
+        java.io.File("/proc/asound/cards").readLines().firstNotNullOfOrNull { l ->
+            Regex("^\\s*(\\d+) \\[.*\\]: USB-Audio").find(l)?.groupValues?.get(1)?.toInt()
+        }
+    }.getOrNull()
+
     private fun open(dev: UsbDevice): Boolean {
+        waitBeforeClaim()
+        cardAtClaim = usbCardIndex()
+        AudioEngine.log("usb dac: ALSA USB card before claim: ${cardAtClaim ?: "unknown"}")
         val c = usb().openDevice(dev) ?: run {
             AudioEngine.log("usb dac: openDevice failed")
             return false
@@ -664,16 +778,14 @@ object UsbDac {
         }
     }
 
-    /** アプリを終了するときに、DAC を Android に返すか(設定。返さなければ、挿し直すまでほかのアプリの音は DAC から出ない) */
-    @Volatile var returnOnExit = true
-
     /**
      * アプリを終了するとき(メイン以外のスレッドから): DAC を起こしておく無音を止めてから、設定に従って DAC を返して閉じる。
      * 返すときは、Android の音声が前の DAC を手放すのを待つので、数秒かかることがある
      */
     fun closeForExit() {
-        AudioEngine.log("usb dac: closing for exit (return to Android: $returnOnExit)")
-        close(reattach = returnOnExit)
+        // 終了するときは、DAC の接続を解除する(Android に返したうえで USB でリセットする。挿し直したときに近い)
+        AudioEngine.log("usb dac: disconnecting for exit")
+        disconnect()
     }
 
     /**
@@ -718,6 +830,25 @@ object UsbDac {
                 // 制御インターフェースを先に戻す(USB オーディオのドライバーは、そこで再生インターフェースもまとめて引き取る)
                 val failed = claimed.filterNot { Usbfs.reconnectKernelDriver(fd, it.id) }.map { it.id }
                 AudioEngine.log("usb dac: returned to Android" + if (failed.isEmpty()) "" else " (reconnect failed: if${failed.joinToString(",if")})")
+                // 「USB DACの接続解除」: 返したうえで、DAC を USB でリセットする(抜き差ししたときに近い)
+                if (resetOnClose) {
+                    resetOnClose = false
+                    AudioEngine.log("usb dac: USB reset (disconnect) -> " + Usbfs.resetDevice(fd))
+                }
+                // Android が同じカードの番号で DAC を見つけ直したか確かめる(メイン以外のスレッドのときだけ。最大 3 秒待つ)
+                val before = cardAtClaim
+                if (before != null && android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+                    var after: Int? = null
+                    val until = SystemClock.elapsedRealtime() + 3000
+                    while (SystemClock.elapsedRealtime() < until) {
+                        after = usbCardIndex()
+                        if (after != null) break
+                        runCatching { Thread.sleep(150) }
+                    }
+                    AudioEngine.log("usb dac: ALSA USB card after return: ${after ?: "none"} (before claim: $before)")
+                    // 番号が変わった・戻らなかったときは、Android は前の接続のまま(挿し直してもらう)
+                    if (after != before) onReturnTrouble?.invoke(S(R.string.usb_return_stale))
+                }
             }
             runCatching { c.close() }
             AudioEngine.log("usb dac: closed")
@@ -755,8 +886,8 @@ object UsbDac {
     internal fun played(id: Int): Long = if (id == session) stream?.ring?.played ?: 0L else 0L
 
     /**
-     * 止めたまま 30 秒たったら、音切れ対策(無音の再生・CPU を起こしておく・画面の描画のタイミング)をやめる。
-     * DAC へは無音を送り続けるので DAC は眠らず、再生を始めればまた対策をかける(止めている間に電池と CPU を使わないように)
+     * 止めたまま 30 秒たったら、CPU を起こしておくのをやめる。
+     * DAC へは無音を送り続けるので DAC は眠らず、再生を始めればまた起こしておく(止めている間に電池を使わないように)
      */
     private val stabilizerIdle = Runnable { if (stream?.ring?.paused != false) UsbStabilizer.stop() }
 
@@ -883,7 +1014,29 @@ object UsbDac {
         private var phase: Long = 0
 
         private val urbs = ArrayList<IsoUrb>()
-        private val byAddr = HashMap<Long, IsoUrb>()
+
+        /**
+         * 速度の報告を 1 回の転送(URB)でいくつ受け取るか(約 4ms 分)。1 つずつだと毎秒千回近く転送が終わってスレッドが起きるので、
+         * まとめて受け取り、いちばん新しい値を使う(報告は平均の速さなので、4ms ごとに読めば十分)
+         */
+        private val fbPackets = run {
+            val periodUs = (if (highSpeed) 125 else 1000) shl (alt.epFbInterval - 1).coerceIn(0, 15)
+            (4000 / periodUs).coerceIn(1, 8)
+        }
+
+        /** 終わった転送(URB)のアドレスから、どの URB かを探す(数が少ないので順に見る。毎回の物を作らない) */
+        private fun urbAt(addr: Long): IsoUrb? {
+            for (i in urbs.indices) if (urbs[i].address == addr) return urbs[i]
+            return null
+        }
+
+        private fun reapedAddress(ptr: Memory): Long =
+            if (Usbfs.PS == 8) ptr.getLong(0) else ptr.getInt(0).toLong() and 0xFFFFFFFFL
+
+        private fun prepareFeedback(u: IsoUrb) {
+            for (k in 0 until u.packets) lengths[k] = alt.epFbMaxPacket
+            u.prepare(lengths)
+        }
         private val lengths = IntArray(64)
 
         @Volatile private var halted = false
@@ -944,13 +1097,19 @@ object UsbDac {
         }
 
         private fun handleFeedback(u: IsoUrb) {
-            val n = u.packetActual(0)
-            if (u.status() != 0 || n < 3) return
+            val st = u.status()
+            if (st != 0 && st != -18) return
+            // いちばん新しい(後ろの)、正しく受け取れた報告を使う。パケット k のデータは k × 最大長の位置にある
+            var k = u.packets - 1
+            while (k >= 0 && (u.packetStatus(k) != 0 || u.packetActual(k) < 3)) k--
+            if (k < 0) return
+            val n = u.packetActual(k)
+            val off = k.toLong() * alt.epFbMaxPacket
             val f: Long = if (n == 3) {
-                ((u.buf.getByte(0).toLong() and 0xFF) or ((u.buf.getByte(1).toLong() and 0xFF) shl 8) or
-                    ((u.buf.getByte(2).toLong() and 0xFF) shl 16)) shl 2
+                ((u.buf.getByte(off).toLong() and 0xFF) or ((u.buf.getByte(off + 1).toLong() and 0xFF) shl 8) or
+                    ((u.buf.getByte(off + 2).toLong() and 0xFF) shl 16)) shl 2
             } else {
-                (u.buf.getInt(0).toLong() and 0x0FFFFFFFL)
+                (u.buf.getInt(off).toLong() and 0x0FFFFFFFL)
             }
             if (f == 0L) return
             // 機器ごとに単位(桁)がずれていることがあるので、公称値の ±2% に入る桁を毎回探す。
@@ -1007,19 +1166,19 @@ object UsbDac {
             val maxBytes = maxFramesPerPacket * fmt.frameBytes * ppu
             repeat(nUrb) {
                 val u = IsoUrb(alt.epOut, ppu, maxBytes, false)
-                urbs += u; byAddr[u.address] = u
+                urbs += u
             }
             val fbUse = alt.syncType == 1 && alt.epFb >= 0
             if (fbUse) repeat(2) {
-                val u = IsoUrb(alt.epFb, 1, alt.epFbMaxPacket, true)
-                urbs += u; byAddr[u.address] = u
+                val u = IsoUrb(alt.epFb, fbPackets, alt.epFbMaxPacket * fbPackets, true)
+                urbs += u
             }
             AudioEngine.log(
                 "usb dac: ${if (highSpeed) "high" else "full"}-speed, $packetsPerSec packets/s, $ppu packets/urb, " +
                     "max $maxFramesPerPacket frames/packet, feedback=${if (fbUse) "0x%02x".format(alt.epFb) else "none"}",
             )
             for (u in urbs) {
-                if (u.feedback) { lengths[0] = alt.epFbMaxPacket; u.prepare(lengths) } else fill(u)
+                if (u.feedback) prepareFeedback(u) else fill(u)
                 if (!submit(u)) { stopping = true; break }
             }
             // 転送 1 回分(約 4ms)の間隔で処理を終える必要があると端末に伝える
@@ -1043,6 +1202,10 @@ object UsbDac {
             val t0 = SystemClock.elapsedRealtime()
             var lastStat = t0
             var lastReap = t0
+            // 音声の転送(速度の報告ではないもの)が最後に終わった時刻
+            var lastOutReap = t0
+            // 診断: 転送が終わってから次を受け取るまでに空いたいちばん長い時間(ms。スレッドが止められていないか)
+            var stMaxGap = 0L
             var stPackets = 0L; var stFrames = 0L; var stData = 0L; var stUrbs = 0
             var stShortPk = 0; var stFb = 0; var stalls = 0
             // 診断: 送り切れなかったパケット(実際に送れた長さが、頼んだ長さより短い)の数と、無音でない音を送ったか
@@ -1053,6 +1216,7 @@ object UsbDac {
             // 取りこぼし(パケットの失敗)が続いているかを 2 秒ごとに見る
             var missWinAt = t0
             var missWin = 0
+            val missLimit = max(2, packetsPerSec * 2 / 1000)
             var missBad = 0
             var missReported = false
             var kicked = false
@@ -1062,13 +1226,15 @@ object UsbDac {
                 if (r < 0) {
                     val e = Usbfs.errno()
                     if (e == 11 || e == 4) { // EAGAIN(まだ終わっていない) / EINTR
-                        if (!stopping && !kicked && now - lastReap > 300) {
+                        // (速度の報告の転送だけが終わり続けて、音声の転送が止まっていることもあるので、音声の転送で見る)
+                        if (!stopping && !kicked && now - lastOutReap > 300) {
                             // 転送が止まった: いったん全部取り消して出し直す
                             stalls++
-                            AudioEngine.log("usb dac: stall (no completion for ${now - lastReap} ms), restarting transfers")
+                            AudioEngine.log("usb dac: stall (no completion for ${now - lastOutReap} ms), restarting transfers")
                             kicked = true
                             for (x in urbs) if (x.inFlight) runCatching { Usbfs.ioctl(fd, Usbfs.DISCARDURB, x.urb) }
                             lastReap = now
+                            lastOutReap = now
                         }
                         // URB は 12 個(約 48ms 分)送ってあるので、2ms ごとに見れば十分(1ms ごとだと、待つだけで CPU が休めない)
                         Thread.sleep(2)
@@ -1077,9 +1243,9 @@ object UsbDac {
                     AudioEngine.log("usb dac: reap failed errno=$e")
                     break
                 }
+                if (now - lastReap > stMaxGap) stMaxGap = now - lastReap
                 lastReap = now
-                val p = ptr.getPointer(0) ?: continue
-                val u = byAddr[Pointer.nativeValue(p)]
+                val u = urbAt(reapedAddress(ptr))
                 if (u == null) {
                     AudioEngine.log("usb dac: unknown urb reaped")
                     continue
@@ -1095,14 +1261,14 @@ object UsbDac {
                     if (errors <= 5) AudioEngine.log("usb dac: urb status $st")
                     if (st == -19 || st == -108 || errors > 200) { stopping = true; continue } // 機器が外れた
                 }
-                if (kicked && st == 0) kicked = false
+                if (kicked && st == 0 && !u.feedback) kicked = false
                 if (u.feedback) {
                     stFb++
                     handleFeedback(u)
-                    lengths[0] = alt.epFbMaxPacket
-                    u.prepare(lengths)
+                    prepareFeedback(u)
                 } else {
                     stUrbs++
+                    lastOutReap = now
                     stPackets += u.packets
                     var sent = 0
                     // パケットの状態は 1 回でまとめて読む(1 つずつ読むと、毎秒数万回ネイティブを呼ぶことになる)
@@ -1133,9 +1299,11 @@ object UsbDac {
                 }
                 if (!submit(u)) stopping = true
                 if (now - missWinAt >= 2000) {
-                    // 始めた直後(DAC が落ち着くまで)は数えない。2 秒に 2 回以上の取りこぼしが 3 回(6 秒)続いたら知らせる
+                    // 始めた直後(DAC が落ち着くまで)は数えない。2 秒にパケットの 0.1% 以上(高速の USB で 16 個以上)の取りこぼしが
+                    // 3 回(6 秒)続いたら知らせる(以前は 2 個以上で知らせていたが、たまに 1 つ 2 つ間に合わないだけで周波数を下げてしまい、
+                    // 元の周波数でも同じように起きるので下げても直らず、DAR が効かなくなっていた)
                     if (now - t0 >= 4000 && warmedUp() && !ring.paused) {
-                        missBad = if (missWin >= 2) missBad + 1 else 0
+                        missBad = if (missWin >= missLimit) missBad + 1 else 0
                         if (missBad >= 3 && !missReported) {
                             missReported = true
                             transferTrouble(fmt.rate)
@@ -1150,11 +1318,11 @@ object UsbDac {
                     AudioEngine.log(
                         "usb dac: stat ${span}ms urbs=$stUrbs packets/s=${stPackets * 1000 / span} frames/s=${stFrames * 1000 / span} " +
                             "data/s=${stData * 1000 / span} underrun=$stShortPk fb=$stFb fbval=${"%.4f".format(freqm / 65536.0)} " +
-                            "ring=${ring.level()} paused=${ring.paused} stalls=$stalls err=$stErr short=$stShortTx audible=$stAudible",
+                            "ring=${ring.level()} paused=${ring.paused} stalls=$stalls err=$stErr short=$stShortTx gap=${stMaxGap}ms audible=$stAudible vol=${volume()}${if (hwVolume) "(usb)" else "(soft)"}",
                     )
                     lastStat = now
                     stPackets = 0; stFrames = 0; stData = 0; stUrbs = 0; stShortPk = 0; stFb = 0
-                    stShortTx = 0; stAudible = false
+                    stShortTx = 0; stAudible = false; stMaxGap = 0
                     stErr.clear()
                 }
             }
@@ -1171,7 +1339,7 @@ object UsbDac {
                     if (Usbfs.errno() == 4) continue // EINTR: やり直す
                     break
                 }
-                ptr.getPointer(0)?.let { byAddr[Pointer.nativeValue(it)]?.inFlight = false }
+                urbAt(reapedAddress(ptr))?.inFlight = false
             }
             val left = urbs.filter { it.inFlight }
             if (left.isNotEmpty()) synchronized(orphanUrbs) { orphanUrbs.addAll(left) }
