@@ -6,6 +6,15 @@
 
 *An Android app for ripping and playing audio CDs with an external USB optical drive. No root required. (English summary below.)*
 
+## 2つの版
+
+| | 対応するAndroid | 内容 |
+|---|---|---|
+| **UCRT**（通常版） | Android 6.0〜17 | すべての機能が使えるフル機能版 |
+| **UCRT Legacy**（軽量版） | Android 4.0〜17 | 古い端末や性能の低い端末でも軽く動く軽量版。CDの取り込み・書き込み・再生、ライブラリ、USB DACへの直接出力など主な機能が使えます（ストリーミングのタブ・リキッドグラス・アップサンプルのタブなど一部を除く） |
+
+2つは別のアプリなので、同じ端末に並べて入れることもできます。下の「主な機能」は通常版のものです。
+
 ## 主な機能
 
 - **CDの取り込み**: FLAC（ロスレス）/ AAC / MP3 / WAVに対応（曲情報・ジャケット付き）。FLACとMP3はFFmpegで、CDの読み取りと並行して変換。音質はプリセットから選べるほか、細かく設定することもできます。取り込み前の確認、失敗しても元のファイルが消えない上書き
@@ -29,14 +38,15 @@
 
 ## 動作環境
 
-- Android 6.0以上（Android 6.0〜7.1は試験的な対応。Android 4.0〜5.1向けには、別のアプリ「UCRT Legacy」（CDの取り込み・書き込み・再生などストリーミング以外の機能。[Releases](../../releases) の `legacy-v` で始まるもの）があります。ダイナミックカラーはAndroid 12以上、すべてのファイルへのアクセスはAndroid 11以上、アプリ別の表示言語はAndroid 13以上。Android 11以前の通常の出力は192 kHzまで）
+- 通常版: Android 6.0〜17（Android 6.0〜7.1は試験的な対応。ダイナミックカラーはAndroid 12以上、すべてのファイルへのアクセスはAndroid 11以上、アプリ別の表示言語はAndroid 13以上。Android 11以前の通常の出力は192 kHzまで）
+- 軽量版（UCRT Legacy）: Android 4.0〜17（Android 4.0では、AACでの取り込みとキャストなど一部の機能が使えません）
 - USB OTG（USBホスト）に対応した端末
 - USB接続の光学ドライブ（Bulk-Only Transport対応のもの。動作確認: Pioneer BDR-XS07JL）
 - スマートフォンからの給電で動かないドライブには、セルフパワーのUSBハブを使ってください
 
 ## インストール
 
-[Releases](../../releases) から最新の `UCRT_vX.Y.Z.apk` をダウンロードしてインストールしてください。
+[Releases](../../releases) から、通常版は最新の `UCRT_vX.Y.Z.apk`（タグが `v` で始まるもの）、軽量版は最新の `UCRT_Legacy_vX.Y.Z.apk`（タグが `legacy-v` で始まるもの）をダウンロードしてインストールしてください。
 Google Play以外からインストールするため、Playプロテクトの警告が表示されることがあります。
 
 ## ビルド方法
@@ -186,6 +196,6 @@ To build it yourself, run `./gradlew assembleRelease` (JDK 17 and the Android SD
 
 Contributors: [CrossDarkrix](https://github.com/CrossDarkrix) (DSRE, selectable home-screen icons and the spectrum analyzer, from [#11](../../pull/11), reworked to fit UCRT).
 
-Requires Android 6.0 or later (Android 6.0–7.1 support is experimental; for Android 4.0–5.1 there is a separate app, "UCRT Legacy" (all features except streaming, released under `legacy-v*` tags)) and a device with USB OTG support. Licensed under GPL-3.0.
+There are two apps: **UCRT**, the full-featured app for Android 6.0–17 (6.0–7.1 support is experimental), and **UCRT Legacy**, a lightweight app for Android 4.0–17 with the main features (ripping, burning, playback, library, USB DAC output; no Streaming tab, Liquid Glass or Upsample tab), released under `legacy-v*` tags. They are separate apps and can be installed side by side. A device with USB OTG support is required. Licensed under GPL-3.0.
 
 Spotify, Qobuz, Amazon Music, YouTube Music and other service names mentioned here are trademarks of their respective owners. UCRT is not affiliated with or endorsed by these services.
