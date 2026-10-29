@@ -115,6 +115,34 @@ class LegacyPlayer(ctx: Context) {
     @Volatile private var remote = false
     val casting: Boolean get() = com.uyatame.ucrt.legacy.cast.CastManager.active
 
+    /** DSD のまま USB DAC に送っているときの形式(表示用。送っていなければ空) */
+    @Volatile private var dsdOut = ""
+
+    private fun khz(r: Int): String = if (r % 1000 == 0) "${r / 1000} kHz" else "%.1f kHz".format(java.util.Locale.US, r / 1000.0)
+
+    /**
+     * 実際の出力(音質のシートの出力経路の表示用)。USB DAC 直接出力なら DAC に送っている形式、
+     * それ以外は Android の出力(AudioTrack)の周波数・ビット数と、Android 6.0 からは実際の出力先
+     */
+    fun outputText(): String {
+        val usb = usbSession >= 0
+        if (usb && dsdOut.isNotEmpty()) return "USB DAC · $dsdOut"
+        usbFmt?.let { if (usb) return "USB DAC · ${khz(it.rate)} / ${it.bits} bit" }
+        val t = track ?: return ""
+        if (outRate <= 0) return ""
+        val spec = khz(outRate) + " / " + (if (trackFloat) "32 bit float" else "16 bit") + (if (t.channelCount == 1) " · mono" else "")
+        val dev = if (android.os.Build.VERSION.SDK_INT >= 23) com.uyatame.ucrt.legacy.compat.Api23.routedName(t) else null
+        return listOfNotNull(dev, spec).joinToString(" · ")
+    }
+
+    /** 出力が鳴らし終えたフレームの数(書いた数 written と同じ数え方。スペクトラム用) */
+    private fun outHead(): Long {
+        val id = usbSession
+        if (id >= 0) return com.uyatame.ucrt.legacy.usb.UsbDac.played(id)
+        val t = track ?: return 0L
+        return runCatching { t.playbackHeadPosition.toLong() and 0xFFFFFFFFL }.getOrDefault(0L)
+    }
+
     private fun posMs(): Long {
         if (remote) return com.uyatame.ucrt.legacy.cast.CastManager.positionMs().coerceIn(0L, maxOf(durationMs, 0L))
         if (usbSession >= 0) {
@@ -271,6 +299,17 @@ class LegacyPlayer(ctx: Context) {
         if (current == null) return
         if (restoredAt >= 0) return
         startAt(positionMs, isPlaying)
+    }
+
+    /**
+     * 出力を手放す(USB DAC の接続解除・終了のとき。本家の releaseOutput と同じ)。一時停止して、次に再生を始めるまで出力を開き直さない
+     * (以前は接続解除のあとすぐに開き直していたため、つながり直した DAC を UCRT がまた確保してしまい、Android に渡らなかった)
+     */
+    fun releaseOutput() {
+        if (current == null || remote) return
+        if (isPlaying) pause()
+        restoredAt = positionMs
+        changed()
     }
 
     fun pause() {
@@ -499,28 +538,45 @@ class LegacyPlayer(ctx: Context) {
 
     private fun changed() = Bus.emit(Bus.PLAYER)
 
+    /** 並びを最後まで再生し終えたとき(リピートしないとき。メインのスレッドで呼ぶ) */
+    @Volatile var onQueueEnd: (() -> Unit)? = null
+
     // ---- オーディオフォーカス(ほかのアプリが鳴らすときは止める) ----
     // (本家と同じ: カメラ・決済アプリなどに取られたまま(LOSS)のときも覚えておき、30 分以内に画面に戻ったら続きを再生する)
     private var duckedPause = false
     private var interruptedAt = 0L
+    /** 自動で再開した時刻(短い間に何度も取られて・返されてを繰り返すときは、自動の再開をやめる) */
+    private val autoResumes = java.util.ArrayDeque<Long>()
+
     private val focus = AudioManager.OnAudioFocusChangeListener { f ->
         main.post {
+            AppLog.log("focus: $f (playing=$isPlaying)")
             when (f) {
                 AudioManager.AUDIOFOCUS_LOSS, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> if (isPlaying) {
-                    duckedPause = true
+                    // 設定の「音を取られたあとに自動で再開」がオフなら、止めるだけ
+                    duckedPause = LegacyApp.app.prefs.sp.getBoolean("autoResume", true)
                     interruptedAt = android.os.SystemClock.elapsedRealtime()
                     pause()
                 }
-                AudioManager.AUDIOFOCUS_GAIN -> if (duckedPause) { duckedPause = false; resume() }
+                AudioManager.AUDIOFOCUS_GAIN -> if (duckedPause) { duckedPause = false; autoResumeNow() }
             }
         }
+    }
+
+    /** 自動で再開する。1 分のうちに 3 回を超えるときは、何かが音を取り合っているので再開しない */
+    private fun autoResumeNow() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        while (autoResumes.isNotEmpty() && now - autoResumes.peekFirst()!! > 60_000L) autoResumes.pollFirst()
+        if (autoResumes.size >= 3) { AppLog.log("focus: resumed too often, not resuming automatically"); return }
+        autoResumes.addLast(now)
+        resume()
     }
 
     /** ほかのアプリに音を取られて止めたあと、画面に戻ってきたとき(LegacyActivity.onResume) */
     fun resumeAfterInterruption() {
         if (!duckedPause || isPlaying) return
         duckedPause = false
-        if (android.os.SystemClock.elapsedRealtime() - interruptedAt < 30 * 60_000L) resume()
+        if (android.os.SystemClock.elapsedRealtime() - interruptedAt < 30 * 60_000L) autoResumeNow()
     }
 
     @Suppress("DEPRECATION")
@@ -565,7 +621,7 @@ class LegacyPlayer(ctx: Context) {
                         seekTo = -1
                         if (toOpen == null) {
                             opened?.close(); opened = null; conv = null
-                            dsd?.close(); dsd = null
+                            dsd?.close(); dsd = null; dsdOut = ""
                             track?.pause(); track?.flush()
                             endUsb()
                         }
@@ -578,6 +634,7 @@ class LegacyPlayer(ctx: Context) {
                     conv = null
                     dsd?.close()
                     dsd = null
+                    dsdOut = ""
                     item = t
                     try {
                         val file = Cue.fileUri(t.uri)
@@ -589,6 +646,7 @@ class LegacyPlayer(ctx: Context) {
                             val du = DsdUsb.open(app, android.net.Uri.parse(file), seek, dsdMode, dsdSwap)
                             if (du != null) {
                                 dsd = du
+                                dsdOut = du.label
                                 durationMs = du.durationMs
                                 formatText = du.label
                                 dsp?.start(du.fmt.rate, 2, t)
@@ -660,6 +718,7 @@ class LegacyPlayer(ctx: Context) {
                     if (!advance(false)) {
                         drainThenPause()
                         changed()
+                        main.post { onQueueEnd?.invoke() }
                     }
                     continue
                 }
@@ -682,12 +741,20 @@ class LegacyPlayer(ctx: Context) {
                     if (!advance(gapless)) {
                         drainThenPause()
                         changed()
+                        // 設定の「最後まで再生したら次のリストへ」
+                        main.post { onQueueEnd?.invoke() }
                     }
                     continue
                 }
                 var n = c.convert(d, if (endSample > 0) endSample else Long.MAX_VALUE)
                 if (n > 0) {
                     dsp?.process(c.mixed, n, c.outChannels)
+                    // スペクトラムアナライザー(表示している間だけ。音には触れない)
+                    if (Spectrum.enabled) {
+                        val inR = c.inRate.toLong(); val outR = maxOf(c.outRate, 1).toLong()
+                        val w = synchronized(lock) { written }
+                        Spectrum.submit(c, c.mixed, n, c.outChannels, c.inRate, w * inR / outR) { outHead() * inR / outR }
+                    }
                     if (c.dac != null) {
                         n = c.resample(n)
                         writeUsb(c, n)
@@ -934,7 +1001,7 @@ class LegacyPlayer(ctx: Context) {
      * デコーダーの出力(右詰めの整数)を、AudioTrack に書く 16 ビットにする。
      * 3 チャンネル以上のステレオへのまとめ(mixed に float で入れる)→ 音の加工 → 周波数の変換 → ディザ
      */
-    private class Converter(private val inRate: Int, private val inCh: Int, private val bits: Int, darRate: Int, dacRate: Int = 0) {
+    private class Converter(val inRate: Int, private val inCh: Int, private val bits: Int, darRate: Int, dacRate: Int = 0) {
         val outChannels = if (inCh == 1) 1 else 2
         /** USB DAC に直接出すときの形式(null なら AudioTrack) */
         var dac: com.uyatame.ucrt.legacy.usb.DacFormat? = null

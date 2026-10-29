@@ -141,10 +141,12 @@ fun LibraryScreen(vm: MainViewModel, s: AppSettings) {
     val holder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     Box(Modifier.fillMaxSize()) {
         // 選んでいる間は、一覧の終わりが下の帯に隠れないよう、その分だけ上げる
-        Box(Modifier.fillMaxSize().padding(bottom = if (vm.selecting) 72.dp else 0.dp)) {
+        // (リキッドグラスでは、帯はミニプレーヤーと同じ下のガラスの列に出す(Ui.kt)。一覧の終わりはその分だけ自動で上がる)
+        val glass = LocalGlass.current
+        Box(Modifier.fillMaxSize().padding(bottom = if (vm.selecting && !glass) 72.dp else 0.dp)) {
             holder.SaveableStateProvider(route ?: "home") { LibraryRoute(vm, s, route) }
         }
-        if (vm.selecting) SelectionBar(vm, Modifier.align(Alignment.BottomCenter))
+        if (vm.selecting && !glass) SelectionBar(vm, Modifier.align(Alignment.BottomCenter))
     }
     // 選んでいる間の戻るボタンは、選ぶのをやめる(ページの戻るより先に受け取る)
     BackHandler(enabled = vm.selecting) { vm.endSelection() }
@@ -251,7 +253,7 @@ private fun SelectionPool(vm: MainViewModel, all: List<LibTrack>) {
  * ページを移っても選んだ曲は残るので、いくつかのアルバムから選んでまとめて入れられる
  */
 @Composable
-private fun SelectionBar(vm: MainViewModel, modifier: Modifier) {
+internal fun SelectionBar(vm: MainViewModel, modifier: Modifier) {
     val glass = LocalGlass.current
     val box: @Composable (@Composable () -> Unit) -> Unit = { inner ->
         // リキッドグラスでは浮かぶガラスにする
@@ -680,9 +682,15 @@ private fun AlbumCollectionPage(
                     }
                 }
             }
+            // 年・フォルダのページは、最後まで再生したら次の年・フォルダへ進めるように、どのリストかを覚えておく
+            val src = when {
+                key.startsWith("year:") -> MainViewModel.PlaySource(MainViewModel.PlaySource.YEAR, key.removePrefix("year:"))
+                key.startsWith("folder:") -> MainViewModel.PlaySource(MainViewModel.PlaySource.FOLDER, key.removePrefix("folder:"))
+                else -> null
+            }
             PlayShuffleButtons(
-                onPlay = { vm.playTracks(shown.flatMap { it.tracks }, 0) },
-                onShuffle = { vm.playTracks(shown.flatMap { it.tracks }, 0, shuffle = true) },
+                onPlay = { vm.playTracks(shown.flatMap { it.tracks }, 0, source = src) },
+                onShuffle = { vm.playTracks(shown.flatMap { it.tracks }, 0, shuffle = true, source = src) },
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
@@ -779,8 +787,9 @@ private fun ArtistPage(vm: MainViewModel, name: String) {
                             S(R.string.albums_4, main.size + guest.size) + countText(tracks),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        val src = MainViewModel.PlaySource(MainViewModel.PlaySource.ARTIST, name)
                         PlayShuffleButtons(
-                            { vm.playTracks(tracks, 0) }, { vm.playTracks(tracks, 0, shuffle = true) },
+                            { vm.playTracks(tracks, 0, source = src) }, { vm.playTracks(tracks, 0, shuffle = true, source = src) },
                             Modifier.padding(top = 8.dp),
                         )
                     }
@@ -849,7 +858,7 @@ private fun SongsPage(vm: MainViewModel) {
 
 /** 曲の一覧(アルバムごとに見出しを付ける)。ジャンルなどで使う */
 @Composable
-private fun GroupedTracks(vm: MainViewModel, title: String, tracks: List<LibTrack>) {
+private fun GroupedTracks(vm: MainViewModel, title: String, tracks: List<LibTrack>, source: MainViewModel.PlaySource? = null) {
     val groups = remember(tracks) {
         tracks.groupBy { vm.albumKeyOf(it.uri) ?: it.album }.toList()
     }
@@ -860,7 +869,7 @@ private fun GroupedTracks(vm: MainViewModel, title: String, tracks: List<LibTrac
         LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp + barInset())) {
             item(key = "controls") {
                 PlayShuffleButtons(
-                    { vm.playTracks(flat, 0) }, { vm.playTracks(flat, 0, shuffle = true) },
+                    { vm.playTracks(flat, 0, source = source) }, { vm.playTracks(flat, 0, shuffle = true, source = source) },
                     Modifier.padding(start = 8.dp, bottom = 8.dp),
                 )
             }
@@ -886,7 +895,7 @@ private fun GroupedTracks(vm: MainViewModel, title: String, tracks: List<LibTrac
                 }
                 items(list, key = { "t:" + it.uri }) { t ->
                     TrackRow(
-                        vm, t, { vm.playTracks(flat, flat.indexOf(t)) },
+                        vm, t, { vm.playTracks(flat, flat.indexOf(t), source = source) },
                         number = if (t.track > 0) "${t.track}" else "", showArt = false,
                     )
                 }
@@ -919,7 +928,7 @@ private fun GenrePage(vm: MainViewModel, g: String) {
     val tracks = remember(vm.albums, g) {
         vm.albums.flatMap { a -> a.tracks.filter { it.genre == g } }
     }
-    GroupedTracks(vm, g.ifEmpty { S(R.string.unknown_genre) }, tracks)
+    GroupedTracks(vm, g.ifEmpty { S(R.string.unknown_genre) }, tracks, MainViewModel.PlaySource(MainViewModel.PlaySource.GENRE, g))
 }
 
 @Composable
@@ -1012,10 +1021,11 @@ private fun FolderBrowsePage(vm: MainViewModel, path: String) {
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, parts.lastOrNull() ?: "/", node?.let { S(R.string.albums_songs, it.albumCount, it.trackCount) }) {
             // このフォルダの曲をまとめて再生する(子フォルダも含む)
-            IconButton({ folderTracks(vm, path).takeIf { it.isNotEmpty() }?.let { vm.playTracks(it, 0) } }) {
+            val src = MainViewModel.PlaySource(MainViewModel.PlaySource.FOLDER, path)
+            IconButton({ folderTracks(vm, path).takeIf { it.isNotEmpty() }?.let { vm.playTracks(it, 0, source = src) } }) {
                 Icon(Icons.Filled.PlayArrow, S(R.string.play_folder))
             }
-            IconButton({ folderTracks(vm, path).takeIf { it.isNotEmpty() }?.let { vm.playTracks(it, 0, shuffle = true) } }) {
+            IconButton({ folderTracks(vm, path).takeIf { it.isNotEmpty() }?.let { vm.playTracks(it, 0, shuffle = true, source = src) } }) {
                 Icon(AppIcons.Shuffle, S(R.string.shuffle_folder))
             }
             // この下のアルバムをまとめて一覧にする
@@ -1120,7 +1130,7 @@ private fun FoldersPage(vm: MainViewModel) {
                                 )
                             }
                             // このフォルダの曲を再生する(子フォルダも含む)
-                            IconButton({ folderTracks(vm, f.path).takeIf { it.isNotEmpty() }?.let { vm.playTracks(it, 0) } }) {
+                            IconButton({ folderTracks(vm, f.path).takeIf { it.isNotEmpty() }?.let { vm.playTracks(it, 0, source = MainViewModel.PlaySource(MainViewModel.PlaySource.FOLDER, f.path)) } }) {
                                 Icon(Icons.Filled.PlayArrow, S(R.string.play_folder))
                             }
                             // このフォルダの中へ入る(エクスプローラーのように、階層を潜っていく)
@@ -1451,8 +1461,9 @@ private fun PlaylistPage(vm: MainViewModel, id: String) {
                         modifier = Modifier.padding(16.dp),
                     )
                 } else {
+                    val src = MainViewModel.PlaySource(MainViewModel.PlaySource.PLAYLIST, id)
                     PlayShuffleButtons(
-                        { vm.playTracks(tracks, 0) }, { vm.playTracks(tracks, 0, shuffle = true) },
+                        { vm.playTracks(tracks, 0, source = src) }, { vm.playTracks(tracks, 0, shuffle = true, source = src) },
                         Modifier.padding(start = 12.dp, bottom = 8.dp),
                     )
                 }
@@ -1460,7 +1471,10 @@ private fun PlaylistPage(vm: MainViewModel, id: String) {
             itemsIndexed(entries, key = { i, _ -> keys[i] }) { i, (pos, t) ->
                 val sel = picked
                 TrackRow(
-                    vm, t, { if (sel != null) picked = if (pos in sel) sel - pos else sel + pos else vm.playTracks(tracks, i) },
+                    vm, t, {
+                        if (sel != null) picked = if (pos in sel) sel - pos else sel + pos
+                        else vm.playTracks(tracks, i, source = MainViewModel.PlaySource(MainViewModel.PlaySource.PLAYLIST, id))
+                    },
                     modifier = Modifier.reorderItem(reorder, i),
                     playlist = p.id to pos,
                     handle = {

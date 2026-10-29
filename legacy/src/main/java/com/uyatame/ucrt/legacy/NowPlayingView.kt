@@ -233,6 +233,7 @@ class NowPlayingView(private val act: LegacyActivity, private val inPane: Boolea
         m.item(S(R.string.sound_settings), Icons.Tune) { openSound() }
         m.item(S(R.string.gesture_guide), Icons.Info) { guide() }
         m.divider()
+        if (com.uyatame.ucrt.legacy.usb.UsbDac.findDac() != null) m.item(S(R.string.disconnect_usb_dac), Icons.Usb) { UsbAudio.disconnect() }
         m.item(S(R.string.stop_playback), Icons.Close) { p.stop(); act.closePlayer() }
         m.show()
     }
@@ -308,6 +309,12 @@ class NowPlayingView(private val act: LegacyActivity, private val inPane: Boolea
         lyricsBtn.tap(oval = true) { toggleLyrics() }
         tr.add(lyricsBtn, w = 48, h = 48)
         ctl.add(tr, t = if (small) 4 else 10)
+        // スペクトラムアナライザー(設定でオンにしたとき。とても狭い画面では出さない)
+        val sp = act.app.prefs.sp
+        if (sp.getBoolean("spectrum", false) && !(small && act.landscape)) {
+            val color = sp.getInt("spectrumColor", 0).let { if (it == 0) col.accent else it }
+            ctl.add(SpectrumView(act, color, sp.getInt("legacySpectrumMs", 50)), h = if (small) 36 else 48, t = if (small) 4 else 10, l = 6, r = 6)
+        }
         // 再生位置
         ctl.add(seek, t = if (small) 4 else 12)
         val times = hbox(act)
@@ -317,26 +324,28 @@ class NowPlayingView(private val act: LegacyActivity, private val inPane: Boolea
         // 再生操作
         val ops = hbox(act)
         repeatBtn.tap(oval = true) { p.cycleRepeat() }
-        ops.add(repeatBtn, w = 48, h = 48)
-        ops.add(View(act), w = 0, h = 1, weight = 1f)
         val prev = icon(act, Icons.SkipPrevious, col.content, (skipSize * 0.47f).toInt())
         prev.contentDescription = S(R.string.previous_track)
         prev.tap(16f, rounded(0, 16f, col.content, 2f)) { p.prev() }
-        ops.add(prev, w = skipSize, h = skipSize)
-        ops.add(View(act), w = 0, h = 1, weight = 1f)
         playBtn.setIcon(Icons.PlayArrow, col.content, (playSize * 0.52f).toInt())
         // 塗りの色を決めないと、Android 4.x では黒く塗られる
         val circ = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0); setStroke(dp(2.5f), col.content) }
         playBtn.tap(oval = true, base = circ) { p.toggle() }
-        ops.add(playBtn, w = playSize, h = playSize)
-        ops.add(View(act), w = 0, h = 1, weight = 1f)
         val next = icon(act, Icons.SkipNext, col.content, (skipSize * 0.47f).toInt())
         next.contentDescription = S(R.string.next_track)
         next.tap(16f, rounded(0, 16f, col.content, 2f)) { p.next() }
-        ops.add(next, w = skipSize, h = skipSize)
-        ops.add(View(act), w = 0, h = 1, weight = 1f)
         shuffleBtn.tap(oval = true) { p.toggleShuffle() }
-        ops.add(shuffleBtn, w = 48, h = 48)
+        // ボタンの並びは設定で変えられる(本家と同じ。R: リピート、P: 前、X: 再生、N: 次、S: シャッフル)
+        controlOrder(act.app.prefs.sp.getString("controlOrder", null)).forEachIndexed { i, c ->
+            if (i > 0) ops.add(View(act), w = 0, h = 1, weight = 1f)
+            when (c) {
+                'R' -> ops.add(repeatBtn, w = 48, h = 48)
+                'P' -> ops.add(prev, w = skipSize, h = skipSize)
+                'X' -> ops.add(playBtn, w = playSize, h = playSize)
+                'N' -> ops.add(next, w = skipSize, h = skipSize)
+                'S' -> ops.add(shuffleBtn, w = 48, h = 48)
+            }
+        }
         ctl.add(ops, t = if (small) 2 else 10)
         // 下の帯: 音量・タイマー・曲番号・再生リスト
         val bot = hbox(act)
@@ -848,3 +857,6 @@ class NowPlayingView(private val act: LegacyActivity, private val inPane: Boolea
 
     fun dispose() {}
 }
+
+/** 再生操作のボタンの並び(本家と同じ。壊れた値なら初めの並び) */
+fun controlOrder(v: String?): String = if (v != null && v.length == 5 && v.toSet() == "RPXNS".toSet()) v else "RPXNS"

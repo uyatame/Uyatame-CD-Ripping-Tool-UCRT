@@ -59,7 +59,9 @@ class LegacyApp : Application() {
         val p = prefs
         player.gapless = p.gapless
         dsp.apply(p)
-        val dar = if (p.sourceDirect) 0 else p.sp.getInt("darMode", 0)
+        player.onQueueEnd = { ListQueue.onQueueEnd() }
+        // (DSD への変換は Legacy には無いので、前に選んでいてもオフ)
+        val dar = if (p.sourceDirect) 0 else p.sp.getInt("darMode", 0).let { if (it == 1) 1 else 0 }
         val pcm = p.sp.getInt("darPcm", 0)
         val integer = p.sp.getBoolean("darInteger", true)
         player.darMode = dar

@@ -100,8 +100,16 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             override fun onSkipToPrevious() = this@PlayerController.prev()
             override fun onSeekTo(pos: Long) = this@PlayerController.seek(pos)
             override fun onStop() = this@PlayerController.stop()
+            // Android Auto などで一覧から選んだ曲・声で探した曲(試験的。AutoService)
+            override fun onPlayFromMediaId(mediaId: String?, extras: android.os.Bundle?) { mediaId?.let { id -> onPlayMediaId?.invoke(id) } }
+            override fun onPlayFromSearch(query: String?, extras: android.os.Bundle?) { onPlaySearch?.invoke(query.orEmpty()) }
         })
     }
+
+    /** Android Auto などで一覧から選んだもの(AutoService の ID)を再生する */
+    @Volatile var onPlayMediaId: ((String) -> Unit)? = null
+    /** 声などで探したものを再生する(空なら何か再生する) */
+    @Volatile var onPlaySearch: ((String) -> Unit)? = null
     private var art: Bitmap? = null
 
     private val noisy = object : BroadcastReceiver() {
@@ -152,19 +160,54 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
      */
     @Volatile private var interruptedAt = 0L
 
+    /** 音を取られたあとに自動で再開するか(設定) */
+    @Volatile var autoResume = true
+
+    /** 自動で再開した時刻(短い間に何度も取られて・返されてを繰り返すときは、自動の再開をやめる) */
+    private val autoResumes = ArrayDeque<Long>()
+
     private val focusListener = AudioManager.OnAudioFocusChangeListener { ch ->
         main.post {
+            AudioEngine.log("focus: ${focusName(ch)} (playing=$isPlaying)")
             when (ch) {
-                AudioManager.AUDIOFOCUS_LOSS, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> if (isPlaying) {
-                    pause()
-                    interruptedAt = android.os.SystemClock.elapsedRealtime()
+                AudioManager.AUDIOFOCUS_LOSS, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                    if (isPlaying) {
+                        pause()
+                        interruptedAt = if (autoResume) android.os.SystemClock.elapsedRealtime() else 0L
+                    }
+                    othersHaveFocus(true)
                 }
-                AudioManager.AUDIOFOCUS_GAIN -> if (interruptedAt != 0L) {
-                    interruptedAt = 0L
-                    resume()
+                AudioManager.AUDIOFOCUS_GAIN -> {
+                    othersHaveFocus(false)
+                    if (interruptedAt != 0L) {
+                        interruptedAt = 0L
+                        autoResumeNow()
+                    }
                 }
             }
         }
+    }
+
+    private fun focusName(ch: Int) = when (ch) {
+        AudioManager.AUDIOFOCUS_GAIN -> "gain"
+        AudioManager.AUDIOFOCUS_LOSS -> "loss"
+        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> "loss (transient)"
+        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> "loss (can duck)"
+        else -> ch.toString()
+    }
+
+    /** 自動で再開する。1 分のうちに 3 回を超えるときは、何かが音を取り合っているので再開しない */
+    private fun autoResumeNow() {
+        if (!autoResume) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        while (autoResumes.isNotEmpty() && now - autoResumes.first() > 60_000L) autoResumes.removeFirst()
+        if (autoResumes.size >= 3) {
+            AudioEngine.log("focus: resumed too often, not resuming automatically")
+            return
+        }
+        autoResumes.addLast(now)
+        AudioEngine.log("focus: resuming after an interruption")
+        resume()
     }
 
     /** ほかのアプリに音を取られて止めたあと、アプリの画面に戻ってきたとき(MainActivity.onResume) */
@@ -172,7 +215,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         val t = interruptedAt
         if (t == 0L || isPlaying) return
         interruptedAt = 0L
-        if (android.os.SystemClock.elapsedRealtime() - t < 30 * 60_000L) resume()
+        if (android.os.SystemClock.elapsedRealtime() - t < 30 * 60_000L) autoResumeNow()
     }
     /** 音声フォーカスの要求(Android 8.0 から。それより前は古い方法で要求する) */
     private val focus: Any? = if (android.os.Build.VERSION.SDK_INT >= 26) AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
@@ -188,11 +231,24 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
 
     private var volProvider: android.media.VolumeProvider? = null
 
-    /** USB DAC 直接出力中は、音量キーで DAC の音量を変える */
+    /** ほかのアプリが音を鳴らしている(音声フォーカスを取られている)か */
+    private var focusLost = false
+
+    /**
+     * ほかのアプリに音を取られている間は、音量キーを DAC の音量に使わない(ほかのアプリの音量のつもりで押したキーで、
+     * DAC の音量が下がって 0 になり、UCRT に戻ると無音になっていたため)。UCRT が音を取り戻したら DAC の音量に戻す
+     */
+    private fun othersHaveFocus(lost: Boolean) {
+        if (focusLost == lost) return
+        focusLost = lost
+        if (!casting) setVolumeRouting(UsbDac.active)
+    }
+
+    /** USB DAC 直接出力中は、音量キーで DAC の音量を変える(ほかのアプリに音を取られている間は除く) */
     private fun setVolumeRouting(active: Boolean) {
-        if (active) {
+        if (active && !focusLost) {
             val vp = object : android.media.VolumeProvider(android.media.VolumeProvider.VOLUME_CONTROL_ABSOLUTE, 100, UsbDac.volume()) {
-                override fun onSetVolumeTo(volume: Int) { setUsbVolume(volume, true) }
+                override fun onSetVolumeTo(volume: Int) { if (!usbVolumeLocked()) setUsbVolume(volume, true) }
                 override fun onAdjustVolume(direction: Int) { adjustUsbVolume(direction) }
             }
             volProvider = vp
@@ -207,8 +263,9 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     @Volatile private var dsdVolumeWarned = false
 
     private fun requestFocus() {
-        if (android.os.Build.VERSION.SDK_INT >= 26) am.requestAudioFocus(focus as AudioFocusRequest)
+        val r = if (android.os.Build.VERSION.SDK_INT >= 26) am.requestAudioFocus(focus as AudioFocusRequest)
         else @Suppress("DEPRECATION") am.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+        if (r == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) othersHaveFocus(false)
     }
 
     private fun abandonFocus() {
@@ -294,6 +351,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     @Volatile var usbVolumeStep = 4
 
     private fun adjustUsbVolume(direction: Int) {
+        if (direction != AudioManager.ADJUST_SAME && usbVolumeLocked()) return
         val cur = UsbDac.volume()
         when (direction) {
             AudioManager.ADJUST_RAISE -> { mutedFrom = -1; setUsbVolume(cur + usbVolumeStep, true) }
@@ -317,13 +375,35 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         if (v > 0 && UsbDac.volume() == 0) setUsbVolume(v, true)
     }
 
+    /** 最後に「DSD では音量を変えられない」と知らせた時刻(続けて押したときに何度も出さない) */
+    private var volumeLockedNoticeAt = 0L
+
+    /**
+     * 今は DAC の音量を変えられない(ネイティブ DSD・DoP で、DAC が USB の音量に対応していない)なら、変えずに知らせて true。
+     * 変えても DSD の音は変わらず、気づかないまま 0 まで下がって PCM の曲で無音になっていたため
+     */
+    fun usbVolumeLocked(): Boolean {
+        if (!UsbDac.volumeFixed) return false
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - volumeLockedNoticeAt > 3000) {
+            volumeLockedNoticeAt = now
+            AudioEngine.log("usb dac: volume change ignored (native DSD / DoP without USB volume control)")
+            main.post { onNotice?.invoke(S(R.string.usb_dsd_volume_fixed)) }
+        }
+        volProvider?.currentVolume = UsbDac.volume()
+        return true
+    }
+
     /** DAC の音量(0〜100)を変える。fromKeys なら設定にも保存する */
     fun setUsbVolume(v: Int, fromKeys: Boolean = false) {
         // -1 は自動(DAC に合わせた初期値)
         val x = if (v < 0) -1 else v.coerceIn(0, 100)
         UsbDac.setVolume(x)
         volProvider?.currentVolume = UsbDac.volume()
-        if (fromKeys) AudioEngine.onUsbVolume?.invoke(x)
+        if (fromKeys) {
+            AudioEngine.log("usb dac: volume ${UsbDac.volume()} (keys)")
+            AudioEngine.onUsbVolume?.invoke(x)
+        }
     }
 
     init {
@@ -339,6 +419,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         }
         UsbDac.onActiveChanged = { a -> setVolumeRouting(a) }
         // USB の転送の取りこぼしが続いたら知らせて、周波数を下げたなら出力を作り直す
+        UsbDac.onReturnTrouble = { msg -> main.post { onNotice?.invoke(msg) } }
         UsbDac.onTransferTrouble = { msg, lowered ->
             onNotice?.invoke(msg)
             if (lowered && AudioEngine.wantUsbDirect && current != null) reloadOutput()
@@ -629,7 +710,8 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         }
         val actions = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or
             PlaybackState.ACTION_SKIP_TO_NEXT or PlaybackState.ACTION_SKIP_TO_PREVIOUS or
-            PlaybackState.ACTION_SEEK_TO or PlaybackState.ACTION_STOP
+            PlaybackState.ACTION_SEEK_TO or PlaybackState.ACTION_STOP or
+            PlaybackState.ACTION_PLAY_FROM_MEDIA_ID or PlaybackState.ACTION_PLAY_FROM_SEARCH
         session.setPlaybackState(
             PlaybackState.Builder()
                 .setActions(actions)
@@ -873,12 +955,17 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             index = 0
             startCurrent(0, play)
         } else if (auto) {
+            // 設定の「最後まで再生したら次のリストへ」: 次のリスト(次のアルバム・アーティストなど)を始めたら、止めない
+            if (onQueueEnd?.invoke() == true) return
             halt()
             isPlaying = false
             positionMs = 0
             changed()
         }
     }
+
+    /** 並びを最後まで再生し終えたとき(リピートしないとき)。次のリストを始めたら true */
+    var onQueueEnd: (() -> Boolean)? = null
 
     fun prev() {
         syncSwitches()

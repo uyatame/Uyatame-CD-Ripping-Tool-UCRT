@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         vm.scan()
+        vm.resumeTick++
         // カメラ・決済アプリなどに音を取られて止まっていたら、戻ってきたときに続きを再生する
         vm.player.resumeAfterInterruption()
         // 設定画面で「通知へのアクセス」を変えて戻ってきたときに反映する

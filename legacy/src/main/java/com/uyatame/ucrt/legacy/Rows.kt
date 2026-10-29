@@ -55,6 +55,9 @@ class TrackRowItem(
     private val playlist: Pair<String, Int>? = null,
     private val handle: ((View) -> Unit)? = null,
     override val label: String = "",
+    /** プレイリストの「選んで並べ替え」で選んでいるか(null なら選ぶモードではない) */
+    private val pick: Boolean? = null,
+    private val onPick: (() -> Unit)? = null,
 ) : Row(TRACK) {
     private class H(
         val root: LinearLayout, val handle: ImageView, val check: CheckView, val num: TextView, val artBox: FrameLayout, val art: ArtView,
@@ -101,11 +104,12 @@ class TrackRowItem(
     override fun bind(v: View) {
         val h = v.tag as H
         val playing = LegacyApp.app.player.current?.uri == t.uri
-        val sel: Boolean? = if (act.selecting) t.uri in act.selected else null
+        val sel: Boolean? = pick ?: if (act.selecting) t.uri in act.selected else null
         h.root.bgd(pressBg(if (playing) rounded(Pal.secondaryContainer, 12f) else null, 12f))
-        h.root.setOnClickListener { if (sel != null) act.toggleSelected(t.uri) else onClick() }
-        h.root.setOnLongClickListener { if (sel != null) act.toggleSelected(t.uri) else Actions.trackMenu(act, t, playlist); true }
-        h.handle.visibility = if (handle != null) View.VISIBLE else View.GONE
+        val toggle = { if (pick != null) onPick?.invoke() else act.toggleSelected(t.uri) }
+        h.root.setOnClickListener { if (sel != null) toggle() else onClick() }
+        h.root.setOnLongClickListener { if (sel != null) toggle() else Actions.trackMenu(act, t, playlist); true }
+        h.handle.visibility = if (handle != null && pick == null) View.VISIBLE else View.GONE
         handle?.invoke(h.handle)
         h.check.visibility = if (sel != null) View.VISIBLE else View.GONE
         h.check.checked = sel == true

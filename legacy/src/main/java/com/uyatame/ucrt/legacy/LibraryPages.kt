@@ -61,7 +61,7 @@ object LibraryPages {
         route.startsWith("artist:") -> ArtistPage(act, route.removePrefix("artist:"))
         route.startsWith("genre:") -> {
             val g = route.removePrefix("genre:")
-            GroupedPage(act, g.ifEmpty { S(R.string.unknown_genre) }) { app.lib.albums.flatMap { a -> a.tracks.filter { it.genre == g } } }
+            GroupedPage(act, g.ifEmpty { S(R.string.unknown_genre) }, ListQueue.Src(ListQueue.GENRE, g)) { app.lib.albums.flatMap { a -> a.tracks.filter { it.genre == g } } }
         }
         route.startsWith("year:") -> {
             val y = route.removePrefix("year:")
@@ -483,7 +483,13 @@ object LibraryPages {
                 ctl.add(chipRow(act, listOf(chip(act, S(R.string.all), qd.isEmpty()) { qd = ""; refresh(-1) }) +
                     details.map { (d, n) -> chip(act, "$d ($n)", qd == d) { qd = if (qd == d) "" else d; refresh(-1) } }), b = 4)
             }
-            ctl.add(playShuffle(act, { Actions.playTracks(shown.flatMap { it.tracks }, 0) }, { Actions.playTracks(shown.flatMap { it.tracks }, 0, true) }), t = 4)
+            // 年・フォルダのページは、最後まで再生したら次の年・フォルダへ進めるように、どのリストかを覚えておく
+            val src = when {
+                key.startsWith("year:") -> ListQueue.Src(ListQueue.YEAR, key.removePrefix("year:"))
+                key.startsWith("folder:") -> ListQueue.Src(ListQueue.FOLDER, key.removePrefix("folder:"))
+                else -> null
+            }
+            ctl.add(playShuffle(act, { Actions.playTracks(shown.flatMap { it.tracks }, 0, source = src) }, { Actions.playTracks(shown.flatMap { it.tracks }, 0, true, src) }), t = 4)
             rows.add(StaticRow(ctl, shown.firstOrNull()?.let(labelOf).orEmpty()))
             if (listView) {
                 shown.forEach { a -> rows.add(AlbumRowItem(act, a, subOf?.invoke(a), labelOf(a)).also { }) }
@@ -534,7 +540,8 @@ object LibraryPages {
             val c = vbox(act)
             c.add(text(act, name, Type.HeadlineSmall, Pal.onSurface, lines = 2))
             c.add(text(act, S(R.string.albums_4, main.size + guest.size) + countText(tracks), Type.BodySmall, Pal.onSurfaceVariant))
-            c.add(playShuffle(act, { Actions.playTracks(tracks, 0) }, { Actions.playTracks(tracks, 0, true) }), t = 8)
+            val src = ListQueue.Src(ListQueue.ARTIST, name)
+            c.add(playShuffle(act, { Actions.playTracks(tracks, 0, source = src) }, { Actions.playTracks(tracks, 0, true, src) }), t = 8)
             head.add(c, w = 0, weight = 1f)
             rows.add(StaticRow(head))
             rows.addAll(tileRows(act, main, subOf = { it.year.ifEmpty { it.artist } }))
@@ -593,7 +600,7 @@ object LibraryPages {
     fun selectButton(act: LegacyActivity): View = iconButton(act, Icons.CheckCircle, S(R.string.select_songs)) { act.startSelection(null) }
 
     /** 曲の一覧(アルバムごとに見出しを付ける。本家の GroupedTracks) */
-    class GroupedPage(act: LegacyActivity, private val title: String, private val source: () -> List<LibTrack>) : ListBased(act) {
+    class GroupedPage(act: LegacyActivity, private val title: String, private val src: ListQueue.Src? = null, private val source: () -> List<LibTrack>) : ListBased(act) {
         init { refresh(-1) }
 
         override fun refresh(m: Int) {
@@ -606,7 +613,7 @@ object LibraryPages {
             val rows = ArrayList<Row>()
             val ctl = FrameLayout(act)
             ctl.setPadding(dp(8), 0, 0, dp(8))
-            ctl.add(playShuffle(act, { Actions.playTracks(flat, 0) }, { Actions.playTracks(flat, 0, true) }), w = WRAP)
+            ctl.add(playShuffle(act, { Actions.playTracks(flat, 0, source = src) }, { Actions.playTracks(flat, 0, true, src) }), w = WRAP)
             rows.add(StaticRow(ctl))
             for ((k, l) in groups) {
                 val first = l.first()
@@ -622,7 +629,7 @@ object LibraryPages {
                 h.add(c, w = 0, weight = 1f)
                 h.tap(12f) { lib.albumKeyOf(first.uri)?.let { act.libPush("album:$it") } }
                 rows.add(StaticRow(h))
-                l.forEach { x -> rows.add(TrackRowItem(act, x, { Actions.playTracks(flat, flat.indexOf(x)) }, number = if (x.track > 0) "${x.track}" else "", showArt = false)) }
+                l.forEach { x -> rows.add(TrackRowItem(act, x, { Actions.playTracks(flat, flat.indexOf(x), source = src) }, number = if (x.track > 0) "${x.track}" else "", showArt = false)) }
             }
             list.list.setPadding(dp(8), 0, dp(8), dp(24))
             list.setRows(rows)
@@ -732,6 +739,14 @@ object LibraryPages {
                 return
             }
             val rows = ArrayList<Row>()
+            // このフォルダ(子フォルダも含む)の曲を、フォルダ・曲順に並べて再生する(本家と同じ)
+            val all = folderTracks(n)
+            if (all.isNotEmpty()) {
+                val c = FrameLayout(act); c.setPadding(dp(4), dp(4), 0, dp(8))
+                val src = ListQueue.Src(ListQueue.FOLDER, path)
+                c.add(playShuffle(act, { Actions.playTracks(all, 0, source = src) }, { Actions.playTracks(all, 0, true, src) }), w = WRAP)
+                rows.add(StaticRow(c))
+            }
             n.children.values.forEach { c ->
                 rows.add(GroupRowItem(c.name, S(R.string.albums_songs, c.albumCount, c.trackCount), Lead.Round(Icons.Folder)) { act.libPush("dir:" + c.path) })
             }
@@ -740,6 +755,10 @@ object LibraryPages {
             list.setRows(rows)
         }
     }
+
+    /** フォルダの曲(このフォルダのアルバムの曲のあとに、子フォルダの曲を名前順に) */
+    fun folderTracks(n: FolderNode): List<LibTrack> =
+        n.albums.flatMap { it.tracks } + n.children.values.sortedBy { it.name.lowercase() }.flatMap { folderTracks(it) }
 
     /** 開いているフォルダ(フォルダ別のページ。戻ってきたときも同じように開いておく) */
     private val openFolders = HashSet<String>()
@@ -806,14 +825,35 @@ object LibraryPages {
         override fun refresh(m: Int) {
             val lib = app.lib
             val map = lib.trackMap
-            val songs = app.store.favTracks.mapNotNull { map[it] }
-            val albums = app.store.favAlbums.mapNotNull { lib.albumByKey(it) }
+            // 並べ替え(本家と同じ。追加した順・曲名・アーティスト・アルバム(アルバムは年))
+            val sort = app.prefs.sp.getInt("favSort", 0)
+            val songs = app.store.favTracks.mapNotNull { map[it] }.let { l ->
+                when (sort) {
+                    1 -> l.sortedBy { it.title.lowercase() }
+                    2 -> l.sortedWith(compareBy({ it.artist.lowercase() }, { it.album.lowercase() }, { it.disc }, { it.track }))
+                    3 -> l.sortedWith(compareBy({ it.album.lowercase() }, { it.disc }, { it.track }))
+                    else -> l
+                }
+            }
+            val albums = app.store.favAlbums.mapNotNull { lib.albumByKey(it) }.let { l ->
+                when (sort) {
+                    1 -> l.sortedBy { it.title.lowercase() }
+                    2 -> l.sortedWith(compareBy({ it.artist.lowercase() }, { it.title.lowercase() }))
+                    3 -> l.sortedWith(compareByDescending<LibAlbum> { it.year }.thenBy { it.title.lowercase() })
+                    else -> l
+                }
+            }
             val top = vbox(act)
             top.add(pageTop(act, tileLabel("favorites")))
             top.add(chipRow(act, listOf(
                 chip(act, S(R.string.songs_2, songs.size), favTab == 0) { favTab = 0; refresh(-1) },
                 chip(act, S(R.string.albums_2, albums.size), favTab == 1) { favTab = 1; refresh(-1) },
             )), l = 16, r = 16)
+            val sortNames = listOf(
+                S(R.string.fav_sort_added), S(R.string.fav_sort_title), S(R.string.fav_sort_artist),
+                if (favTab == 0) S(R.string.fav_sort_album) else S(R.string.fav_sort_year),
+            )
+            top.add(chipRow(act, sortNames.mapIndexed { i, n -> chip(act, n, sort == i) { app.prefs.set("favSort", i) } }), l = 16, r = 16, t = 6)
             setup(top)
             val rows = ArrayList<Row>()
             if (favTab == 0) {
@@ -926,7 +966,11 @@ object LibraryPages {
         override fun refresh(m: Int) {
             val map = app.lib.trackMap
             val create = { Actions.nameDialog(act, S(R.string.new_playlist), "") { Actions.createPlaylist(act, it, emptyList()) } }
-            setup(pageTop(act, tileLabel("playlists")) { acts -> acts.add(iconButton(act, Icons.Add, S(R.string.new_playlist)) { create() }, w = 48, h = 48) })
+            setup(pageTop(act, tileLabel("playlists")) { acts ->
+                // ほかのアプリのプレイリスト(M3U など)を読み込む
+                acts.add(iconButton(act, Icons.Download, S(R.string.playlist_import)) { act.pickFiles("*/*", true) { PlaylistIO.import(act, it) } }, w = 48, h = 48)
+                acts.add(iconButton(act, Icons.Add, S(R.string.new_playlist)) { create() }, w = 48, h = 48)
+            })
             val pls = app.store.playlists
             if (pls.isEmpty()) {
                 list.setRows(listOf(StaticRow(emptyState(act, Icons.Queue, S(R.string.no_playlists_yet), S(R.string.create_one_from_song_or), S(R.string.new_playlist)) { create() })))
@@ -943,7 +987,18 @@ object LibraryPages {
     }
 
     class PlaylistPage(act: LegacyActivity, private val id: String) : ListBased(act) {
+        /** 「選んで並べ替え」で選んでいる曲(プレイリストの中の位置。null なら選ぶモードではない) */
+        private var picked: MutableSet<Int>? = null
+        private var pickBar: View? = null
+
         init { refresh(-1) }
+
+        override fun back(): Boolean {
+            if (picked == null) return false
+            picked = null
+            refresh(-1)
+            return true
+        }
 
         override fun refresh(m: Int) {
             val p = app.store.playlists.firstOrNull { it.id == id }
@@ -951,7 +1006,16 @@ object LibraryPages {
             val map = app.lib.trackMap
             val entries = p.uris.mapIndexedNotNull { i, u -> map[u]?.let { i to it } }
             val tracks = entries.map { it.second }
+            val pk = picked
             setup(pageTop(act, p.name, countText(tracks)) { acts ->
+                if (tracks.isNotEmpty()) {
+                    // いくつかの曲を選んで、まとめて動かす・外す(本家と同じ)
+                    acts.add(iconButton(act, Icons.CheckCircle, S(R.string.playlist_arrange), if (pk != null) Pal.primary else Pal.onSurfaceVariant) {
+                        picked = if (picked == null) HashSet() else null
+                        refresh(-1)
+                    }, w = 48, h = 48)
+                    acts.add(iconButton(act, Icons.Upload, S(R.string.playlist_export)) { PlaylistIO.export(act, p.id) }, w = 48, h = 48)
+                }
                 acts.add(iconButton(act, Icons.Edit, S(R.string.rename)) {
                     Actions.nameDialog(act, S(R.string.rename), p.name) { app.store.renamePlaylist(p.id, it) }
                 }, w = 48, h = 48)
@@ -967,13 +1031,14 @@ object LibraryPages {
                 val t = text(act, S(R.string.use_add_to_playlist_in), Type.BodyMedium, Pal.onSurfaceVariant, lines = 0)
                 t.setPadding(dp(16), dp(16), dp(16), dp(16))
                 rows.add(StaticRow(t))
-            } else {
+            } else if (pk == null) {
                 val c = FrameLayout(act); c.setPadding(dp(12), 0, 0, dp(8))
-                c.add(playShuffle(act, { Actions.playTracks(tracks, 0) }, { Actions.playTracks(tracks, 0, true) }), w = WRAP)
+                val src = ListQueue.Src(ListQueue.PLAYLIST, id)
+                c.add(playShuffle(act, { Actions.playTracks(tracks, 0, source = src) }, { Actions.playTracks(tracks, 0, true, src) }), w = WRAP)
                 rows.add(StaticRow(c))
             }
             entries.forEachIndexed { i, (pos, t) ->
-                rows.add(TrackRowItem(act, t, { Actions.playTracks(tracks, i) }, playlist = p.id to pos, handle = { h ->
+                rows.add(TrackRowItem(act, t, { Actions.playTracks(tracks, i, source = ListQueue.Src(ListQueue.PLAYLIST, id)) }, playlist = p.id to pos, handle = { h ->
                     Drag.attach(list.list, h, i + 1) { from, to ->
                         val now = app.store.playlists.firstOrNull { it.id == id } ?: return@attach
                         val m2 = app.lib.trackMap
@@ -982,10 +1047,44 @@ object LibraryPages {
                         val b = posList.getOrNull(to - 1)
                         if (a != null && b != null) app.store.movePlaylistItem(id, a, b)
                     }
+                }, pick = pk?.let { pos in it }, onPick = {
+                    picked?.let { s2 -> if (!s2.remove(pos)) s2.add(pos) }
+                    refresh(-1)
                 }))
             }
-            list.list.setPadding(dp(4), 0, dp(8), dp(24))
+            list.list.setPadding(dp(4), 0, dp(8), dp(if (pk != null) 96 else 24))
             list.setRows(rows)
+            // 選んでいる間は、下に動かすボタンの帯を出す
+            pickBar?.let { frame.removeView(it) }
+            pickBar = null
+            if (pk != null) {
+                val bar = hbox(act, Gravity.CENTER_VERTICAL)
+                bar.bgd(rounded(Pal.secondaryContainer, 20f))
+                bar.setPadding(dp(8), dp(4), dp(8), dp(4))
+                bar.add(iconButton(act, Icons.Close, S(R.string.cancel), Pal.onSecondaryContainer) { back() }, w = 44, h = 44)
+                bar.add(text(act, S(R.string.playlist_picked, pk.size), Type.TitleSmall, Pal.onSecondaryContainer), w = 0, weight = 1f)
+                fun move(how: Int) {
+                    val cur = picked ?: return
+                    if (cur.isEmpty()) return
+                    picked = app.store.movePlaylistItems(id, cur, how).toMutableSet()
+                    refresh(-1)
+                }
+                val en = pk.isNotEmpty()
+                val c = if (en) Pal.onSecondaryContainer else Pal.alpha(Pal.onSecondaryContainer, 0.4f)
+                bar.add(iconButton(act, Icons.ArrowUp, S(R.string.move_up), c) { move(-1) }, w = 44, h = 44)
+                bar.add(iconButton(act, Icons.ArrowDown, S(R.string.move_down), c) { move(1) }, w = 44, h = 44)
+                bar.add(text(act, S(R.string.move_top), Type.LabelLarge, c).also { it.setPadding(dp(8), dp(10), dp(8), dp(10)); it.tap(8f) { move(-2) } }, w = WRAP)
+                bar.add(text(act, S(R.string.move_bottom), Type.LabelLarge, c).also { it.setPadding(dp(8), dp(10), dp(8), dp(10)); it.tap(8f) { move(2) } }, w = WRAP)
+                bar.add(iconButton(act, Icons.Delete, S(R.string.remove_from_playlist_short), c) {
+                    val cur = picked ?: return@iconButton
+                    if (cur.isEmpty()) return@iconButton
+                    app.store.removePlaylistItems(id, cur)
+                    picked = HashSet()
+                    refresh(-1)
+                }, w = 44, h = 44)
+                frame.add(bar, h = WRAP, gravity = Gravity.BOTTOM, l = 12, r = 12, b = 12)
+                pickBar = bar
+            }
         }
     }
 

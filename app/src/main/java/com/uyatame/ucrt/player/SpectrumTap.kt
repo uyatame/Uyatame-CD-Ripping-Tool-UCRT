@@ -24,6 +24,19 @@ object SpectrumTap {
     /** 画面に表示しているか(表示している間だけ写す) */
     @Volatile var enabled = false
 
+    /** 表示している画面の数(画面の切り替えの途中などで 2 つ重なっても、両方が消えるまで写し続ける) */
+    private var users = 0
+    private val usersLock = Any()
+
+    /** 表示を始めた画面から呼ぶ */
+    fun acquire() = synchronized(usersLock) { users++; enabled = true }
+
+    /** 表示をやめた画面から呼ぶ */
+    fun release() = synchronized(usersLock) {
+        users = (users - 1).coerceAtLeast(0)
+        enabled = users > 0
+    }
+
     private const val RING = 1 shl 17
     private const val MASK = RING - 1
     const val FFT_SIZE = 2048
@@ -137,13 +150,24 @@ object SpectrumTap {
      * 今鳴っている位置までの FFT_SIZE 個の音を dst に入れる。delayMs だけ前の音にする(Bluetooth などの遅れの補正)。
      * 音が無ければ 0(入れた周波数を返す)
      */
+    /** 再生位置が最後に進んだ時刻(止まっているかを見る。window を呼ぶスレッドだけが使う) */
+    private var lastHead = -1L
+    private var lastHeadOwner: Any? = null
+    private var headMovedAt = 0L
+
     fun window(dst: FloatArray, delayMs: Int): Int {
         val out: Any
         val h: () -> Long
         val r: Int
         synchronized(lock) { out = owner ?: return 0; h = headOf ?: return 0; r = rate }
         // 再生位置は出力から読む(ロックの外で。AudioTrack に問い合わせるため)
-        val head = runCatching { h() }.getOrDefault(0L) - delayMs.toLong() * r / 1000
+        val raw = runCatching { h() }.getOrDefault(0L)
+        // 再生位置が少しの間進まなければ(一時停止・停止)、音は鳴っていないので 0 にする(バーがすっと下がる)。
+        // 位置はおおよそ数 ms〜数十 ms ごとにしか進まないので、少し待ってから決める
+        val now = System.nanoTime() / 1_000_000L
+        if (raw != lastHead || out !== lastHeadOwner) { lastHead = raw; lastHeadOwner = out; headMovedAt = now }
+        else if (now - headMovedAt > 150) return 0
+        val head = raw - delayMs.toLong() * r / 1000
         synchronized(lock) {
             if (owner !== out || stored == 0L) return 0
             val end = ((head - baseFrame) / decim).coerceIn(0L, stored)

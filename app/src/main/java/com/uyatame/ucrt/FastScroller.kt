@@ -88,7 +88,8 @@ fun BoxScope.FastScroller(
     val index = (frac * (total - 1)).roundToInt().coerceIn(0, total - 1)
 
     Box(
-        Modifier.align(Alignment.TopEnd).fillMaxHeight().width(40.dp)
+        // (リキッドグラスでは、下のタブ・ミニプレーヤーに隠れる部分を除いた高さで動かす)
+        Modifier.align(Alignment.TopEnd).padding(bottom = barInset()).fillMaxHeight().width(40.dp)
             .onSizeChanged { height = it.height.coerceAtLeast(1) }
             .pointerInput(Unit) {
                 awaitEachGesture {
@@ -188,7 +189,8 @@ fun BoxScope.ScrollTopButton(show: Boolean, scrollTop: suspend () -> Unit) {
         visible = show,
         enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
         exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(),
-        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = 16.dp),
+        // リキッドグラスでは中身が下のタブ・ミニプレーヤーの後ろまで続くので、その分だけ上に出す(隠れて押せなくならないように)
+        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = 16.dp + barInset()),
     ) {
         androidx.compose.material3.SmallFloatingActionButton(
             onClick = { scope.launch { scrollTop() } },

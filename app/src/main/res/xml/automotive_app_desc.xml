@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android Auto(試験的): 音楽のアプリとして出す(AutoService) -->
+<automotiveApp>
+    <uses name="media" />
+</automotiveApp>

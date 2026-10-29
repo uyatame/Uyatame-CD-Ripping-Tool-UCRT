@@ -2,4 +2,7 @@
 <resources>
     <usb-device class="8" subclass="6" protocol="80" />
     <usb-device class="8" subclass="2" protocol="80" />
+    <!-- USB DAC(オーディオの制御のインターフェースがある機器)。挿したときに UCRT で開くかを聞かれ、
+         「常に使用」を選ぶと、次からは許可を求めずに使える(UAPP などと同じ) -->
+    <usb-device class="1" subclass="1" />
 </resources>

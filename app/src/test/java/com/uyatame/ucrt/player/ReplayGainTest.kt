@@ -122,4 +122,21 @@ class ReplayGainTest {
         assertEquals(1.99526f, ReplayGain.linear(i), 1e-4f)
         assertEquals(1f, ReplayGain.linear(RgInfo()), 0f) // 値が無い曲はそのまま
     }
+
+    @Test fun opusR128Gain() {
+        // Opus の R128_TRACK_GAIN は 1/256 dB 単位で、-23 LUFS が基準(ReplayGain の -18 LUFS に合わせて 5 dB 足す)
+        val ogg = cat("OggS".toByteArray(), ByteArray(60), "OpusTags".toByteArray(), "R128_TRACK_GAIN=-2560".toByteArray(), ByteArray(4), "R128_ALBUM_GAIN=256".toByteArray())
+        val r = ReplayGain.read(Bytes(ogg), "opus")!!
+        assertEquals(-5f, r.trackGain!!, 1e-4f)
+        assertEquals(6f, r.albumGain!!, 1e-4f)
+    }
+
+    @Test fun mp3ApeTagAtEnd() {
+        // 初めの ID3v2 には値が無く、終わりの APEv2 タグに書いてある MP3(foobar2000 の設定によってはこうなる)
+        val head = id3(txxx("comment", "x", false))
+        val ape = cat("APETAGEX".toByteArray(), ByteArray(24), le32(5), le32(0), "REPLAYGAIN_TRACK_GAIN".toByteArray(), byteArrayOf(0), "-3.21 dB".toByteArray())
+        val mp3 = cat(head, ByteArray((1 shl 20) + 1000), ape)
+        val r = ReplayGain.read(Bytes(mp3), "mp3")!!
+        assertEquals(-3.21f, r.trackGain!!, 1e-4f)
+    }
 }

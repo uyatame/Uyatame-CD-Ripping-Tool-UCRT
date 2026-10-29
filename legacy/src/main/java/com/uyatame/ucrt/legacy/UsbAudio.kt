@@ -13,7 +13,6 @@ import com.uyatame.ucrt.legacy.ui.add
 import com.uyatame.ucrt.legacy.ui.button
 import com.uyatame.ucrt.legacy.ui.vbox
 import com.uyatame.ucrt.legacy.usb.UsbDac
-import com.uyatame.ucrt.legacy.usb.UsbStabilizer
 
 /**
  * USB DAC への直接出力(本家の BitPerfectPanel・releaseUsbDac)。
@@ -33,7 +32,7 @@ object UsbAudio {
         val p = app.prefs
         UsbDac.wantDirect = p.usbDirect
         UsbDac.setVolume(p.usbVolume)
-        UsbStabilizer.enabled = p.usbStabilize
+        com.uyatame.ucrt.legacy.usb.UsbStabilizer.enabled = p.usbStabilize
         app.player.usbDirect = p.usbDirect
         // 許可が得られた・DAC をつないだ/外したときは、今の位置から鳴らし直す(出力先を選び直す)
         UsbDac.onChanged = { main.post { if (app.player.usbDirect) app.player.reopenOutput() } }
@@ -59,17 +58,27 @@ object UsbAudio {
         if (!on) Thread({ UsbDac.close(reattach = true) }, "usb-dac-release").start()
     }
 
-    /** DAC を Android に返す(ほかのアプリの音を USB DAC から出したいとき)。sync: 閉じ終わるまで待つ(アプリの終了) */
-    fun release(sync: Boolean = false) {
-        app.player.usbDirect = false
-        app.player.reopenOutput()
-        val r = Runnable { UsbDac.close(reattach = true) }
-        if (sync) r.run() else {
-            Thread(r, "usb-dac-release").start()
-            LegacyActivity.current?.snack(S(R.string.usb_dac_released))
+    /**
+     * USB DAC の接続を解除する(抜き差ししたときに近い動作。本家と同じ)。一時停止して Android に返したうえで、DAC を USB でリセットする。
+     * sync: 終わるまで待つ(アプリの終了。メイン以外のスレッドから)
+     */
+    fun disconnect(sync: Boolean = false) {
+        if (!sync) {
+            // 一時停止して出力を手放す(次に再生を始めたら、また直接出力で使う)
+            app.player.releaseOutput()
+            LegacyActivity.current?.snack(S(R.string.usb_dac_disconnecting))
         }
-        // 設定はそのまま(次に再生を始めたら、また直接出力する)
-        main.postDelayed({ app.player.usbDirect = app.prefs.usbDirect }, 1500)
+        val r = Runnable { UsbDac.disconnect() }
+        if (sync) r.run() else Thread(r, "usb-dac-disconnect").start()
+    }
+
+    /** 使用の許可をもう一度求める */
+    fun requestPermission() {
+        LegacyActivity.current?.snack(when (UsbDac.requestPermissionAgain()) {
+            0 -> S(R.string.usb_dac_not_connected)
+            1 -> S(R.string.usb_permission_already)
+            else -> S(R.string.usb_permission_requested)
+        })
     }
 
     /** 設定のパネル(本家の BitPerfectPanel) */
@@ -78,11 +87,19 @@ object UsbAudio {
         val col = vbox(act)
         val sec = Section(act, S(R.string.usb_dac_direct_output))
         sec.add(switchRow(act, S(R.string.use_usb_dac_direct_output), S(R.string.controls_usb_dac_directly_with), p.usbDirect) { setDirect(act, it) })
-        if (inUse) {
+        if (p.usbDirect) {
+            // 使用の許可をもう一度求める(許可の画面が出なかった・断ってしまったとき)
             val row = com.uyatame.ucrt.legacy.ui.hbox(act)
-            row.add(button(act, S(R.string.release_usb_dac), Btn.Outlined) { release() }, w = WRAP)
+            row.add(button(act, S(R.string.usb_request_permission), Btn.Outlined) { requestPermission() }, w = WRAP)
             sec.add(row)
-            sec.add(note(act, S(R.string.release_usb_dac_desc)))
+            sec.add(note(act, S(R.string.usb_request_permission_desc)))
+        }
+        // 抜き差ししたときに近い動作で、DAC の接続を解除する
+        if (UsbDac.findDac() != null) {
+            val row = com.uyatame.ucrt.legacy.ui.hbox(act)
+            row.add(button(act, S(R.string.disconnect_usb_dac), Btn.Outlined) { disconnect() }, w = WRAP)
+            sec.add(row)
+            sec.add(note(act, S(R.string.disconnect_usb_dac_desc)))
         }
         val st = UsbDac.status
         if (p.usbDirect && st.isNotEmpty()) sec.add(note(act, st, Pal.error))
@@ -93,9 +110,19 @@ object UsbAudio {
             sec.add(note(act, if (inUse && !hasVolume) S(R.string.this_dac_doesnt_support_volume) else S(R.string.adjusts_dacs_hardware_volume_directly)))
             sec.add(switchRow(act, S(R.string.usb_stabilize), S(R.string.usb_stabilize_desc), p.usbStabilize) {
                 p.set("usbStabilize", it)
-                UsbStabilizer.enabled = it
-                if (!it) UsbStabilizer.stop()
+                val stab = com.uyatame.ucrt.legacy.usb.UsbStabilizer
+                stab.enabled = it
+                // 転送している間に切り替えたら、掛け直す(オフでも CPU を起こしておくのは続ける)
+                stab.stop()
+                if (UsbDac.streaming) stab.start(act)
             })
+            if (inUse && hasVolume) {
+                val steps = listOf(1, 2, 4)
+                sec.add(segmented(act, S(R.string.usb_volume_step), steps.map { "$it" }, steps.indexOf(p.sp.getInt("usbVolumeStep", 4)).coerceAtLeast(0)) {
+                    p.set("usbVolumeStep", steps[it])
+                })
+                sec.add(note(act, S(R.string.usb_volume_step_desc)))
+            }
             sec.add(note(act, S(R.string.for_details_see_settings_log)))
         }
         sec.add(note(act, S(R.string.legacy_usb_dac_note)))

@@ -7,6 +7,14 @@ import android.os.Build
 
 /** Android 13 から: 受信口を作るときに、ほかのアプリから受け取るかを指定する(Android 14 からは指定しないと例外) */
 object Api33 {
+    /** 戻る操作を受け取る(画面が閉じるまで) */
+    fun onBack(act: android.app.Activity, handler: () -> Unit) {
+        act.onBackInvokedDispatcher.registerOnBackInvokedCallback(
+            android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+            android.window.OnBackInvokedCallback { handler() },
+        )
+    }
+
     fun register(ctx: Context, r: BroadcastReceiver, f: IntentFilter) {
         ctx.registerReceiver(r, f, Context.RECEIVER_NOT_EXPORTED)
     }

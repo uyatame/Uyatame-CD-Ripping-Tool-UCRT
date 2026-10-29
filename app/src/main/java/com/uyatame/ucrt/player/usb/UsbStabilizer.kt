@@ -16,12 +16,13 @@ import com.uyatame.ucrt.player.AudioEngine
  * 一部の端末では、画面を操作していないと USB の等時転送が時々間に合わなくなり(パケットの EXDEV)、
  * 音がプツプツ途切れる。音質設定のシートを開いている間や、Android 側で別の音声を鳴らしている間は起きないことから、
  * 端末が「暇」と判断して速度を落とすのが原因と考えられるので、直接出力している間だけ次のことをする:
- * - Android の音声の経路に、無音を流し続ける(音声の処理を動かしておく)
- * - CPU が眠らないようにする(画面が消えていても)
- * - 画面の描画のタイミング(1 フレームごと)を受け取り続ける(画面を操作しているときと同じ状態にする)
+ * - CPU が眠らないようにする(画面が消えていても。設定がオフでもする。自前の転送は Android が起こしておいてくれないため)
+ * - (設定がオンのとき)Android の音声の経路に、無音を流し続ける(音声の処理を動かしておく)
+ * - (設定がオンのとき)画面の描画のタイミング(1 フレームごと)を受け取り続ける(画面を操作しているときと同じ状態にする)
+ * (2026-10-29 に一度削除したが、音切れが再発したためユーザーの指示で戻した)
  */
 object UsbStabilizer {
-    /** 設定でオンにしているか */
+    /** 設定でオンにしているか(音切れ対策の無音・描画のタイミング。CPU を起こしておくのは、オフでもする) */
     @Volatile var enabled = true
 
     private val main = Handler(Looper.getMainLooper())
@@ -30,6 +31,7 @@ object UsbStabilizer {
     private var silence: Thread? = null
     private var track: AudioTrack? = null
     private var wake: PowerManager.WakeLock? = null
+    private var app: Context? = null
     /** 無音を Android の音声の経路に最後に流していた時刻(SystemClock.elapsedRealtime。流していなければ 0) */
     @Volatile var lastPlayedAt = 0L
         private set
@@ -42,14 +44,19 @@ object UsbStabilizer {
 
     fun start(ctx: Context) {
         synchronized(lock) {
-            if (!enabled || running) return
+            if (running) return
             running = true
             val app = ctx.applicationContext
+            this.app = app
             wake = runCatching {
                 androidx.core.content.ContextCompat.getSystemService(app, PowerManager::class.java)
                     ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ucrt:usb-dac")
                     ?.apply { setReferenceCounted(false); acquire(6 * 60 * 60 * 1000L) }
             }.getOrNull()
+            if (!enabled) {
+                AudioEngine.log("usb dac: wake lock on")
+                return
+            }
             silence = Thread({ playSilence() }, "usb-dac-keepalive").apply {
                 isDaemon = true
                 start()
@@ -98,6 +105,16 @@ object UsbStabilizer {
                 min * 2,
             )
         }.getOrNull() ?: return
+        // 無音は端末のスピーカーへ出す(USB DAC へ向かうと、UCRT が確保して切り離した DAC のカードを Android が開こうとして、
+        // 直接出力の妨げになることがあるため。無音なので音は出ない)
+        app?.let { ctx ->
+            runCatching {
+                val am = androidx.core.content.ContextCompat.getSystemService(ctx, android.media.AudioManager::class.java)
+                am?.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+                    ?.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                    ?.let { t.setPreferredDevice(it) }
+            }
+        }
         synchronized(lock) {
             if (!running) {
                 t.release()

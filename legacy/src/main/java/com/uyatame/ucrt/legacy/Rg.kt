@@ -43,10 +43,18 @@ object Rg {
             val done = AtomicInteger()
             val analyzed = AtomicInteger()
             val failed = AtomicInteger()
+            val tagged = AtomicInteger()
             val pool = Executors.newFixedThreadPool(n) { r -> Thread({ runCatching { android.os.Process.setThreadPriority(prio) }; r.run() }, "rg-analysis").apply { isDaemon = true } }
             try {
                 val futures = ArrayList<Future<*>>()
                 for (a in targets) {
+                    if (stop) break
+                    // foobar2000 などで解析してタグに書いた値がある曲は、その値をそのまま使うので解析しない(アルバムの全曲にあるとき)
+                    if (a.tracks.all { com.uyatame.ucrt.player.ReplayGain.hasTags(app, it.uri) }) {
+                        tagged.addAndGet(a.tracks.size)
+                        progress = done.addAndGet(a.tracks.size).toFloat() / total
+                        continue
+                    }
                     val left = AtomicInteger(a.tracks.size)
                     val results = Collections.synchronizedList(ArrayList<Result>())
                     for (t in a.tracks) futures.add(pool.submit {
@@ -65,7 +73,8 @@ object Rg {
                 pool.shutdownNow()
                 running = false
                 status = ""
-                val msg = S(R.string.rg_analysis_finished, analyzed.get(), failed.get())
+                val msg = S(R.string.rg_analysis_finished, analyzed.get(), failed.get()) +
+                    (if (tagged.get() > 0) S(R.string.rg_analysis_used_tags, tagged.get()) else "")
                 act.runOnUiThread { act.snack(msg) }
                 Bus.emit(Bus.SETTINGS)
             }

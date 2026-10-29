@@ -39,6 +39,19 @@ fun coverFrom(b: ByteArray): Cover {
     return Cover(b, mime, maxOf(o.outWidth, 0), maxOf(o.outHeight, 0))
 }
 
+/** 選んだ画像のファイルを読む(40MB まで。それより大きいファイルは画像ではないか、ジャケットには大きすぎるので読まない) */
+fun readCoverImage(input: java.io.InputStream): ByteArray {
+    val out = ByteArrayOutputStream()
+    val buf = ByteArray(1 shl 16)
+    while (true) {
+        val n = input.read(buf)
+        if (n < 0) break
+        out.write(buf, 0, n)
+        if (out.size() > 40 shl 20) throw IOException(S(R.string.cant_load_image))
+    }
+    return out.toByteArray()
+}
+
 /** 選んだ画像をジャケット用に整える(大きすぎる場合は1000pxのJPEGに縮小) */
 fun prepareCoverImage(b: ByteArray): ByteArray {
     val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -47,7 +60,11 @@ fun prepareCoverImage(b: ByteArray): ByteArray {
     if (b.size <= 1_500_000 && maxOf(o.outWidth, o.outHeight) <= 1500 &&
         (o.outMimeType == "image/jpeg" || o.outMimeType == "image/png")
     ) return b
-    val bmp = BitmapFactory.decodeByteArray(b, 0, b.size) ?: throw IOException(S(R.string.cant_load_image))
+    // 大きな写真(5000 万画素など)をそのまま読むとメモリが足りなくなるので、1000px を下回らない範囲で間引いて読む
+    var sample = 1
+    while (maxOf(o.outWidth, o.outHeight) / (sample * 2) >= 1000) sample *= 2
+    val bmp = BitmapFactory.decodeByteArray(b, 0, b.size, BitmapFactory.Options().apply { inSampleSize = sample })
+        ?: throw IOException(S(R.string.cant_load_image))
     val scale = 1000f / maxOf(bmp.width, bmp.height)
     val scaled = if (scale < 1f) {
         Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true)

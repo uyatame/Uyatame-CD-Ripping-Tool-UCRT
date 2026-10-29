@@ -40,6 +40,7 @@ internal object Usbfs {
     val REAPURB = ioc(1, 12, PS) // _IOW
     val REAPURBNDELAY = ioc(1, 13, PS) // _IOW(待たない版)
     val GET_SPEED = ioc(0, 31, 0)
+    val RESET = ioc(0, 20, 0) // _IO
     val IOCTL = ioc(3, 18, 8 + PS) // _IOWR
     val CONNECT = ioc(0, 23, 0)
 
@@ -50,6 +51,12 @@ internal object Usbfs {
 
     /** 1: low, 2: full, 3: high, 5 以上: super。取得できなければ 0 */
     fun speed(fd: Int): Int = runCatching { ioctl(fd, GET_SPEED, null) }.getOrDefault(0).coerceAtLeast(0)
+
+    /**
+     * USB の機器をリセットする(機器が挿した直後と同じ初期状態からやり直し、カーネルのドライバーも機器を見つけ直す)。
+     * アプリから電源を切って抜いた状態にはできないので、これがいちばん挿し直しに近い
+     */
+    fun resetDevice(fd: Int): Boolean = runCatching { ioctl(fd, RESET, null) >= 0 }.getOrDefault(false)
 
     /** 切り離していたカーネル側のドライバー(Android の USB オーディオ)を、インターフェースに再び接続する */
     fun reconnectKernelDriver(fd: Int, iface: Int): Boolean {

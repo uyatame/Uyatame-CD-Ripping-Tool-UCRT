@@ -12,4 +12,10 @@ object Api16 {
     fun priority(b: Notification.Builder) { b.setPriority(Notification.PRIORITY_HIGH) }
 
     fun build(b: Notification.Builder): Notification = b.build()
+
+    /** いくつも選んだファイル(Intent の ClipData)の場所 */
+    fun clipUris(i: android.content.Intent): List<android.net.Uri> {
+        val c = i.clipData ?: return emptyList()
+        return (0 until c.itemCount).mapNotNull { c.getItemAt(it).uri }
+    }
 }

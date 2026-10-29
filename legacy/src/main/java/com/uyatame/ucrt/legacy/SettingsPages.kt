@@ -198,17 +198,18 @@ object SettingsPages {
             categoryRow(act, Icons.Library, S(R.string.library), S(R.string.folders_add_music_from_your, folders)) { act.openSettings(4) },
             categoryRow(act, Icons.Headphones, S(R.string.sound_settings),
                 (if (p.sourceDirect) S(R.string.source_direct) else S(R.string.eq) + (if (p.eqEnabled) "ON" else "OFF") +
-                    (if (p.sp.getInt("darMode", 0) != 0) S(R.string.separator) + "DAR" else "")) + (if (p.usbDirect) S(R.string.usb_dac_direct) else "")) { act.openSettings(8) },
+                    (if (p.sp.getInt("darMode", 0) == 1) S(R.string.separator) + "DAR" else "")) + (if (p.usbDirect) S(R.string.usb_dac_direct) else "")) { act.openSettings(8) },
             categoryRow(act, Icons.PlayArrow, S(R.string.player_screen), S(R.string.ambient_mode) + " " + (if (p.ambientPlayer) "ON" else "OFF")) { act.openSettings(9) },
         )), b = 12)
         col.add(groupLabel(act, S(R.string.settings_group_general)), b = 12)
         col.add(cardOf(act, listOf(
+            categoryRow(act, Icons.Edit, S(R.string.tag_edit_files), S(R.string.tag_edit_files_desc)) { Edit.editFiles(act) },
             categoryRow(act, Icons.Smartphone, S(R.string.display), listOf(S(R.string.auto), S(R.string.light), S(R.string.dark))[p.themeMode.coerceIn(0, 2)]) { act.openSettings(5) },
             categoryRow(act, Icons.Build, S(R.string.log), S(R.string.activity_log_for_troubleshooting)) { act.openSettings(6) },
             categoryRow(act, Icons.Info, S(R.string.about_this_app), S(R.string.version) + version(act) + S(R.string.licenses)) { act.openSettings(7) },
         )), b = 12)
         val last = ArrayList<View>()
-        if (UsbAudio.inUse) last.add(categoryRow(act, Icons.Usb, S(R.string.release_usb_dac), S(R.string.release_usb_dac_desc)) { UsbAudio.release() })
+        if (com.uyatame.ucrt.legacy.usb.UsbDac.findDac() != null) last.add(categoryRow(act, Icons.Usb, S(R.string.disconnect_usb_dac), S(R.string.disconnect_usb_dac_desc)) { UsbAudio.disconnect() })
         last.add(categoryRow(act, Icons.ExitToApp, S(R.string.quit_app), S(R.string.quit_app_desc)) { quit(act) })
         col.add(cardOf(act, last))
     }
@@ -220,11 +221,15 @@ object SettingsPages {
         app.writeResume()
         app.player.pause()
         app.store.flush()
-        UsbAudio.release(sync = true)
+        app.player.releaseOutput()
         runCatching { com.uyatame.ucrt.legacy.cast.CastManager.disconnect() }
         act.stopService(Intent(act, PlaybackService::class.java))
         act.finish()
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 300)
+        // 終了するときは、USB DAC の接続を解除する(本家と同じ。Android に返して USB でリセットする。数秒かかることがある)
+        Thread({
+            runCatching { UsbAudio.disconnect(sync = true) }
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }, "usb-dac-exit").start()
     }
 
     // ---------------- 保存と取り込み ----------------
@@ -365,6 +370,7 @@ object SettingsPages {
         if (Build.VERSION.SDK_INT >= 19) {
             s.add(switchRow(act, S(R.string.hide_navigation_bar), S(R.string.hides_navigation_bar_at_bottom), p.sp.getBoolean("hideNavBar", false)) { p.set("hideNavBar", it) })
         }
+        s.add(switchRow(act, S(R.string.hide_status_bar), S(R.string.hide_status_bar_desc), p.sp.getBoolean("hideStatusBar", false)) { p.set("hideStatusBar", it) })
         s.add(segmented(act, S(R.string.tablet_mode), listOf(S(R.string.auto), S(R.string.on), S(R.string.off)), p.sp.getInt("tabletMode", 0)) { p.set("tabletMode", it) })
         s.add(note(act, S(R.string.moves_tabs_to_left_side)))
         return listOf(s.view)
@@ -435,7 +441,35 @@ object SettingsPages {
     private fun playerPage(act: LegacyActivity): List<View> {
         val s = Section(act, S(R.string.ambient_mode))
         s.add(switchRow(act, S(R.string.ambient_mode), S(R.string.tints_player_background_to_match), p.ambientPlayer) { p.set("ambientPlayer", it) })
-        return listOf(s.view)
+        s.add(switchRow(act, S(R.string.fine_volume), S(R.string.fine_volume_desc), p.sp.getBoolean("fineVolume", false)) { p.set("fineVolume", it) })
+        s.add(switchRow(act, S(R.string.auto_resume), S(R.string.auto_resume_desc), p.sp.getBoolean("autoResume", true)) { p.set("autoResume", it) })
+        s.add(switchRow(act, S(R.string.auto_next_list), S(R.string.auto_next_list_desc), p.sp.getBoolean("autoNextList", false)) { p.set("autoNextList", it) })
+        // 再生操作のボタンの並び(本家と同じ。上が左)
+        val o = Section(act, S(R.string.control_order))
+        o.add(note(act, S(R.string.control_order_desc)))
+        val order = controlOrder(p.sp.getString("controlOrder", null))
+        val names = mapOf('R' to S(R.string.repeat_all), 'P' to S(R.string.previous_track), 'X' to S(R.string.play), 'N' to S(R.string.next_track), 'S' to S(R.string.shuffle_2))
+        val icons = mapOf('R' to Icons.Repeat, 'P' to Icons.SkipPrevious, 'X' to Icons.PlayArrow, 'N' to Icons.SkipNext, 'S' to Icons.Shuffle)
+        fun swap(i: Int, j: Int): String { val c = order.toCharArray(); val t = c[i]; c[i] = c[j]; c[j] = t; return String(c) }
+        order.forEachIndexed { i, c ->
+            val row = com.uyatame.ucrt.legacy.ui.hbox(act, android.view.Gravity.CENTER_VERTICAL)
+            row.add(com.uyatame.ucrt.legacy.ui.icon(act, icons[c]!!, Pal.primary), w = 24, h = 24, r = 12)
+            row.add(text(act, names[c]!!, Type.BodyLarge, Pal.onSurface), w = 0, weight = 1f)
+            row.add(iconButton(act, Icons.ArrowUp, S(R.string.move_up), if (i > 0) Pal.onSurface else Pal.outline) { if (i > 0) p.set("controlOrder", swap(i, i - 1)) }, w = 44, h = 44)
+            row.add(iconButton(act, Icons.ArrowDown, S(R.string.move_down), if (i < 4) Pal.onSurface else Pal.outline) { if (i < 4) p.set("controlOrder", swap(i, i + 1)) }, w = 44, h = 44)
+            o.add(row)
+        }
+        o.add(button(act, S(R.string.control_order_reset), Btn.Text) { p.set("controlOrder", "RPXNS") })
+        // スペクトラムアナライザー(初めはオフ。オンにしても、再生画面を開いている間だけ計算する)
+        val sp = Section(act, S(R.string.spectrum))
+        sp.add(switchRow(act, S(R.string.spectrum), S(R.string.legacy_spectrum_desc), p.sp.getBoolean("spectrum", false)) { p.set("spectrum", it) })
+        if (p.sp.getBoolean("spectrum", false)) {
+            val opts = listOf(33, 50, 100)
+            sp.add(segmented(act, S(R.string.spectrum_refresh), opts.map { "${1000 / it} fps" }, opts.indexOf(p.sp.getInt("legacySpectrumMs", 50)).coerceAtLeast(0)) {
+                p.set("legacySpectrumMs", opts[it])
+            })
+        }
+        return listOf(s.view, o.view, sp.view)
     }
 
     // ---------------- ログ ----------------

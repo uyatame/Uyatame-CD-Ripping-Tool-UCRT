@@ -35,7 +35,8 @@ object UpdateCheck {
             val j = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
             if (j.optBoolean("draft") || j.optBoolean("prerelease")) return null
             val tag = j.optString("tag_name").trim()
-            if (tag.isEmpty()) return null
+            // UCRT Legacy(legacy-v)・FFmpeg などのリリースが「最新」になっていても、本家の版として扱わない
+            if (tag.isEmpty() || !(tag.startsWith("v") || tag.startsWith("V"))) return null
             return ReleaseInfo(
                 version = tag.removePrefix("v").removePrefix("V"),
                 title = j.optString("name").ifBlank { tag },

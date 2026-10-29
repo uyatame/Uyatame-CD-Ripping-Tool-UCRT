@@ -446,7 +446,12 @@ class AudioOutput(
                 perfect, title + " · ${khz(sampleRate)}" + (if (up != null) " → ${khz(d.rate)}" else "") + " / ${d.bits} bit", darText,
                 usbDac.capNotice(d.rate),
             )
-            AudioEngine.log("output: usb direct ${khz(d.rate)} ${d.channels}ch ${d.bits}bit" + (if (up != null) " (x$upFactor)" else ""))
+            AudioEngine.log(
+                "output: usb direct ${khz(d.rate)} ${d.channels}ch ${d.bits}bit" + (if (up != null) " (x$upFactor)" else "") +
+                    " vol=${usbDac.volume()}" + if (usbDac.hwVolume) "(usb)" else "(soft)",
+            )
+            // 音量を変えられない DAC で、音量が 0 のままだと PCM は無音になる(DSD は音量を掛けないので、DSD では気づけない)
+            if (!exact && !usbDac.hwVolume && usbDac.volume() <= 0) AudioEngine.log("usb dac: volume is 0, PCM will be silent")
             AudioEngine.setOutput(
                 OutputDevice(
                     OutputDevices.KEY_USB_DIRECT, OutputKind.UsbDirect, usbDac.deviceName() ?: "USB DAC",
