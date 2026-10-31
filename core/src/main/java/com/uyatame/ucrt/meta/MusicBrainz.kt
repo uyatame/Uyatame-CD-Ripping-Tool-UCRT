@@ -319,7 +319,10 @@ object MusicBrainz {
 
     /**
      * MusicBrainz のリリースの登録画面を、曲情報を入れた状態で開くページ(読み込むとすぐ送信するフォーム)。
-     * discs の position が 0 なら、何枚目かを入れない(1 枚組)
+     * discs の position は何枚目か(0 なら 1 枚組として並べた順)。
+     * MusicBrainz の登録画面には「何枚目か」を渡す項目が無く(mediums.N.position は「Unknown field」になる)、
+     * mediums.N の N の順に 1 枚目・2 枚目… となる。そのため position の場所に入れ、抜けている枚目(2 枚目の CD だけを
+     * 登録するときの 1 枚目など)は、形式(CD)だけの空のディスクにしておく(曲はあとで MusicBrainz の画面で入れられる)
      */
     fun seedHtml(
         title: String, artist: String, date: String, discs: List<SeedDisc>, note: String,
@@ -348,10 +351,17 @@ object MusicBrainz {
             f("events.0.date.month", d.groupValues[2])
             f("events.0.date.day", d.groupValues[3])
         }
-        discs.forEachIndexed { n, disc ->
+        // 並べる場所(0 から)。何枚目かが分かるディスクはその場所、分からないディスクは順に後ろへ
+        val slots = sortedMapOf<Int, SeedDisc>()
+        for (disc in discs.filter { it.position > 0 }.sortedBy { it.position }) {
+            if (!slots.containsKey(disc.position - 1)) slots[disc.position - 1] = disc
+        }
+        for (disc in discs.filter { it.position <= 0 }) slots[(slots.keys.maxOrNull() ?: -1) + 1] = disc
+        val count = (slots.keys.maxOrNull() ?: -1) + 1
+        for (n in 0 until count) {
             val md = "mediums.$n"
             f("$md.format", "CD")
-            if (disc.position > 0) f("$md.position", disc.position.toString())
+            val disc = slots[n] ?: continue
             disc.toc?.let { f("$md.toc", it) }
             disc.tracks.forEachIndexed { i, tr ->
                 f("$md.track.$i.number", (i + 1).toString())

@@ -78,7 +78,9 @@ internal class CastChannel(
                 val json = runCatching { JSONObject(m.payload) }.getOrNull() ?: continue
                 runCatching { onMessage(m.namespace, m.source, json) }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // 自分で閉じたとき以外は、切れた理由を残す(証明書・ソケット・読み取りのどこで失敗したか分かるように)
+            if (!closed) com.uyatame.ucrt.player.AudioEngine.log("cast: connection closed (${e.javaClass.simpleName}: ${e.message})")
         } finally {
             val was = closed
             close()

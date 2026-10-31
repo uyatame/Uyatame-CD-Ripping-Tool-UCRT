@@ -38,8 +38,8 @@ class MusicBrainzSeedTest {
         assertEquals("note", f["edit_note"])
         // 送信したあとは、アプリが受け取る移り先へ(登録したリリースにジャケット画像を追加するため)
         assertEquals(MusicBrainz.DONE_URL, f["redirect_uri"])
-        // 1 枚組では何枚目かを入れない
-        assertFalse(f.containsKey("mediums.0.position"))
+        // 何枚目かの項目は MusicBrainz に無いので、どんなときも送らない
+        assertFalse(f.keys.any { it.endsWith(".position") })
     }
 
     @Test fun seedsMultiDiscWithoutToc() {
@@ -52,8 +52,9 @@ class MusicBrainzSeedTest {
             "note",
         )
         val f = fields(html)
-        assertEquals("1", f["mediums.0.position"])
-        assertEquals("2", f["mediums.1.position"])
+        // 何枚目かは並び順で伝える(mediums.N.position は MusicBrainz では「Unknown field」になる)
+        assertFalse(f.keys.any { it.endsWith(".position") })
+        assertEquals("A", f["mediums.0.track.0.name"])
         assertEquals("C", f["mediums.1.track.0.name"])
         assertEquals("Other", f["mediums.1.track.0.artist_credit.names.0.name"])
         // 目次が無いので、ディスクIDは付けない。長さが分からない曲は長さを入れない
@@ -92,5 +93,37 @@ class MusicBrainzSeedTest {
             "https://musicbrainz.org/cdtoc/attach?id=abc.DEF_123-&tracks=3&toc=1+3+30000+150+10000+20000",
             MusicBrainz.attachUrl(toc),
         )
+    }
+
+    @Test fun secondDiscOnlyKeepsItsPlace() {
+        // 2 枚組の 2 枚目の CD だけを登録する: 1 枚目は形式だけの空のディスクにして、2 枚目に曲と目次を入れる
+        val f = fields(
+            MusicBrainz.seedHtml(
+                "Album", "Artist", "",
+                listOf(MusicBrainz.SeedDisc(2, listOf(MusicBrainz.SeedTrack("X", "", 1000)), "1 1 20000 150")),
+                "note",
+            ),
+        )
+        assertEquals("CD", f["mediums.0.format"])
+        assertFalse(f.keys.any { it.startsWith("mediums.0.track") || it == "mediums.0.toc" })
+        assertEquals("CD", f["mediums.1.format"])
+        assertEquals("X", f["mediums.1.track.0.name"])
+        assertEquals("1 1 20000 150", f["mediums.1.toc"])
+        assertFalse(f.keys.any { it.startsWith("mediums.2") || it.endsWith(".position") })
+    }
+
+    @Test fun discsAreOrderedByPosition() {
+        val f = fields(
+            MusicBrainz.seedHtml(
+                "Album", "Artist", "",
+                listOf(
+                    MusicBrainz.SeedDisc(2, listOf(MusicBrainz.SeedTrack("second", "", 0))),
+                    MusicBrainz.SeedDisc(1, listOf(MusicBrainz.SeedTrack("first", "", 0))),
+                ),
+                "note",
+            ),
+        )
+        assertEquals("first", f["mediums.0.track.0.name"])
+        assertEquals("second", f["mediums.1.track.0.name"])
     }
 }

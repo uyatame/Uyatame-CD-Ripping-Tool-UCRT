@@ -410,6 +410,14 @@ class LegacyPlayer(ctx: Context) {
         changed()
     }
 
+    /** 再生リストが無いときに、保存しておいたリピート・シャッフルの設定を戻す(次に再生するときに使う) */
+    fun restoreModes(repeat: Int, shuffleOn: Boolean) {
+        if (current != null) return
+        repeatMode = repeat.coerceIn(0, 2)
+        shuffle = shuffleOn
+        changed()
+    }
+
     fun cycleRepeat() {
         repeatMode = (repeatMode + 1) % 3
         changed()

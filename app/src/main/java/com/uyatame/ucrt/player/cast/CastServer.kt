@@ -43,6 +43,8 @@ internal object CastServer {
     )
 
     private val entries = ConcurrentHashMap<String, Entry>()
+    /** 同時に処理する接続の数の上限 */
+    private val slots = java.util.concurrent.Semaphore(8)
     private var server: ServerSocket? = null
     private lateinit var app: Context
 
@@ -84,9 +86,9 @@ internal object CastServer {
         }
         val art = runCatching { artBytes(item) }.getOrNull()
         val token = java.util.UUID.randomUUID().toString().replace("-", "")
-        // 古い登録は消す(同時に送るのは 1 曲だけ)
-        entries.clear()
+        // 新しい登録を先に入れてから、古い登録を消す(同時に送るのは 1 曲だけ。消してから入れるまでの間に Chromecast が読みに来ても 404 にならないように)
         entries[token] = Entry(item, file, decode, mime, art)
+        entries.keys.filter { it != token }.forEach { entries.remove(it) }
         val base = "http://${hostFor(near)}:${ensureServer()}"
         val ext = when (mime) { "audio/flac" -> "flac"; "audio/wav" -> "wav"; "audio/mpeg" -> "mp3"; "audio/ogg" -> "ogg"; else -> "m4a" }
         return Triple("$base/a/$token.$ext", if (art != null) "$base/art/$token.jpg" else null, mime)
@@ -132,7 +134,10 @@ internal object CastServer {
         Thread({
             while (!s.isClosed) {
                 val c = runCatching { s.accept() }.getOrNull() ?: break
-                Thread({ handle(c) }, "cast-http").apply { isDaemon = true; start() }
+                // 同時に受ける接続の数を絞る(同じネットワークの機器から大量につながれても、スレッドとメモリが増え続けないように)。
+                // Chromecast は 1 曲につき数本しかつながない
+                if (!slots.tryAcquire()) { runCatching { c.close() }; continue }
+                Thread({ try { handle(c) } finally { slots.release() } }, "cast-http").apply { isDaemon = true; start() }
             }
         }, "cast-http-accept").apply { isDaemon = true; start() }
         AudioEngine.log("cast: http server on port ${s.localPort}")
@@ -151,19 +156,28 @@ internal object CastServer {
             runCatching {
                 s.soTimeout = 30_000
                 val inp = s.getInputStream().bufferedReader(Charsets.ISO_8859_1)
-                val line = inp.readLine() ?: return
+                val out = BufferedOutputStream(s.getOutputStream(), 64 * 1024)
+                // 1 行の長さと、ヘッダーの数・大きさに上限を付ける(終わりの無い行を送りつけられても、メモリを使い切らないように)
+                val line = readLimited(inp) ?: run { status(out, 400, "Bad Request"); out.flush(); return }
                 val parts = line.split(' ')
-                if (parts.size < 2) return
+                if (parts.size < 2) { status(out, 400, "Bad Request"); out.flush(); return }
                 val method = parts[0]
                 val path = parts[1].substringBefore('?')
                 var range: String? = null
+                var headers = 0
+                var headerBytes = 0
                 while (true) {
-                    val h = inp.readLine() ?: break
+                    val h = readLimited(inp) ?: run { status(out, 431, "Request Header Fields Too Large"); out.flush(); return }
                     if (h.isEmpty()) break
+                    headerBytes += h.length
+                    if (++headers > MAX_HEADERS || headerBytes > MAX_HEADER_BYTES) {
+                        status(out, 431, "Request Header Fields Too Large"); out.flush(); return
+                    }
                     val k = h.substringBefore(':').trim().lowercase()
                     if (k == "range") range = h.substringAfter(':').trim()
                 }
-                val out = BufferedOutputStream(s.getOutputStream(), 64 * 1024)
+                // 配るのは GET と HEAD だけ
+                if (method != "GET" && method != "HEAD") { status(out, 405, "Method Not Allowed"); out.flush(); return }
                 val head = method == "HEAD"
                 val token = path.substringAfterLast('/').substringBefore('.')
                 val e = entries[token]
@@ -186,6 +200,23 @@ internal object CastServer {
         }
     }
 
+    /** 1 行の長さの上限(バイト) */
+    private const val MAX_LINE = 8 * 1024
+    private const val MAX_HEADERS = 64
+    private const val MAX_HEADER_BYTES = 32 * 1024
+
+    /** 1 行を読む(行の終わりまで)。MAX_LINE を超えたときは null。接続が閉じられたときは空の行(ヘッダーの終わり)として扱う */
+    private fun readLimited(r: java.io.BufferedReader): String? {
+        val sb = StringBuilder()
+        while (true) {
+            val c = r.read()
+            if (c < 0) return sb.toString()
+            if (c == '\n'.code) return sb.toString().trimEnd('\r')
+            if (sb.length >= MAX_LINE) return null
+            sb.append(c.toChar())
+        }
+    }
+
     private fun status(out: OutputStream, code: Int, msg: String) {
         out.write("HTTP/1.1 $code $msg\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
     }
@@ -202,13 +233,15 @@ internal object CastServer {
     }
 
     /** "bytes=a-b" を (始め, 終わり) にする(ファイルの大きさ total に収める)。無ければ null */
-    private fun parseRange(range: String?, total: Long): LongRange? {
+    internal fun parseRange(range: String?, total: Long): LongRange? {
         val r = range?.removePrefix("bytes=")?.substringBefore(',')?.trim() ?: return null
         val a = r.substringBefore('-').trim()
         val b = r.substringAfter('-').trim()
+        // 数字でない・大きすぎる値は、満たせない範囲(416)にする(例外で接続を黙って閉じない)
+        val unsatisfiable = total..(total - 1)
         return when {
-            a.isEmpty() && b.isNotEmpty() -> (total - b.toLong()).coerceAtLeast(0)..(total - 1)
-            a.isNotEmpty() -> a.toLong()..(if (b.isEmpty()) total - 1 else minOf(b.toLong(), total - 1))
+            a.isEmpty() && b.isNotEmpty() -> (total - (b.toLongOrNull() ?: return unsatisfiable)).coerceAtLeast(0)..(total - 1)
+            a.isNotEmpty() -> (a.toLongOrNull() ?: return unsatisfiable)..(if (b.isEmpty()) total - 1 else minOf(b.toLongOrNull() ?: return unsatisfiable, total - 1))
             else -> null
         }
     }
