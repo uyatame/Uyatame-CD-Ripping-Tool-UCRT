@@ -30,6 +30,12 @@ class Store(ctx: Context) {
     private val file = File(ctx.filesDir, "player_store.json")
     private val resumeFile = File(ctx.filesDir, "player_resume.json")
     private val writer = Executors.newSingleThreadExecutor()
+    /**
+     * リピート・シャッフルの設定(前回の続きとは別に、切り替えたらすぐ保存する)。
+     * 以前は続き(player_resume.json)の中にだけ保存していたので、再生リストが空のときや、
+     * 切り替えてすぐにアプリが終わったときに、初めの状態に戻ってしまっていた
+     */
+    private val modes = ctx.getSharedPreferences("player_modes", Context.MODE_PRIVATE)
 
     var favTracks: List<String> = emptyList(); private set
     private var favTrackSet: Set<String> = emptySet()
@@ -43,7 +49,7 @@ class Store(ctx: Context) {
 
     /** 保存したものを読む(起動したときに 1 回。どのスレッドからでも) */
     fun load() {
-        val o = runCatching { if (file.exists()) JSONObject(file.readText()) else null }.getOrNull() ?: return
+        val o = readJson(file) ?: return
         fun strings(a: JSONArray?): List<String> = if (a == null) emptyList() else (0 until a.length()).map { a.optString(it) }.filter { it.isNotEmpty() }
         val ft = strings(o.optJSONArray("favTracks"))
         val ct = strings(o.optJSONArray("checkTracks"))
@@ -103,16 +109,53 @@ class Store(ctx: Context) {
         }
     }
 
-    fun flush() {
-        runCatching { writer.submit {}.get(2, java.util.concurrent.TimeUnit.SECONDS) }
+    fun flush(timeoutMs: Long = 2000) {
+        runCatching { writer.submit {}.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) }
     }
 
+    /**
+     * 書き換える。一時ファイルに書いてディスクに書き込み終えてから、名前を変えて入れ替える(途中で止まっても前の中身が残る)。
+     * 失敗したときはログに残し、前の中身はそのまま残す(以前は失敗を記録せず、名前を変えられないときは直接上書きしていた。
+     * AtomicFile は Android 4.2 からなので使わない)
+     */
     private fun writeAtomic(f: File, text: String) {
-        runCatching {
-            val tmp = File(f.parentFile, f.name + ".tmp")
-            tmp.writeText(text)
-            if (!tmp.renameTo(f)) { f.writeText(text); tmp.delete() }
+        val tmp = File(f.parentFile, f.name + ".tmp")
+        try {
+            java.io.FileOutputStream(tmp).use { o ->
+                o.write(text.toByteArray(Charsets.UTF_8))
+                o.flush()
+                o.fd.sync()
+            }
+            if (!tmp.renameTo(f)) throw java.io.IOException("rename failed")
+        } catch (e: Exception) {
+            runCatching { tmp.delete() }
+            AppLog.log("store: cannot write ${f.name} (${e.javaClass.simpleName}: ${e.message})")
         }
+    }
+
+    /** 読む。無ければ null。壊れていて読めないときは、ログに残して「.corrupt」に移す(次からは無いものとして始める) */
+    private fun readJson(f: File): JSONObject? {
+        if (!f.exists()) return null
+        return try {
+            JSONObject(f.readText())
+        } catch (e: Exception) {
+            AppLog.log("store: cannot read ${f.name} (${e.javaClass.simpleName}: ${e.message}), moved to .corrupt")
+            runCatching { f.renameTo(File(f.path + ".corrupt")) }
+            null
+        }
+    }
+
+    // ---------- リピート・シャッフル ----------
+
+    /** リピート(0 = なし、1 = 全曲、2 = 1 曲)とシャッフルを保存する(すぐに。続きの保存とは別) */
+    fun saveModes(repeat: Int, shuffle: Boolean) {
+        modes.edit().putInt("repeat", repeat.coerceIn(0, 2)).putBoolean("shuffle", shuffle).apply()
+    }
+
+    /** 保存したリピートとシャッフル。まだ保存したことが無ければ null */
+    fun loadModes(): Pair<Int, Boolean>? {
+        if (!modes.contains("repeat")) return null
+        return modes.getInt("repeat", 0).coerceIn(0, 2) to modes.getBoolean("shuffle", false)
     }
 
     // ---------- お気に入り ----------
@@ -255,14 +298,21 @@ class Store(ctx: Context) {
     }
 
     /** どのスレッドからでも(ファイルを読む) */
-    fun loadResume(): ResumeState? = runCatching {
-        if (!resumeFile.exists()) return@runCatching null
-        val o = JSONObject(resumeFile.readText())
-        val a = o.optJSONArray("uris") ?: return@runCatching null
+    fun loadResume(): ResumeState? {
+        val o = readJson(resumeFile) ?: return null
+        val a = o.optJSONArray("uris")
+        if (a == null || a.length() == 0) {
+            AppLog.log("store: player_resume.json has no queue, ignored")
+            return null
+        }
         val uris = (0 until a.length()).map { a.optString(it) }
         val orig = o.optJSONArray("orig")?.let { b -> (0 until b.length()).map { b.optString(it) } } ?: uris
-        ResumeState(uris, o.optInt("index"), o.optLong("pos"), o.optBoolean("shuffle"), o.optInt("repeat"), orig)
-    }.getOrNull()
+        // 値がおかしいとき(壊れた・古い形式)は、使える範囲に直す(リピート・シャッフルは別に保存した値を優先して使う)
+        return ResumeState(
+            uris, o.optInt("index").coerceIn(0, uris.lastIndex), o.optLong("pos").coerceAtLeast(0L),
+            o.optBoolean("shuffle"), o.optInt("repeat").coerceIn(0, 2), orig,
+        )
+    }
 
     companion object {
         const val HISTORY_MAX = 300

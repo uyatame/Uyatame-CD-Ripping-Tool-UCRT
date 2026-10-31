@@ -35,6 +35,12 @@ class ResumeState(
 class PlayerStore(ctx: Context) {
     private val file = File(ctx.filesDir, "player_store.json")
     private val resumeFile = File(ctx.filesDir, "player_resume.json")
+    /**
+     * リピート・シャッフルの設定(前回の続きとは別に、切り替えたらすぐ保存する)。
+     * 以前は続き(player_resume.json)の中にだけ保存していたので、再生リストが空・CD の曲のときや、
+     * 切り替えてすぐにアプリが終わったときに、初めの状態に戻ってしまっていた
+     */
+    private val modes = ctx.getSharedPreferences("player_modes", Context.MODE_PRIVATE)
     /** 書き込みは 1 本のスレッドで順番に行う */
     private val writer = Executors.newSingleThreadExecutor()
 
@@ -63,9 +69,7 @@ class PlayerStore(ctx: Context) {
         private set
 
     suspend fun load() {
-        val o = withContext(Dispatchers.IO) {
-            runCatching { if (file.exists()) JSONObject(file.readText()) else null }.getOrNull()
-        } ?: return
+        val o = withContext(Dispatchers.IO) { readJson(file) } ?: return
         fun strings(a: JSONArray?): List<String> = if (a == null) emptyList() else (0 until a.length()).map { a.optString(it) }.filter { it.isNotEmpty() }
         favTracks = strings(o.optJSONArray("favTracks"))
         favTrackSet = favTracks.toHashSet()
@@ -125,16 +129,54 @@ class PlayerStore(ctx: Context) {
     }
 
     /** 書き込み待ちのものを書き終えるまで待つ(アプリを終了する前に。長くても 2 秒) */
-    fun flush() {
-        runCatching { writer.submit {}.get(2, java.util.concurrent.TimeUnit.SECONDS) }
+    fun flush(timeoutMs: Long = 2000) {
+        runCatching { writer.submit {}.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) }
     }
 
+    /**
+     * 書き換える(AtomicFile: 書き終えるまでは前の中身を残し、途中で止まっても壊れたファイルにしない)。
+     * 失敗したときはログに残し、前の中身はそのまま残す(以前は失敗を記録せず、名前を変えられないときは直接上書きしていた)
+     */
     private fun writeAtomic(f: File, text: String) {
-        runCatching {
-            val tmp = File(f.parentFile, f.name + ".tmp")
-            tmp.writeText(text)
-            if (!tmp.renameTo(f)) { f.writeText(text); tmp.delete() }
+        val af = android.util.AtomicFile(f)
+        var out: java.io.FileOutputStream? = null
+        try {
+            out = af.startWrite()
+            out.write(text.toByteArray(Charsets.UTF_8))
+            af.finishWrite(out)
+        } catch (e: Exception) {
+            out?.let { runCatching { af.failWrite(it) } }
+            com.uyatame.ucrt.player.AudioEngine.log("store: cannot write ${f.name} (${e.javaClass.simpleName}: ${e.message})")
         }
+    }
+
+    /**
+     * 読む(AtomicFile: 書き込みの途中で止まっていたら前の中身を読む)。無ければ null。
+     * 壊れていて読めないときは、ログに残して「.corrupt」に移す(次からは無いものとして始め、壊れたファイルを調べられるように)
+     */
+    private fun readJson(f: File): JSONObject? {
+        val af = android.util.AtomicFile(f)
+        if (!f.exists() && !File(f.path + ".bak").exists()) return null
+        return try {
+            JSONObject(String(af.readFully(), Charsets.UTF_8))
+        } catch (e: Exception) {
+            com.uyatame.ucrt.player.AudioEngine.log("store: cannot read ${f.name} (${e.javaClass.simpleName}: ${e.message}), moved to .corrupt")
+            runCatching { f.renameTo(File(f.path + ".corrupt")) }
+            null
+        }
+    }
+
+    // ---------- リピート・シャッフル ----------
+
+    /** リピート(0 = なし、1 = 全曲、2 = 1 曲)とシャッフルを保存する(すぐに。続きの保存とは別) */
+    fun saveModes(repeat: Int, shuffle: Boolean) {
+        modes.edit().putInt("repeat", repeat.coerceIn(0, 2)).putBoolean("shuffle", shuffle).apply()
+    }
+
+    /** 保存したリピートとシャッフル。まだ保存したことが無ければ null */
+    fun loadModes(): Pair<Int, Boolean>? {
+        if (!modes.contains("repeat")) return null
+        return modes.getInt("repeat", 0).coerceIn(0, 2) to modes.getBoolean("shuffle", false)
     }
 
     // ---------- お気に入り ----------
@@ -288,14 +330,19 @@ class PlayerStore(ctx: Context) {
     }
 
     suspend fun loadResume(): ResumeState? = withContext(Dispatchers.IO) {
-        runCatching {
-            if (!resumeFile.exists()) return@runCatching null
-            val o = JSONObject(resumeFile.readText())
-            val a = o.optJSONArray("uris") ?: return@runCatching null
-            val uris = (0 until a.length()).map { a.optString(it) }
-            val orig = o.optJSONArray("orig")?.let { b -> (0 until b.length()).map { b.optString(it) } } ?: uris
-            ResumeState(uris, o.optInt("index"), o.optLong("pos"), o.optBoolean("shuffle"), o.optInt("repeat"), orig)
-        }.getOrNull()
+        val o = readJson(resumeFile) ?: return@withContext null
+        val a = o.optJSONArray("uris")
+        if (a == null || a.length() == 0) {
+            com.uyatame.ucrt.player.AudioEngine.log("store: player_resume.json has no queue, ignored")
+            return@withContext null
+        }
+        val uris = (0 until a.length()).map { a.optString(it) }
+        val orig = o.optJSONArray("orig")?.let { b -> (0 until b.length()).map { b.optString(it) } } ?: uris
+        // 値がおかしいとき(壊れた・古い形式)は、使える範囲に直す(リピート・シャッフルは別に保存した値を優先して使う)
+        ResumeState(
+            uris, o.optInt("index").coerceIn(0, uris.lastIndex), o.optLong("pos").coerceAtLeast(0L),
+            o.optBoolean("shuffle"), o.optInt("repeat").coerceIn(0, 2), orig,
+        )
     }
 
     companion object {

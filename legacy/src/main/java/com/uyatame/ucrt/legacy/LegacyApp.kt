@@ -42,7 +42,9 @@ class LegacyApp : Application() {
         lib.start()
         // 再生の状態が変わったら、前回の状態として保存する(続けて変わったときは 1 回にまとめる)
         Bus.on(Bus.PLAYER) {
-            if (resumeReady) { main.removeCallbacks(saveResume); main.postDelayed(saveResume, 1500) }
+            // リピート・シャッフルは、変わったらすぐ保存する(続きの保存は、続けて変わったときに 1 回にまとめる)
+            saveModes()
+            if (restored) { main.removeCallbacks(saveResume); main.postDelayed(saveResume, 1500) }
             PlaybackService.update(this, player)
             MediaControls.update(this)
         }
@@ -77,7 +79,24 @@ class LegacyApp : Application() {
 
     private val saveResume = Runnable { writeResume() }
 
+    /** 最後に保存したリピート・シャッフル */
+    private var savedModes: Pair<Int, Boolean>? = null
+    /** 前回の再生リストとリピート・シャッフルを戻し終えたか(戻す前に、空の再生リストや初めの値で上書きしないように) */
+    private var restored = false
+
+    /** リピート・シャッフルを、変わったときだけすぐ保存する(前回の値を戻し終える前は、初めの値で上書きしないよう保存しない) */
+    private fun saveModes() {
+        if (!restored) return
+        val m = player.repeatMode to player.shuffle
+        if (m == savedModes) return
+        savedModes = m
+        store.saveModes(m.first, m.second)
+    }
+
     fun writeResume() {
+        // 前回の続きを戻し終える前は保存しない(画面を離れたときに、まだ空の再生リストで続きを消してしまわないように)
+        if (!restored) return
+        saveModes()
         val q = player.queue
         if (q.isEmpty()) { store.saveResume(null); return }
         store.saveResume(
@@ -86,28 +105,51 @@ class LegacyApp : Application() {
     }
 
     private fun restore() {
+        // リピート・シャッフルは、続きとは別に保存した値を使う(続きが無い・読めないときも戻す)
+        val modes = store.loadModes()
+        savedModes = modes
         resumeReady = true
-        if (player.current != null) return
+        if (player.current != null) { restored = true; return }
         Thread({
-            val r = store.loadResume() ?: return@Thread
+            val r = store.loadResume()
             main.post {
-                if (player.current != null) return@post
-                val map = lib.trackMap
-                val items = ArrayList<QItem>()
-                var idx = 0
-                r.uris.forEachIndexed { i, u ->
-                    val t = map[u] ?: return@forEachIndexed
-                    if (i == r.index) idx = items.size
-                    items.add(QItem(t))
+                try {
+                    restoreQueue(r, modes)
+                } finally {
+                    restored = true
                 }
-                if (items.isEmpty()) return@post
-                val pool = HashMap<String, ArrayDeque<QItem>>()
-                items.forEach { pool.getOrPut(it.uri) { ArrayDeque() }.addLast(it) }
-                val orig = r.original.mapNotNull { u -> pool[u]?.removeFirstOrNull() }
-                val sameTrack = map.containsKey(r.uris.getOrNull(r.index))
-                player.restore(items, idx, if (sameTrack) r.positionMs else 0L, r.shuffle, r.repeat, if (orig.size == items.size) orig else items)
             }
         }, "ucrt-resume").start()
+    }
+
+    /** 前回の再生リストと、リピート・シャッフルを戻す(メインのスレッドで) */
+    /** 前回の再生リストと、リピート・シャッフルを戻す(メインのスレッドで) */
+    private fun restoreQueue(r: ResumeState?, modes: Pair<Int, Boolean>?) {
+        if (player.current != null) return
+        if (r == null) {
+            modes?.let { (rep, sh) -> player.restoreModes(rep, sh) }
+            return
+        }
+        val map = lib.trackMap
+        val items = ArrayList<QItem>()
+        var idx = 0
+        r.uris.forEachIndexed { i, u ->
+            val t = map[u] ?: return@forEachIndexed
+            if (i == r.index) idx = items.size
+            items.add(QItem(t))
+        }
+        if (items.isEmpty()) {
+            // 続きの曲がライブラリから無くなっていても、リピート・シャッフルは戻す
+            modes?.let { (rep, sh) -> player.restoreModes(rep, sh) }
+            return
+        }
+        val pool = HashMap<String, ArrayDeque<QItem>>()
+        items.forEach { pool.getOrPut(it.uri) { ArrayDeque() }.addLast(it) }
+        val orig = r.original.mapNotNull { u -> pool[u]?.removeFirstOrNull() }
+        val sameTrack = map.containsKey(r.uris.getOrNull(r.index))
+        // 並び順は続きを保存したときのシャッフルの状態で戻し、そのあとで別に保存したリピート・シャッフルに合わせる
+        player.restore(items, idx, if (sameTrack) r.positionMs else 0L, r.shuffle, modes?.first ?: r.repeat, if (orig.size == items.size) orig else items)
+        if (modes != null && modes.second != player.shuffle) player.toggleShuffle()
     }
 
     companion object {

@@ -478,6 +478,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             loadPlayerArt()
             updateWidget()
             recordHistory()
+            saveModes()
             saveResume()
         }
         viewModelScope.launch(Dispatchers.IO) { com.uyatame.ucrt.player.RgStore.load(ctx) }
@@ -683,6 +684,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (quitting) return
         quitting = true
         saveJob?.cancel()
+        saveModes()
         writeResume()
         resumeReady = false
         player.onStateChanged = null
@@ -718,7 +720,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     override fun onCleared() {
         // 終了処理で再生リストが空になる前に、続きを保存しておく
         saveJob?.cancel()
+        saveModes()
         writeResume()
+        // 書き終えるまで少しだけ待つ(画面のスレッドなので長くは待たない。リピート・シャッフルは別にすぐ保存してある)
+        store.flush(500)
         resumeReady = false
         player.onStateChanged = null
         player.onQueueEnd = null
@@ -912,6 +917,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private var saveJob: Job? = null
+    /** 最後に保存したリピート・シャッフル */
+    private var savedModes: Pair<Int, Boolean>? = null
+
+    /**
+     * リピート・シャッフルを、変わったときだけすぐ保存する(続きの保存と違って待たない。
+     * 続きとは別に保存するので、再生リストが空・CD の曲のときや、切り替えてすぐにアプリが終わったときも残る)。
+     * 前回の値を戻し終える前は保存しない(初めの値で上書きしないように)
+     */
+    private fun saveModes() {
+        if (!resumeReady) return
+        val m = player.repeatMode to player.shuffle
+        if (m == savedModes) return
+        savedModes = m
+        store.saveModes(m.first, m.second)
+    }
 
     /** 続きの保存(並べ替えなどで続けて呼ばれるので、少し待ってまとめて書く) */
     private fun saveResume() {
@@ -940,8 +960,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun restoreQueue() {
+        // リピート・シャッフルは、続きとは別に保存した値を使う(続きが無い・読めないときも戻す)
+        val modes = withContext(Dispatchers.IO) { store.loadModes() }
+        savedModes = modes
         try {
-            val r = store.loadResume() ?: return
+            val r = store.loadResume()
+            if (r == null) {
+                modes?.let { (rep, sh) -> player.restoreModes(rep, sh) }
+                return
+            }
             if (player.current != null) return
             val map = trackMap
             val items = ArrayList<PlayItem>()
@@ -951,14 +978,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 if (i == r.index) idx = items.size
                 items.add(itemOf(t))
             }
-            if (items.isEmpty()) return
+            if (items.isEmpty()) {
+                // 続きの曲がライブラリから無くなっていても、リピート・シャッフルは戻す
+                modes?.let { (rep, sh) -> player.restoreModes(rep, sh) }
+                return
+            }
             // シャッフル前の並びは、同じ項目(同じ id)を並べ替えて作る
             val pool = HashMap<String, ArrayDeque<PlayItem>>()
             items.forEach { pool.getOrPut(it.uri.toString()) { ArrayDeque() }.addLast(it) }
             val orig = r.original.mapNotNull { u -> pool[u]?.removeFirstOrNull() }
             val origList = if (orig.size == items.size) orig else items
             val sameTrack = map.containsKey(r.uris.getOrNull(r.index))
-            player.restore(items, idx, if (sameTrack) r.positionMs else 0L, r.shuffle, r.repeat, origList)
+            // 並び順は続きを保存したときのシャッフルの状態で戻し、そのあとで別に保存したリピート・シャッフルに合わせる
+            player.restore(items, idx, if (sameTrack) r.positionMs else 0L, r.shuffle, modes?.first ?: r.repeat, origList)
+            if (modes != null && modes.second != player.shuffle) player.toggleShuffle()
         } finally {
             resumeReady = true
         }
