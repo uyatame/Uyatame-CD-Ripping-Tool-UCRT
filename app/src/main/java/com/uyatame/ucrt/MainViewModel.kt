@@ -96,6 +96,15 @@ fun fmtMs(ms: Long): String {
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val ctx: Application = app
+
+    companion object {
+        /**
+         * 実行中の MainViewModel(MainActivity が生きている間だけ)。ロック画面など、別のアクティビティが、
+         * 同じ再生の状態を使うために見る。onCleared で外す(外さないと、画面を閉じたあとも残る)
+         */
+        @Volatile var instance: MainViewModel? = null
+            private set
+    }
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val usb = app.getSystemService(Context.USB_SERVICE) as UsbManager
     private val repo = SettingsRepository(app)
@@ -135,6 +144,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun openRoute(route: String) {
         libPush(route)
+        libNavEvent++
+    }
+
+    /** ホームボタン(UCRT がホーム画面のとき)を押したときに、最初の画面(ライブラリのトップ)に戻る */
+    fun goHome() {
+        libHome()
         libNavEvent++
     }
 
@@ -186,6 +201,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var playlistPick by mutableStateOf<List<String>?>(null)
     /** 曲の詳細情報を出す曲 */
     var infoItem by mutableStateOf<PlayItem?>(null)
+    /** 歌詞を編集している曲(null なら編集の画面は出ていない) */
+    var lyricsEditItem by mutableStateOf<PlayItem?>(null)
+    /** 歌詞を保存した回数(増えると、再生画面が歌詞を読み直す) */
+    var lyricsGen by mutableIntStateOf(0)
 
     fun showTrackMenu(t: com.uyatame.ucrt.library.LibTrack, playlist: Pair<String, Int>? = null) {
         menuTrackPlaylist = playlist
@@ -383,6 +402,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         )
         MediaBridge.player = player
         MediaBridge.quit = { quitApp(null) }
+        // ロック画面(別のアクティビティ)が、この再生の状態をそのまま使えるように、実行中の自分を教える。画面が点いたときの合図も受け取る
+        instance = this
+        LockScreen.register(app, this)
         // 起動したら、新しい版が出ていないか確かめる(設定を読み込んで、画面が落ち着いてから)
         viewModelScope.launch {
             if (repo.flow.first().updateCheck) {
@@ -403,6 +425,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // 設定はどれか 1 つ変わるたびに全部届く(音量キーで DAC の音量を変えたときなども)ので、変わったものだけ反映する
             var lastEqState: Any? = null
             var lastExternal: Boolean? = null
+            var lastSilent: Int? = null
             settings.collect { s ->
                 val eqState = listOf(s.eqActive, s.eqCurrentBands, s.eqPreamp, s.eqAutoPreamp)
                 if (eqState != lastEqState) {
@@ -423,6 +446,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 keep.target = s.dacKeepAliveTarget
                 if (s.dacKeepAlive && !keep.running) keep.start(ctx) else if (!s.dacKeepAlive && keep.running) keep.stop(ctx)
                 player.usbVolumeStep = s.usbVolumeStep
+                player.swipePrevToTrack = s.swipePrevMode == 1
+                // サイレントモード(設定が変わったときだけ。ホーム画面の変化は、画面に戻ってきたときに合わせる)
+                if (s.silentMode != lastSilent) { lastSilent = s.silentMode; syncSilent(s) }
                 player.autoResume = s.autoResume
                 AutoBridge.enabled = s.androidAuto
                 val stab = com.uyatame.ucrt.player.usb.UsbStabilizer
@@ -446,6 +472,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     com.uyatame.ucrt.player.AudioEngine.dsdSwap != s.dsdSwap
                 com.uyatame.ucrt.player.AudioEngine.dsdMode = s.dsdMode
                 com.uyatame.ucrt.player.AudioEngine.dsdSwap = s.dsdSwap
+                com.uyatame.ucrt.player.AudioEngine.builtinDop = s.builtinDop
                 val devChanged = com.uyatame.ucrt.player.AudioEngine.preferredKey != s.outputDevice
                 com.uyatame.ucrt.player.AudioEngine.preferredKey = s.outputDevice
                 val eng = com.uyatame.ucrt.player.AudioEngine
@@ -471,6 +498,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repo.set(com.uyatame.ucrt.data.Keys.contactEmail, "") }
         player.onNotice = { snack = it }
         player.onQueueEnd = { playNextList() }
+        player.onQueueStart = { playPrevList() }
         // Android Auto(試験的)から、この再生を使えるようにする
         AutoBridge.register(this)
         player.onStateChanged = {
@@ -683,6 +711,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun quitApp(finish: (() -> Unit)?) {
         if (quitting) return
         quitting = true
+        // 終わる途中で画面が点いても、解放した再生をロック画面が見ないように、先に外す
+        instance = null
+        LockScreen.unregister(ctx)
+        // アプリを終えるときは、サイレントモードを戻す(戻す役が居なくなり、着信音などが止まったままにならないように)
+        runCatching { com.uyatame.ucrt.player.SilentMode(ctx).disable() }
         saveJob?.cancel()
         saveModes()
         writeResume()
@@ -718,6 +751,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        if (instance === this) instance = null
+        LockScreen.unregister(ctx)
         // 終了処理で再生リストが空になる前に、続きを保存しておく
         saveJob?.cancel()
         saveModes()
@@ -1036,30 +1071,51 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (opening || drive?.deviceName == dev.deviceName) return
         opening = true
         viewModelScope.launch {
+            // 開いたドライブは、接続がすべて成功して、共有の状態(drive・connected など)に確定するまで、ここだけで持つ。
+            // 途中で失敗・取り消しになったときは、確定していないので、ここで閉じる(以前は、途中で失敗しても、開いたドライブが残り、
+            // 接続済みの表示のままになることがあった)
+            var opened: UsbScsiDrive? = null
+            var committed = false
             try {
                 val d = withContext(Dispatchers.IO) { UsbScsiDrive.open(usb, dev) }
+                opened = d
                 d.logger = { m -> log(m) }
                 d.verbose = settings.value.verboseLog
-                closeAsync(drive)
+                val inq = withContext(Dispatchers.IO) {
+                    var r = ""
+                    for (a in 0 until 3) {
+                        try { r = d.inquiry(); break } catch (e: Exception) {
+                            r = ""
+                            // 次の試行があるときだけ待つ(最後の失敗のあとは、待たずに先へ進む)
+                            if (a < 2) Thread.sleep(500)
+                        }
+                    }
+                    r
+                }
+                // ここまで成功した。共有の状態に確定する(古いドライブは、新しい接続が成功してから閉じる)
+                val old = drive
                 drive = d
+                committed = true
+                if (old != null && old !== d) closeAsync(old)
                 connected = true
                 driveName = d.name
                 status = S(R.string.connected)
                 discText = S(R.string.checking_disc)
-                val inq = withContext(Dispatchers.IO) {
-                    var r = ""
-                    for (a in 0 until 3) {
-                        try { r = d.inquiry(); break } catch (e: Exception) { r = ""; Thread.sleep(500) }
-                    }
-                    r
-                }
                 if (inq.isNotEmpty()) { driveName = inq.substringBefore(" (type"); log(S(R.string.drive, inq)) }
                 lastMedia = 0
                 startMonitor(d)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 取り消しは、通常の接続エラーとして扱わず、そのまま投げ直す(後始末は finally)
+                throw e
             } catch (e: Exception) {
                 status = S(R.string.could_not_connect, e.message)
             } finally {
                 opening = false
+                // 確定できなかった(失敗・取り消し)なら、開いたドライブを閉じる。close は他のコマンドの終了を待つので、IO のスレッドで
+                val failed = opened
+                if (failed != null && !committed) {
+                    withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { failed.close() }
+                }
             }
         }
     }
@@ -1092,6 +1148,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun closeDrive(msg: String) {
         job?.cancel()
         monitorJob?.cancel()
+        discJob?.cancel()
         if (player.isCd) player.stop()
         closeAsync(drive)
         drive = null
@@ -1235,13 +1292,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return DiscScan(if (ready) S(R.string.cannot_read_disc) else S(R.string.drive_isnt_ready), emptyList(), 0, retry = true)
     }
 
+    /** ディスクの目次を読んでいる最中の処理(ドライブを閉じたときに止める) */
+    private var discJob: Job? = null
+
     fun refreshDisc() {
         val d = drive ?: return
         if (busy || discBusy) return
-        viewModelScope.launch {
+        discJob = viewModelScope.launch {
             discBusy = true
             try {
                 val r = withContext(Dispatchers.IO) { readDisc(d) }
+                // 読んでいる間にドライブを外した・入れ替えたときは、その結果を捨てる(別のドライブの表示に混ざらないように)
+                if (drive !== d) return@launch
                 val changed = r.tracks.map { it.startLba } != tracks.map { it.startLba }
                 discText = r.text
                 // 読み取れなかったときは、確認できるまで 0.5 秒ごとに読み直す
@@ -1281,9 +1343,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             } catch (e: Exception) {
-                discText = S(R.string.could_not_read_disc, e.message)
+                if (drive === d) discText = S(R.string.could_not_read_disc, e.message)
             } finally {
-                discBusy = false
+                if (drive === d) discBusy = false
             }
         }
     }
@@ -2445,6 +2507,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** 読み込み中に来た読み直しの要求(読み終えたあとに、最後の 1 件だけをもう一度行う) */
+    private var pendingRefresh: (() -> Unit)? = null
+
     fun refreshLibrary(
         treeOverride: String? = null,
         fresh: Boolean = false,
@@ -2453,7 +2518,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         val trees = (listOfNotNull(treeOverride, base.outputUri) + (folders ?: base.libraryFolders)).distinct()
         if (trees.isEmpty()) { albums = emptyList(); libAll = emptyList(); return }
-        if (libScanning) return
+        if (libScanning) {
+            // 読み込み中に来た要求(起動した直後の自動読み込み中にフォルダを足したときなど)は、捨てずに、読み終えたあとにやり直す
+            pendingRefresh = { refreshLibrary(treeOverride, fresh, folders, base) }
+            return
+        }
         viewModelScope.launch {
             libScanning = true
             libFull = fresh
@@ -2466,6 +2535,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     for (t in trees) {
                         // そのフォルダの、前に読んだ曲(フォルダを読めないときは、これを残す)
                         val prev = libAll.filter { it.uri.startsWith("$t/document/") }
+                        // ネットワーク(NAS)のフォルダは、起動のたびの自動読み込みでは読まない(全曲をネットワーク越しに開くので重い)。
+                        // 追加したとき・「すべて読み直す」ときだけ読み、それ以外は前に読んだ曲のままにする
+                        if (Uri.parse(t).authority == com.uyatame.ucrt.network.NetworkProvider.authority(ctx) && t != treeOverride && !fresh) {
+                            all.addAll(prev)
+                            continue
+                        }
                         runCatching {
                             val got = library.scan(Uri.parse(t), old, light) { i, n -> libProgress = "$i / $n"; libNew = n }
                             // SD カードを外した・許可が外れたなどで一時的に読めないときは、曲を消さずに前のままにする
@@ -2484,12 +2559,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 ArtLoader.clearMisses()
                 libAll = list
+                // 音質チェックの曲を、読み直したライブラリに合わせる(場所が変わった曲は付け替え、無くなった曲は外す)
+                store.reconcileCheck(list.map { it.uri }) { Library.docKey(it) }
                 albums = withContext(Dispatchers.Default) { Library.group(list) }
             } catch (e: Exception) {
                 log(S(R.string.library_scan_failed, e.message))
             } finally {
                 libScanning = false
                 libProgress = ""
+                pendingRefresh?.let { again -> pendingRefresh = null; again() }
             }
         }
     }
@@ -2751,8 +2829,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * 今のリストの次のリスト(ライブラリの画面の並び順で次。最後なら最初へ戻る。曲の無いリストは飛ばす)。
      * 次のリストの出どころ・名前・曲を返す。見つからなければ null
      */
-    private fun nextList(src: PlaySource): Triple<PlaySource, String, List<com.uyatame.ucrt.library.LibTrack>>? {
-        fun <T> after(keys: List<T>, cur: T): List<T> {
+    private fun nextList(src: PlaySource, back: Boolean = false): Triple<PlaySource, String, List<com.uyatame.ucrt.library.LibTrack>>? {
+        // 今のリストより後ろ(back なら前)のリストを、近い順に(端まで行ったら反対の端から)
+        fun <T> after(keys0: List<T>, cur: T): List<T> {
+            val keys = if (back) keys0.reversed() else keys0
             val i = keys.indexOf(cur)
             return if (i < 0) keys else keys.drop(i + 1) + keys.take(i)
         }
@@ -2795,8 +2875,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // 曲の入っているフォルダを名前順に並べ、今のフォルダ(とその中)より後ろの最初のフォルダ
                 val dirs = albums.asSequence().flatMap { it.tracks }.map { folderOf(it) }.distinct().sortedBy { it.lowercase() }.toList()
                 val cur = src.key
-                val later = dirs.filter { it.lowercase() > cur.lowercase() && !it.startsWith("$cur/") && it != cur }
-                for (d in later + dirs.filter { it !in later && it != cur && !it.startsWith("$cur/") }) {
+                val others = dirs.filter { it != cur && !it.startsWith("$cur/") }
+                val later = if (back) others.filter { it.lowercase() < cur.lowercase() }.reversed()
+                else others.filter { it.lowercase() > cur.lowercase() }
+                val rest = others.filter { it !in later }.let { if (back) it.reversed() else it }
+                for (d in later + rest) {
                     val t = folderTracksOf(d)
                     if (t.isNotEmpty()) return Triple(PlaySource(src.kind, d), d.substringAfterLast('/').ifEmpty { "/" }, t)
                 }
@@ -2812,6 +2895,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val (ns, name, tracks) = nextList(src) ?: return false
         log("auto next list: ${src.kind} -> ${ns.key}")
         playTracks(tracks, 0, player.shuffle, ns)
+        snack = S(R.string.auto_next_now, name)
+        return true
+    }
+
+    /** サイレントモードを、設定とホーム画面の状態に合わせる(何度呼んでもよい) */
+    fun syncSilent(s: AppSettings = settings.value) {
+        val want = s.silentMode == 2 || (s.silentMode == 1 && HomeApps.isDefaultHome(ctx))
+        runCatching { com.uyatame.ucrt.player.SilentMode(ctx) { com.uyatame.ucrt.player.AudioEngine.log(it) }.sync(want) }
+    }
+
+    /** 1 曲目で前へを押したとき: 設定がオンなら、前のリストの最後の曲から再生する */
+    private fun playPrevList(): Boolean {
+        if (!settings.value.autoNextList || player.repeatMode != 0) return false
+        val src = playSource ?: return false
+        val (ns, name, tracks) = nextList(src, back = true) ?: return false
+        log("previous list: ${src.kind} -> ${ns.key}")
+        playTracks(tracks, tracks.lastIndex, player.shuffle, ns)
         snack = S(R.string.auto_next_now, name)
         return true
     }

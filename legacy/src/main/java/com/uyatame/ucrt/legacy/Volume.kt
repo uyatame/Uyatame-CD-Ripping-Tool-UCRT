@@ -35,10 +35,13 @@ import kotlin.math.sin
 object Volume {
     fun sheet(act: LegacyActivity) {
         val am = act.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val usb = UsbAudio.inUse && UsbAudio.hasVolume
-        // 設定の「細かい音量」: アプリの中の音量を 0.5 dB ごと(200 段階)に変える(USB DAC 直接出力のときは DAC の音量)
         val p = act.app.prefs
-        val fine = !UsbAudio.inUse && p.sp.getBoolean("fineVolume", false)
+        // USB DAC 直接出力のときは、DAC の音量(100 段階)。DAC に音量の機能が無くても、アプリの中で音量を掛けるので同じく 100 段階。
+        // まだ鳴らしていない(DAC を開く前)でも、直接出力の設定で DAC がつながっていれば DAC の音量にする
+        // (端末の音量の 15 段階を出すと、直接出力の音量は変わらない)
+        val usb = UsbAudio.inUse || (p.usbDirect && UsbAudio.supported(act))
+        // 設定の「細かい音量」: アプリの中の音量を 0.5 dB ごと(200 段階)に変える(USB DAC 直接出力のときは DAC の音量)
+        val fine = !usb && p.sp.getBoolean("fineVolume", false)
         val max = if (usb) 100 else if (fine) 200 else am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         fun read(): Int = if (usb) UsbAudio.volume else if (fine) p.sp.getInt("appVolumeStep", 200) else am.getStreamVolume(AudioManager.STREAM_MUSIC)
         val s = Sheet(act)

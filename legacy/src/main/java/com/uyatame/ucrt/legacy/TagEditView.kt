@@ -157,6 +157,8 @@ class TagEditView(
     private fun build() {
         cover?.let { list.add(it, b = 8) }
         if (note != null) list.add(text(act, note, Type.BodySmall, Pal.error, lines = 0), b = 8)
+        // アルバムの情報(ここで入れた値は、全曲に書き込む)
+        list.add(text(act, S(R.string.tag_album_common), Type.TitleMedium), b = 8)
         labeledInput(list, form.album, S(R.string.album)) { form.album = it }
         list.add(View(act), h = 8)
         labeledInput(list, form.albumArtist, S(R.string.album_artist)) { form.albumArtist = it; trackViews.forEach { f -> f() } }
@@ -175,6 +177,8 @@ class TagEditView(
         numberInput(nums, form.discTotal, S(R.string.tag_disc_total)) { form.discTotal = it }
         list.add(nums)
         list.add(View(act), h = 8)
+        // 曲ごとの欄を、全曲まとめて入れる(本家と同じ)
+        if (form.tracks.size > 1) list.add(bulkCard(), b = 8)
         list.addDivider()
         list.add(text(act, S(R.string.mb_tracks), Type.TitleMedium), t = 8)
         list.add(text(act, S(R.string.tag_detail_hint), Type.BodySmall, Pal.onSurfaceVariant, lines = 0), b = 10)
@@ -237,6 +241,56 @@ class TagEditView(
         head.tap(8f) { if (t.detailSupported && !loading) { t.open = !t.open; update() } }
         trackViews += { update() }
         update()
+        return c
+    }
+
+    /** まとめて入力のカードを開いているか */
+    private var bulkOpen = false
+    private var bArtist: String? = null
+    private var bComposer = ""
+    private var bLyricist = ""
+    private var bComment = ""
+    private var bDisc = ""
+
+    /**
+     * 全曲にまとめて入力するカード。曲ごとの欄(アーティスト・作曲・作詞・コメント・何枚目か)を、全曲に同じ値で入れる。
+     * 「全曲に適用」を押したときだけ書き換え、曲の欄を作り直す
+     */
+    private fun bulkCard(): View {
+        val c = card(act, Pal.containerHighest)
+        c.setPadding(dp(12), dp(12), dp(12), dp(12))
+        val head = hbox(act)
+        val tcol = vbox(act)
+        tcol.add(text(act, S(R.string.tag_bulk), Type.TitleMedium))
+        tcol.add(text(act, S(R.string.tag_bulk_desc), Type.BodySmall, Pal.onSurfaceVariant, lines = 0))
+        head.add(tcol, w = 0, weight = 1f)
+        head.add(icon(act, if (bulkOpen) Icons.ArrowUp else Icons.ArrowDown, Pal.onSurfaceVariant, 24), w = 24, h = 24)
+        head.tap(8f) { bulkOpen = !bulkOpen; reload() }
+        c.add(head)
+        if (!bulkOpen) return c
+        fun row(value: String, label: String, number: Boolean = false, set: (String) -> Unit, apply: () -> Unit) {
+            val r = hbox(act, Gravity.BOTTOM)
+            val f = labeledInput(r, value, label, w = 0, weight = 1f) { set(if (number) it.filter { ch -> ch.isDigit() } else it) }
+            if (number) f.inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            r.add(button(act, S(R.string.tag_apply_all), Btn.Tonal) { act.hideKeyboard(view); apply(); reload() }, w = WRAP, l = 8)
+            c.add(r, t = 8)
+        }
+        val artist = bArtist ?: form.tracks.firstOrNull()?.artist.orEmpty()
+        row(artist, S(R.string.artist), set = { bArtist = it }) { val v = bArtist ?: artist; form.tracks.forEach { t -> t.artist = v } }
+        c.add(button(act, S(R.string.tag_bulk_artist_from_album), Btn.Text) {
+            if (form.albumArtist.isNotBlank()) { form.tracks.forEach { t -> t.artist = form.albumArtist }; reload() }
+        }, w = WRAP, t = 4)
+        row(bComposer, S(R.string.composer), set = { bComposer = it }) { form.tracks.filter { it.detailSupported }.forEach { t -> t.composer = bComposer } }
+        row(bLyricist, S(R.string.lyricist), set = { bLyricist = it }) { form.tracks.filter { it.detailSupported }.forEach { t -> t.lyricist = bLyricist } }
+        row(bComment, S(R.string.comment), set = { bComment = it }) { form.tracks.filter { it.detailSupported }.forEach { t -> t.comment = bComment } }
+        if (form.numbers) {
+            row(bDisc, S(R.string.tag_disc_no), number = true, set = { bDisc = it }) { form.tracks.forEach { t -> t.discNo = bDisc } }
+            c.add(button(act, S(R.string.tag_renumber), Btn.Text) {
+                form.tracks.forEachIndexed { i, t -> t.trackNo = (i + 1).toString() }
+                form.trackTotal = form.tracks.size.toString()
+                reload()
+            }, w = WRAP, t = 4)
+        }
         return c
     }
 

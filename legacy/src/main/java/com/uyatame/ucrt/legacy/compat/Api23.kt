@@ -8,6 +8,9 @@ object Api23 {
     fun routedName(t: android.media.AudioTrack): String? =
         runCatching { t.routedDevice?.productName?.toString()?.trim()?.ifEmpty { null } }.getOrNull()
 
+    /** 「他のアプリの上に重ねて表示」の許可があるか */
+    fun canDrawOverlays(ctx: android.content.Context): Boolean = android.provider.Settings.canDrawOverlays(ctx)
+
     /** 状態バーの文字を暗い色にする(背景が明るいとき) */
     @Suppress("DEPRECATION")
     fun lightStatusBar(v: View, light: Boolean) {

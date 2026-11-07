@@ -77,6 +77,8 @@ data class AppSettings(
     val autoResume: Boolean = true,
     /** リスト(アルバム・アーティスト・プレイリストなど)を最後まで再生したら、次のリストを続けて再生する */
     val autoNextList: Boolean = false,
+    /** ジャケットを右へスワイプしたとき: 0 = 戻るボタンと同じ(3 秒より後なら頭出し)、1 = いつも前の曲へ */
+    val swipePrevMode: Int = 0,
     /** Android Auto(試験的)で、車の画面にライブラリを出す */
     val androidAuto: Boolean = true,
     /** DAC を常に起こしておく(ほかのアプリの再生にも効く。試験的) */
@@ -121,12 +123,46 @@ data class AppSettings(
     val spectrumColor: Int = 0,
     /** 表示を遅らせる時間(ミリ秒。Bluetooth などで音が遅れて聞こえるときの補正。0〜500) */
     val spectrumDelayMs: Int = 0,
+    /** スペクトラムの場所に出すもの(MeterShow: 0 = スペクトラム、1 = VU メーター、2 = 両方) */
+    val meterShow: Int = 0,
+    /** VU メーターの見せ方(0 = 針、1 = バー) */
+    val vuStyle: Int = 0,
+    /** 針の動き(0 = VU、1 = ピーク) */
+    val vuMode: Int = 0,
+    /** 0 VU にする音の大きさ(-dBFS。18 なら -18 dBFS) */
+    val vuRefDb: Int = 18,
+    /** バーを赤にする音の大きさ(-dBFS。6 なら -6 dBFS を超えた所) */
+    val vuRedDb: Int = 6,
+    /** バーのピークホールド */
+    val vuHold: Boolean = true,
     val bitPerfect: Boolean = false,
     val usbDirect: Boolean = false,
     /** -1 = 自動(USB から音量を変えられる DAC は 50、変えられない DAC は 100) */
     val usbVolume: Int = -1,
     val dsdMode: Int = 0,
     val dsdSwap: Boolean = false,
+    /** 内蔵 DAC(イヤホンジャックなど)に DoP で DSD を送ってみる(実験的。機種によっては雑音になるので、初めはオフ) */
+    val builtinDop: Boolean = false,
+    /** ロック画面(システムのロックの上に、再生画面を重ねて出す)。初めはオフ */
+    val lockScreen: Boolean = false,
+    /** ロック画面を解除するスワイプの向き: 0 = 上, 1 = 下, 2 = 左, 3 = 右 */
+    val lockSwipe: Int = 0,
+    /** ロック画面の出し方: 0 = 自動(直接 → だめならフルスクリーン通知)、1 = 直接だけ、2 = フルスクリーン通知だけ */
+    val lockLaunch: Int = 0,
+    /** 一時停止中もロック画面を出すか */
+    val lockWhenPaused: Boolean = true,
+    /** ロック画面の時計の場所: 0 = 上、1 = 下、2 = 出さない */
+    val lockClock: Int = 0,
+    /** ロック画面の時計の色(0 = 白) */
+    val lockClockColor: Int = 0,
+    /** ロック画面の向き(0 = 端末の設定に合わせる、1 = 縦、2 = 横、3 = 端末の向きに合わせて回す) */
+    val lockOrientation: Int = 0,
+    /** ロック画面のタブレットモード(0 = 自動(画面の短い辺が 600dp 以上)、1 = オン、2 = オフ)。オンなら、縦でもジャケットと操作を左右に並べる */
+    val lockTablet: Int = 0,
+    /** 端末がロックされていなくてもロック画面を出す(端末にロックをかけない DAP の使い方) */
+    val lockAlways: Boolean = true,
+    /** サイレントモード(通知音・着信音などを止める): 0 = オフ、1 = ホーム画面にしている間だけ、2 = いつも */
+    val silentMode: Int = 0,
     /** 出力先(空なら自動。"種類|アドレス") */
     val outputDevice: String = "",
     val eqEnabled: Boolean = false,
@@ -253,6 +289,7 @@ object Keys {
     val usbStabilize = booleanPreferencesKey("usbStabilize")
     val autoResume = booleanPreferencesKey("autoResume")
     val autoNextList = booleanPreferencesKey("autoNextList")
+    val swipePrevMode = intPreferencesKey("swipePrevMode")
     val androidAuto = booleanPreferencesKey("androidAuto")
     val dacKeepAlive = booleanPreferencesKey("dacKeepAlive")
     val dacKeepAliveTarget = intPreferencesKey("dacKeepAliveTarget")
@@ -275,11 +312,28 @@ object Keys {
     val spectrumRefreshMs = intPreferencesKey("spectrumRefreshMs")
     val spectrumColor = intPreferencesKey("spectrumColor")
     val spectrumDelayMs = intPreferencesKey("spectrumDelayMs")
+    val meterShow = intPreferencesKey("meterShow")
+    val vuStyle = intPreferencesKey("vuStyle")
+    val vuMode = intPreferencesKey("vuMode")
+    val vuRefDb = intPreferencesKey("vuRefDb")
+    val vuRedDb = intPreferencesKey("vuRedDb")
+    val vuHold = booleanPreferencesKey("vuHold")
     val bitPerfect = booleanPreferencesKey("bitPerfect")
     val usbDirect = booleanPreferencesKey("usbDirect")
     val usbVolume = intPreferencesKey("usbVolume")
     val dsdMode = intPreferencesKey("dsdMode")
     val dsdSwap = booleanPreferencesKey("dsdSwap")
+    val builtinDop = booleanPreferencesKey("builtinDop")
+    val lockScreen = booleanPreferencesKey("lockScreen")
+    val lockSwipe = intPreferencesKey("lockSwipe")
+    val lockLaunch = intPreferencesKey("lockLaunch")
+    val lockWhenPaused = booleanPreferencesKey("lockWhenPaused")
+    val lockClock = intPreferencesKey("lockClock")
+    val lockClockColor = intPreferencesKey("lockClockColor")
+    val lockOrientation = intPreferencesKey("lockOrientation")
+    val lockTablet = intPreferencesKey("lockTablet")
+    val lockAlways = booleanPreferencesKey("lockAlways")
+    val silentMode = intPreferencesKey("silentMode")
     val outputDevice = stringPreferencesKey("outputDevice")
     val eqEnabled = booleanPreferencesKey("eqEnabled")
     val eqPreset = intPreferencesKey("eqPreset")
@@ -355,6 +409,7 @@ class SettingsRepository(private val context: Context) {
             usbStabilize = p[Keys.usbStabilize] ?: d.usbStabilize,
             autoResume = p[Keys.autoResume] ?: d.autoResume,
             autoNextList = p[Keys.autoNextList] ?: d.autoNextList,
+            swipePrevMode = p[Keys.swipePrevMode] ?: d.swipePrevMode,
             androidAuto = p[Keys.androidAuto] ?: d.androidAuto,
             dacKeepAlive = p[Keys.dacKeepAlive] ?: d.dacKeepAlive,
             dacKeepAliveTarget = p[Keys.dacKeepAliveTarget] ?: d.dacKeepAliveTarget,
@@ -377,11 +432,28 @@ class SettingsRepository(private val context: Context) {
             spectrumRefreshMs = (p[Keys.spectrumRefreshMs] ?: d.spectrumRefreshMs).coerceIn(8, 200),
             spectrumColor = p[Keys.spectrumColor] ?: d.spectrumColor,
             spectrumDelayMs = (p[Keys.spectrumDelayMs] ?: d.spectrumDelayMs).coerceIn(0, 500),
+            meterShow = (p[Keys.meterShow] ?: d.meterShow).coerceIn(0, 2),
+            vuStyle = (p[Keys.vuStyle] ?: d.vuStyle).coerceIn(0, 1),
+            vuMode = (p[Keys.vuMode] ?: d.vuMode).coerceIn(0, 1),
+            vuRefDb = (p[Keys.vuRefDb] ?: d.vuRefDb).coerceIn(0, 30),
+            vuRedDb = (p[Keys.vuRedDb] ?: d.vuRedDb).coerceIn(0, 30),
+            vuHold = p[Keys.vuHold] ?: d.vuHold,
             bitPerfect = p[Keys.bitPerfect] ?: d.bitPerfect,
             usbDirect = p[Keys.usbDirect] ?: d.usbDirect,
             usbVolume = p[Keys.usbVolume] ?: d.usbVolume,
             dsdMode = p[Keys.dsdMode] ?: d.dsdMode,
             dsdSwap = p[Keys.dsdSwap] ?: d.dsdSwap,
+            builtinDop = p[Keys.builtinDop] ?: d.builtinDop,
+            lockScreen = p[Keys.lockScreen] ?: d.lockScreen,
+            lockSwipe = (p[Keys.lockSwipe] ?: d.lockSwipe).coerceIn(0, 3),
+            lockLaunch = (p[Keys.lockLaunch] ?: d.lockLaunch).coerceIn(0, 2),
+            lockWhenPaused = p[Keys.lockWhenPaused] ?: d.lockWhenPaused,
+            lockClock = (p[Keys.lockClock] ?: d.lockClock).coerceIn(0, 2),
+            lockClockColor = p[Keys.lockClockColor] ?: d.lockClockColor,
+            lockOrientation = (p[Keys.lockOrientation] ?: d.lockOrientation).coerceIn(0, 3),
+            lockTablet = (p[Keys.lockTablet] ?: d.lockTablet).coerceIn(0, 2),
+            lockAlways = p[Keys.lockAlways] ?: d.lockAlways,
+            silentMode = (p[Keys.silentMode] ?: d.silentMode).coerceIn(0, 2),
             outputDevice = p[Keys.outputDevice] ?: d.outputDevice,
             eqEnabled = p[Keys.eqEnabled] ?: d.eqEnabled,
             eqPreset = p[Keys.eqPreset] ?: d.eqPreset,

@@ -246,7 +246,10 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
 
     /** USB DAC 直接出力中は、音量キーで DAC の音量を変える(ほかのアプリに音を取られている間は除く) */
     private fun setVolumeRouting(active: Boolean) {
-        if (active && !focusLost) {
+        // DAC を閉じている間(一時停止のあとなど)も、直接出力を使う設定で DAC がつながっていれば、音量キーは DAC の音量(100 段階)にする
+        // (端末の音量(15 段階)に切り替わると、次に鳴らしたときの音量と食い違うため)
+        val dac = active || (AudioEngine.wantUsbDirect && runCatching { UsbDac.findDac() != null }.getOrDefault(false))
+        if (dac && !focusLost) {
             val vp = object : android.media.VolumeProvider(android.media.VolumeProvider.VOLUME_CONTROL_ABSOLUTE, 100, UsbDac.volume()) {
                 override fun onSetVolumeTo(volume: Int) { if (!usbVolumeLocked()) setUsbVolume(volume, true) }
                 override fun onAdjustVolume(direction: Int) { adjustUsbVolume(direction) }
@@ -962,7 +965,10 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             val play = isPlaying || auto
             index = 0
             startCurrent(0, play)
-        } else if (auto) {
+        } else if (!auto) {
+            // 最後の曲で次へを押したとき: 設定の「最後まで再生したら次のリストへ」がオンなら、次のリストの 1 曲目へ
+            onQueueEnd?.invoke()
+        } else {
             // 設定の「最後まで再生したら次のリストへ」: 次のリスト(次のアルバム・アーティストなど)を始めたら、止めない
             if (onQueueEnd?.invoke() == true) return
             halt()
@@ -975,9 +981,25 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     /** 並びを最後まで再生し終えたとき(リピートしないとき)。次のリストを始めたら true */
     var onQueueEnd: (() -> Boolean)? = null
 
-    fun prev() {
+    /** 1 曲目で前へ(3 秒より前)を押したとき。前のリストの最後の曲を始めたら true */
+    var onQueueStart: (() -> Boolean)? = null
+
+    /** ジャケットを右へスワイプしたときは、頭出しをせずにいつも前の曲へ(設定) */
+    @Volatile var swipePrevToTrack = false
+
+    /**
+     * 前の曲へ。3 秒より後なら頭出し(もう一度押すと前の曲へ)。
+     * 1 曲目では、設定の「最後まで再生したら次のリストへ」がオンなら、前のリストの最後の曲へ。
+     * fromSwipe: ジャケット・ミニプレーヤーのスワイプから(設定で、頭出しをせずに前の曲へ)
+     */
+    fun prev(fromSwipe: Boolean = false) {
         syncSwitches()
-        if (positionMs > 3000 || index <= 0) { seek(0); return }
+        val direct = fromSwipe && swipePrevToTrack
+        if (!direct && positionMs > 3000) { seek(0); return }
+        if (index <= 0) {
+            if (onQueueStart?.invoke() == true) return
+            seek(0); return
+        }
         val play = isPlaying
         index--
         startCurrent(0, play)
@@ -1114,6 +1136,19 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 if (o != null && o.exactOk) return com.uyatame.ucrt.player.dsd.DopSink(o, ch)
                 o?.release()
                 AudioEngine.log("dsd: DoP not available at ${info.rate / 16} Hz")
+            }
+            // 2.5) 内蔵 DAC(イヤホンジャックなど)への DoP(設定でオンにしたときだけ。ミキサーを通さずに渡せると申告している端末だけ)
+            if (mode != 2 && !AudioEngine.wantUsbDirect && AudioEngine.builtinDop && info.rate % 16 == 0) {
+                val rate = info.rate / 16
+                if (BuiltinDop.canTry(ctx, rate)) {
+                    val o = runCatching { AudioOutput(ctx, attrs, rate, ch, 24, exact = true) }.getOrNull()
+                    if (o != null && o.exactOk) {
+                        AudioEngine.log("dsd: DoP to the built-in DAC at $rate Hz")
+                        return com.uyatame.ucrt.player.dsd.DopSink(o, ch)
+                    }
+                    o?.release()
+                    AudioEngine.log("dsd: built-in DAC DoP not available at $rate Hz")
+                } else AudioEngine.log("dsd: built-in DAC does not report direct playback at ${info.rate / 16} Hz")
             }
             // 3) PCM に変換
             val conv = com.uyatame.ucrt.player.dsd.DsdToPcm(info.rate, ch)

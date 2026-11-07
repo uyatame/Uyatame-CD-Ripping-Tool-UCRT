@@ -145,7 +145,8 @@ internal class UpsamplePipeline(factor: Int, private val out: (FloatArray, Int, 
         l.gain = gain; r.gain = gain
         if (!put(inQ[0], l, stop)) { l.home.offer(l); r.home.offer(r); return false }
         // 左を入れたら、右も必ず入れる(左右のかたまりの順番がずれないように)
-        if (!put(inQ[1], r)) return false
+        // (stop を渡さないと、止めるときに右だけ待ち続けて再生のスレッドが固まる)
+        if (!put(inQ[1], r, stop)) { r.home.offer(r); return false }
         return true
     }
 

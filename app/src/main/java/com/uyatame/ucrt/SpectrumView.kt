@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.unit.Dp
 import com.uyatame.ucrt.player.SpectrumAnalyzer
 import com.uyatame.ucrt.player.SpectrumTap
@@ -224,4 +225,92 @@ private fun smoothPath(v: FloatArray, x: (Int) -> Float, y: (Float) -> Float): P
         p.cubicTo(mx, y(v[i - 1]), mx, y(v[i]), x(i), y(v[i]))
     }
     return p
+}
+
+/** 再生の画面のスペクトラムの場所に出すもの(設定) */
+object MeterShow {
+    const val SPECTRUM = 0
+    const val VU = 1
+    const val BOTH = 2
+}
+
+/**
+ * 再生の画面の VU メーター。style: 0 = 針、1 = バー。タップで針とバーを切り替える(onStyle)。
+ * スペクトラムと同じく、画面が動いている間だけ計算する
+ */
+@Composable
+fun VuMeterView(
+    style: Int,
+    mode: Int,
+    refDb: Int,
+    redDb: Int,
+    hold: Boolean,
+    refreshMs: Int,
+    delayMs: Int,
+    color: Color,
+    textColor: Color,
+    height: Dp,
+    onStyle: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    DisposableEffect(Unit) {
+        SpectrumTap.acquire()
+        onDispose { SpectrumTap.release() }
+    }
+    val meter = remember { com.uyatame.ucrt.player.VuMeter() }
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
+    val painter = remember(density) { com.uyatame.ucrt.player.VuPainter(density) }
+    var tick by remember { mutableIntStateOf(0) }
+    val refresh by rememberUpdatedState(refreshMs.coerceIn(8, 200))
+    val delay by rememberUpdatedState(delayMs)
+    val modeNow by rememberUpdatedState(mode)
+    val refNow by rememberUpdatedState(refDb)
+    LaunchedEffect(Unit) {
+        val l = FloatArray(4096)
+        val r = FloatArray(4096)
+        var n = 0
+        var ok = false
+        var lastCalc = 0L
+        var still = false
+        suspend fun calc() {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                // 直前の約 50 ms の音を見る
+                val rate = SpectrumTap.windowStereo(l, r, 2048, delay)
+                ok = rate > 0
+                n = if (ok) (rate / 20).coerceIn(256, 2048) else 0
+                if (ok && n < 2048) { System.arraycopy(l, 2048 - n, l, 0, n); System.arraycopy(r, 2048 - n, r, 0, n) }
+            }
+        }
+        while (true) {
+            meter.mode = modeNow
+            meter.refDb = refNow.toFloat()
+            if (still) {
+                // 止まっている間は、描き直しを頼まずに間隔をあけて音を確かめるだけ
+                kotlinx.coroutines.delay(refresh.toLong().coerceAtLeast(50L))
+                calc()
+                if (ok) { still = false; lastCalc = 0L }
+                continue
+            }
+            val now = withFrameNanos { it }
+            if (now - lastCalc >= refresh * 1_000_000L) { lastCalc = now; calc() }
+            val moved = meter.step(l, r, n, ok, now)
+            tick++
+            if (!ok && moved < 0.01f) still = true
+        }
+    }
+    val argb = android.graphics.Color.argb((color.alpha * 255).toInt(), (color.red * 255).toInt(), (color.green * 255).toInt(), (color.blue * 255).toInt())
+    val targb = android.graphics.Color.argb((textColor.alpha * 255).toInt(), (textColor.red * 255).toInt(), (textColor.green * 255).toInt(), (textColor.blue * 255).toInt())
+    Canvas(
+        modifier.fillMaxWidth().height(height)
+            .clickable(remember { MutableInteractionSource() }, null) { onStyle(if (style == 0) 1 else 0) },
+    ) {
+        if (tick < 0) return@Canvas
+        @Suppress("USELESS_CAST", "CAST_NEVER_SUCCEEDS")
+        val nc = drawContext.canvas.nativeCanvas as android.graphics.Canvas
+        if (style == 1) {
+            painter.drawBars(nc, size.width, size.height, meter.peak[0], meter.peak[1], meter.hold[0], meter.hold[1], argb, targb, redDb.toFloat(), hold)
+        } else {
+            painter.drawNeedles(nc, size.width, size.height, meter.needle[0], meter.needle[1])
+        }
+    }
 }

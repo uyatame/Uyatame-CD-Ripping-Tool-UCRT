@@ -56,6 +56,46 @@ object Lrclib {
         }
     }
 
+    /** 検索の結果の 1 件 */
+    class Hit(
+        val id: Long, val track: String, val artist: String, val album: String, val durationSec: Double,
+        val plain: String?, val synced: String?, val instrumental: Boolean,
+    )
+
+    /**
+     * 歌詞を探す(歌詞の編集の画面から)。曲名とアーティストで探し、見つからなければ、まとめて言葉で探す。
+     * 長さが分かれば、近いものから並べる(同じ曲の別の版を後ろに)
+     */
+    fun search(track: String, artist: String, durationSec: Double = 0.0): List<Hit> {
+        val byName = if (track.isNotBlank()) query("track_name=${enc(track)}" + (if (artist.isNotBlank()) "&artist_name=${enc(artist)}" else "")) else emptyList()
+        val hits = byName.ifEmpty { query("q=${enc(listOf(track, artist).filter { it.isNotBlank() }.joinToString(" "))}") }
+        return if (durationSec > 0) hits.sortedBy { Math.abs(it.durationSec - durationSec) } else hits
+    }
+
+    private fun query(params: String): List<Hit> {
+        val c = open("$BASE/search?$params")
+        try {
+            val code = c.responseCode
+            if (code != 200) throw IOException("HTTP $code")
+            return parseHits(c.inputStream.use { String(it.readBytes(), Charsets.UTF_8) })
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    /** 検索の応答(JSON の配列)を読む */
+    internal fun parseHits(json: String): List<Hit> {
+        val a = org.json.JSONArray(json)
+        fun JSONObject.str(k: String): String? = if (!has(k) || isNull(k)) null else optString(k).takeIf { it.isNotEmpty() }
+        return (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
+            Hit(
+                o.optLong("id"), o.optString("trackName"), o.optString("artistName"), o.optString("albumName"),
+                o.optDouble("duration", 0.0), o.str("plainLyrics"), o.str("syncedLyrics"), o.optBoolean("instrumental"),
+            )
+        }
+    }
+
     /** 歌詞を登録する。stop() が true になったら、問題を解くのをやめる(IOException) */
     fun publish(e: Entry, stop: () -> Boolean = { false }) {
         // 1) 問題をもらう
@@ -122,6 +162,8 @@ object Lrclib {
         val n = Runtime.getRuntime().availableProcessors().coerceIn(1, 8)
         val found = AtomicLong(-1)
         val quit = AtomicBoolean(false)
+        // 難易度が極端な応答でも、CPU・電池を使い続けないよう、全体に締め切りを付ける(2 分)
+        val deadline = System.nanoTime() + 120_000_000_000L
         val threads = (0 until n).map { k ->
             Thread({
                 val md = MessageDigest.getInstance("SHA-256")
@@ -136,7 +178,7 @@ object Lrclib {
                         break
                     }
                     x += n
-                    if (++count and 0xFFFF == 0 && stop()) quit.set(true)
+                    if (++count and 0xFFFF == 0 && (stop() || System.nanoTime() > deadline)) quit.set(true)
                 }
             }, "lrclib-pow-$k").apply { isDaemon = true; priority = Thread.NORM_PRIORITY - 1; start() }
         }

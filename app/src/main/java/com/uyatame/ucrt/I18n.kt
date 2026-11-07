@@ -7,15 +7,17 @@ import android.os.LocaleList
 
 /** アプリの表示言語(Android 13以降のアプリ別言語設定を利用)。"" はシステムに従う */
 object AppLanguage {
-    fun current(ctx: Context): String =
-        if (Build.VERSION.SDK_INT >= 33) {
-            androidx.core.content.ContextCompat.getSystemService(ctx, LocaleManager::class.java)!!.applicationLocales.toLanguageTags()
-        } else ""
+    fun current(ctx: Context): String {
+        if (Build.VERSION.SDK_INT < 33) return ""
+        // サービスを取れない端末では、システムに従う("")として扱う(以前は、取れないと落ちていた)
+        val lm = androidx.core.content.ContextCompat.getSystemService(ctx, LocaleManager::class.java) ?: return ""
+        return lm.applicationLocales.toLanguageTags()
+    }
 
     fun set(ctx: Context, tag: String) {
         if (Build.VERSION.SDK_INT < 33) return
-        androidx.core.content.ContextCompat.getSystemService(ctx, LocaleManager::class.java)!!.applicationLocales =
-            if (tag.isEmpty()) LocaleList.getEmptyLocaleList() else LocaleList.forLanguageTags(tag)
+        val lm = androidx.core.content.ContextCompat.getSystemService(ctx, LocaleManager::class.java) ?: return
+        lm.applicationLocales = if (tag.isEmpty()) LocaleList.getEmptyLocaleList() else LocaleList.forLanguageTags(tag)
     }
 
     val supported: Boolean get() = Build.VERSION.SDK_INT >= 33

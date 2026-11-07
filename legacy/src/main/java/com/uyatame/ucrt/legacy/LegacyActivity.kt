@@ -64,8 +64,10 @@ class LegacyActivity : Activity() {
     private var snackAct: TextView? = null
     var ripBar: View? = null
 
-    /** 今のタブ(0 = ライブラリ、1 = ディスク、2 = 設定) */
+    /** 今のタブ(0 = ライブラリ、1 = ディスク、2 = 設定、3 = アプリ。アプリは UCRT Legacy をホーム画面にしているときだけ) */
     var tab = 0; private set
+    /** UCRT Legacy が今の既定のホーム画面か(画面に戻ってくるたびに確かめる) */
+    private var isHome = false
     /** ライブラリの行き先(本家の libStack と同じ文字列) */
     val libStack = ArrayList<String>()
     /** 設定のページ(0 = トップ) */
@@ -87,15 +89,19 @@ class LegacyActivity : Activity() {
         current = this
         lastDiscEvent = Disc.discEvent
         requestWindowFeature(Window.FEATURE_NO_TITLE)
+        isHome = AppsPage.isDefaultHome(this)
         savedInstanceState?.let {
             tab = it.getInt("tab")
             settingsPage = it.getInt("settingsPage")
             it.getStringArrayList("libStack")?.let { s -> libStack.addAll(s) }
         }
+        if (tab == 3 && !isHome) tab = 0
+        // ホームボタンで起動された(ホーム画面のとき)ら、前の画面を戻さず、最初の画面(ライブラリのトップ)から
+        if (isHomeIntent(intent)) { tab = 0; libStack.clear(); settingsPage = 0 }
         build()
         // 新しい Android(Android 16 から。この版向けに作ったアプリ)では、戻る操作で onBackPressed が呼ばれず、
         // 画面がすぐ閉じてしまうので、戻る操作を直接受け取る(何も開いていなければ、本家と同じく裏に回す)
-        if (Build.VERSION.SDK_INT >= 33) com.uyatame.ucrt.legacy.compat.Api33.onBack(this) { if (!handleBack()) moveTaskToBack(true) }
+        if (Build.VERSION.SDK_INT >= 33) com.uyatame.ucrt.legacy.compat.Api33.onBack(this) { if (!handleBack() && !isHome) moveTaskToBack(true) }
         unsubs += Bus.on(-1) { m -> onEvent(m) }
         app.player.onError = { snack(it) }
         Permissions.ask(this)
@@ -111,8 +117,17 @@ class LegacyActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // ホーム画面にした・やめたときに、サイレントモードを合わせる
+        Silent.sync(this)
         current = this
         Disc.scan()
+        // ホーム画面の設定が変わっていたら、下のタブ(「アプリ」の有無)を作り直す
+        val home = AppsPage.isDefaultHome(this)
+        if (home != isHome) {
+            isHome = home
+            if (!home && tab == 3) tab = 0
+            build()
+        }
         // カメラ・決済アプリなどに音を取られて止まっていたら、続きを再生する
         app.player.resumeAfterInterruption()
         if (Burn.session != null) Burn.dialog()
@@ -248,7 +263,7 @@ class LegacyActivity : Activity() {
             Triple(Icons.Library, S(R.string.library), 0),
             Triple(Icons.Album, S(R.string.disc), 1),
             Triple(Icons.Settings, S(R.string.settings), 2),
-        )
+        ) + if (isHome) listOf(Triple(Icons.Grid, S(R.string.apps), 3)) else emptyList()
 
     /** 下のタブ(本家の NavigationBar) */
     private fun buildNav(): LinearLayout {
@@ -334,7 +349,7 @@ class LegacyActivity : Activity() {
         box.add(row)
         box.isClickable = true
         box.setOnClickListener { openPlayer(true) }
-        swipe(row, onLeft = { p.next() }, onRight = { p.prev() }, onTap = { openPlayer(true) })
+        swipe(row, onLeft = { p.next() }, onRight = { p.prev(fromSwipe = true) }, onTap = { openPlayer(true) })
         bottom.addView(box, if (ripBar != null) 1 else 0)
         miniBox = box; miniArt = art; miniTitle = t; miniSub = s; miniPlay = play; miniProgress = prog
         updateMini()
@@ -408,7 +423,8 @@ class LegacyActivity : Activity() {
     private fun currentKey(): String = when (tab) {
         0 -> "lib:" + (libStack.lastOrNull() ?: "home")
         1 -> "disc"
-        else -> "set:$settingsPage"
+        2 -> "set:$settingsPage"
+        else -> "apps"
     }
 
     private fun savePageScroll() {
@@ -425,7 +441,8 @@ class LegacyActivity : Activity() {
         val pg = when (tab) {
             0 -> LibraryPages.make(this, libStack.lastOrNull())
             1 -> DiscPage(this)
-            else -> SettingsPages.make(this, settingsPage)
+            2 -> SettingsPages.make(this, settingsPage)
+            else -> AppsPage(this)
         }
         page = pg
         pageKey = key
@@ -449,6 +466,18 @@ class LegacyActivity : Activity() {
     fun libReplaceTop(route: String) {
         if (libStack.isNotEmpty()) libStack.removeAt(libStack.lastIndex)
         libStack.add(route)
+        show()
+    }
+
+    private fun isHomeIntent(i: Intent?): Boolean = i?.action == Intent.ACTION_MAIN && i.hasCategory(Intent.CATEGORY_HOME)
+
+    /** ホームボタンを押したとき: 再生画面を閉じて、ライブラリのトップへ(編集中の画面などは閉じない。消えると困るため) */
+    private fun goHome() {
+        closePlayer()
+        if (selecting) endSelection()
+        savePageScroll()
+        libStack.clear()
+        if (tab != 0) { tab = 0; buildBottom() }
         show()
     }
 
@@ -792,13 +821,18 @@ class LegacyActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (handleBack()) return
+        // ホーム画面として使っているときは、戻る操作で裏に回さない(ホーム画面が消えたように見えるため)
+        if (isHome) return
         @Suppress("DEPRECATION")
         super.onBackPressed()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         if (intent.getBooleanExtra("openPlayer", false)) openPlayer(false)
+        // ホームボタン: 最初の画面(ライブラリのトップ)に戻る
+        if (isHomeIntent(intent)) goHome()
         if (intent.action == android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED) Disc.scan()
     }
 

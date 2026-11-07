@@ -41,6 +41,9 @@ class Store(ctx: Context) {
     private var favTrackSet: Set<String> = emptySet()
     var favAlbums: List<String> = emptyList(); private set
     private var favAlbumSet: Set<String> = emptySet()
+    /** お気に入りのアーティスト(名前。新しく追加したものが先頭。本家と同じ) */
+    var favArtists: List<String> = emptyList(); private set
+    private var favArtistSet: Set<String> = emptySet()
     var playlists: List<Playlist> = emptyList(); private set
     var history: List<PlayRecord> = emptyList(); private set
     var checkTracks: List<String> = emptyList(); private set
@@ -54,6 +57,7 @@ class Store(ctx: Context) {
         val ft = strings(o.optJSONArray("favTracks"))
         val ct = strings(o.optJSONArray("checkTracks"))
         val fa = strings(o.optJSONArray("favAlbums"))
+        val fr = strings(o.optJSONArray("favArtists"))
         val pl = o.optJSONArray("playlists")?.let { a ->
             (0 until a.length()).mapNotNull { i ->
                 val p = a.optJSONObject(i) ?: return@mapNotNull null
@@ -76,6 +80,7 @@ class Store(ctx: Context) {
             favTracks = ft; favTrackSet = ft.toHashSet()
             checkTracks = ct; checkTrackSet = ct.toHashSet()
             favAlbums = fa; favAlbumSet = fa.toHashSet()
+            favArtists = fr; favArtistSet = fr.toHashSet()
             playlists = pl; history = hi; counts = cn
         }
         Bus.emit(Bus.STORE)
@@ -83,6 +88,7 @@ class Store(ctx: Context) {
 
     private class Snapshot(
         val favTracks: List<String>, val favAlbums: List<String>, val checkTracks: List<String>,
+        val favArtists: List<String>,
         val playlists: List<Playlist>, val history: List<PlayRecord>, val counts: Map<String, Int>,
     )
 
@@ -91,7 +97,7 @@ class Store(ctx: Context) {
 
     private fun save() {
         Bus.emit(Bus.STORE)
-        pending = Snapshot(favTracks, favAlbums, checkTracks, playlists, history, counts)
+        pending = Snapshot(favTracks, favAlbums, checkTracks, favArtists, playlists, history, counts)
         if (!saveQueued.compareAndSet(false, true)) return
         writer.execute {
             saveQueued.set(false)
@@ -100,6 +106,7 @@ class Store(ctx: Context) {
             o.put("favTracks", JSONArray(s.favTracks))
             o.put("favAlbums", JSONArray(s.favAlbums))
             o.put("checkTracks", JSONArray(s.checkTracks))
+            o.put("favArtists", JSONArray(s.favArtists))
             o.put("playlists", JSONArray().apply {
                 s.playlists.forEach { p -> put(JSONObject().put("id", p.id).put("name", p.name).put("uris", JSONArray(p.uris))) }
             })
@@ -177,6 +184,14 @@ class Store(ctx: Context) {
         save()
     }
 
+    fun isFavArtist(name: String?) = name != null && name in favArtistSet
+
+    fun toggleFavArtist(name: String) {
+        favArtists = if (isFavArtist(name)) favArtists - name else listOf(name) + favArtists
+        favArtistSet = favArtists.toHashSet()
+        save()
+    }
+
     // ---------- 音質チェック用の曲 ----------
 
     fun isCheck(uri: String?) = uri != null && uri in checkTrackSet
@@ -188,6 +203,30 @@ class Store(ctx: Context) {
     }
 
     fun toggleCheck(uri: String) = setCheck(listOf(uri), !isCheck(uri))
+
+    fun moveCheck(from: Int, to: Int) {
+        if (from !in checkTracks.indices || to !in checkTracks.indices) return
+        checkTracks = checkTracks.toMutableList().apply { add(to, removeAt(from)) }
+        checkTrackSet = checkTracks.toHashSet()
+        save()
+    }
+
+    /** 音質チェックの曲を、key の順(名前順など)に並べ替える(並びはそのまま保存する) */
+    fun sortCheck(key: (String) -> String) {
+        checkTracks = checkTracks.sortedWith(compareBy(java.text.Collator.getInstance()) { key(it) })
+        checkTrackSet = checkTracks.toHashSet()
+        save()
+    }
+
+    /** ライブラリを読み直したあと、ライブラリに無くなった曲を音質チェックから外す(曲数に数えられたまま増え続けないように。本家と同じ) */
+    fun reconcileCheck(library: Set<String>) {
+        if (library.isEmpty() || checkTracks.isEmpty()) return
+        val list = checkTracks.filter { it in library }
+        if (list.size == checkTracks.size) return
+        checkTracks = list
+        checkTrackSet = list.toHashSet()
+        save()
+    }
 
     // ---------- プレイリスト ----------
 

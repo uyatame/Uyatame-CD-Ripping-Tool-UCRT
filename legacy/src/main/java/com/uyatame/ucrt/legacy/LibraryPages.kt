@@ -24,6 +24,7 @@ import com.uyatame.ucrt.legacy.ui.Row
 import com.uyatame.ucrt.legacy.ui.StaticRow
 import com.uyatame.ucrt.legacy.ui.Type
 import com.uyatame.ucrt.legacy.ui.UDialog
+import com.uyatame.ucrt.legacy.ui.Menu
 import com.uyatame.ucrt.legacy.ui.WRAP
 import com.uyatame.ucrt.legacy.ui.add
 import com.uyatame.ucrt.legacy.ui.bgd
@@ -278,8 +279,9 @@ object LibraryPages {
             rows.add(StaticRow(pad(search, top = 4)))
             // 全曲シャッフル
             val counts = libCounts(albums) + mapOf(
-                "favorites" to "${store.favTracks.size + store.favAlbums.size}",
-                "check" to "${store.checkTracks.size}",
+                "favorites" to "${store.favTracks.size + store.favAlbums.size + store.favArtists.size}",
+                // ライブラリに今ある曲だけを数える(無くなった曲を数えない)
+                "check" to "${store.checkTracks.count { app.lib.trackMap.containsKey(it) }}",
                 "playlists" to "${store.playlists.size}",
                 "history" to "${store.history.size}",
             )
@@ -473,7 +475,7 @@ object LibraryPages {
             val ctl = vbox(act)
             ctl.setPadding(dp(16), 0, dp(16), dp(8))
             if (sortable) {
-                ctl.add(chipRow(act, listOf(S(R.string.artist), S(R.string.title), S(R.string.date_added), S(R.string.year)).mapIndexed { i, l ->
+                ctl.add(chipRow(act, listOf(S(R.string.artist), S(R.string.album), S(R.string.date_added), S(R.string.year)).mapIndexed { i, l ->
                     chip(act, l, sort == i) { sort = i; refresh(-1) }
                 }), b = 4)
             }
@@ -509,8 +511,12 @@ object LibraryPages {
 
         override fun refresh(m: Int) {
             if (m == Bus.PLAYER) return
-            val artists = app.lib.albums.groupBy { it.artist }.map { (n, l) -> Triple(n, l, l.sumOf { it.tracks.size }) }.sortedBy { it.first.lowercase() }
-            setup(pageTop(act, tileLabel("artists"), S(R.string.artists_2, artists.size)))
+            val all = app.lib.albums.groupBy { it.artist }.map { (n, l) -> Triple(n, l, l.sumOf { it.tracks.size }) }.sortedBy { it.first.lowercase() }
+            // お気に入りのアーティストだけを出す(本家と同じ)
+            val artists = if (artistsFavOnly) all.filter { app.store.isFavArtist(it.first) } else all
+            setup(pageTop(act, tileLabel("artists"), S(R.string.artists_2, artists.size)) { acts ->
+                acts.add(chip(act, S(R.string.fav_artists_only), artistsFavOnly) { artistsFavOnly = !artistsFavOnly; refresh(-1) }, w = WRAP, r = 8)
+            })
             list.list.setPadding(dp(12), 0, dp(24), dp(24))
             list.setRows(artists.map { (name, albums, n) ->
                 val a = albums.first()
@@ -530,7 +536,14 @@ object LibraryPages {
             val main = albums.filter { it.artist == name }.sortedByDescending { it.year }
             val guest = albums.filter { a -> a.artist != name && a.tracks.any { it.artist == name } }
             val tracks = main.flatMap { it.tracks } + guest.flatMap { a -> a.tracks.filter { it.artist == name } }
-            setup(pageTop(act, name))
+            setup(pageTop(act, name) { acts ->
+                // アーティストをお気に入りに(本家と同じ)
+                val fav = app.store.isFavArtist(name)
+                acts.add(iconButton(act, if (fav) Icons.Favorite else Icons.FavoriteBorder,
+                    S(if (fav) R.string.remove_from_favorites else R.string.add_to_favorites), if (fav) Pal.primary else Pal.onSurfaceVariant) {
+                    app.store.toggleFavArtist(name); refresh(-1)
+                }, w = 48, h = 48)
+            })
             val rows = ArrayList<Row>()
             val head = hbox(act)
             head.setPadding(dp(16), 0, dp(16), dp(16))
@@ -818,6 +831,8 @@ object LibraryPages {
     // ---------------- お気に入り・音質チェック・履歴・よく聴く曲 ----------------
 
     private var favTab = 0
+    /** アーティストの一覧で、お気に入りだけを出すか */
+    private var artistsFavOnly = false
 
     class FavoritesPage(act: LegacyActivity) : ListBased(act) {
         init { refresh(-1) }
@@ -843,17 +858,21 @@ object LibraryPages {
                     else -> l
                 }
             }
+            // お気に入りのアーティスト(ライブラリにいるアーティストだけ。追加した順)
+            val byArtist = lib.albums.groupBy { it.artist }
+            val favArtists = app.store.favArtists.mapNotNull { n -> byArtist[n]?.let { l -> Triple(n, l, l.sumOf { it.tracks.size }) } }
             val top = vbox(act)
             top.add(pageTop(act, tileLabel("favorites")))
             top.add(chipRow(act, listOf(
                 chip(act, S(R.string.songs_2, songs.size), favTab == 0) { favTab = 0; refresh(-1) },
                 chip(act, S(R.string.albums_2, albums.size), favTab == 1) { favTab = 1; refresh(-1) },
+                chip(act, S(R.string.fav_artists_chip, favArtists.size), favTab == 2) { favTab = 2; refresh(-1) },
             )), l = 16, r = 16)
             val sortNames = listOf(
                 S(R.string.fav_sort_added), S(R.string.fav_sort_title), S(R.string.fav_sort_artist),
                 if (favTab == 0) S(R.string.fav_sort_album) else S(R.string.fav_sort_year),
             )
-            top.add(chipRow(act, sortNames.mapIndexed { i, n -> chip(act, n, sort == i) { app.prefs.set("favSort", i) } }), l = 16, r = 16, t = 6)
+            if (favTab != 2) top.add(chipRow(act, sortNames.mapIndexed { i, n -> chip(act, n, sort == i) { app.prefs.set("favSort", i) } }), l = 16, r = 16, t = 6)
             setup(top)
             val rows = ArrayList<Row>()
             if (favTab == 0) {
@@ -866,14 +885,35 @@ object LibraryPages {
                     songs.forEachIndexed { i, t -> rows.add(TrackRowItem(act, t, { Actions.playTracks(songs, i) })) }
                 }
                 list.list.setPadding(dp(8), 0, dp(8), dp(24))
-            } else {
+            } else if (favTab == 1) {
                 if (albums.isEmpty()) {
                     rows.add(StaticRow(emptyState(act, Icons.FavoriteBorder, S(R.string.no_favorite_albums_yet), S(R.string.add_albums_with_heart_button))))
                 } else {
-                    rows.add(StaticRow(View(act).apply { minimumHeight = dp(16) }))
+                    // お気に入りのアルバムの曲を、まとめて再生・シャッフル再生する
+                    val all = albums.flatMap { it.tracks }
+                    val c = FrameLayout(act); c.setPadding(dp(16), dp(8), 0, dp(8))
+                    c.add(playShuffle(act, { Actions.playTracks(all, 0) }, { Actions.playTracks(all, 0, true) }), w = WRAP)
+                    rows.add(StaticRow(c))
                     rows.addAll(tileRows(act, albums))
                 }
                 list.list.setPadding(0, 0, 0, dp(24))
+            } else {
+                if (favArtists.isEmpty()) {
+                    rows.add(StaticRow(emptyState(act, Icons.FavoriteBorder, S(R.string.no_favorite_artists_yet), S(R.string.add_artists_with_heart_button))))
+                } else {
+                    // お気に入りのアーティストの曲を、まとめて再生・シャッフル再生する
+                    val all = favArtists.flatMap { ListQueue.artistTracks(it.first) }
+                    val c = FrameLayout(act); c.setPadding(dp(8), dp(8), 0, dp(8))
+                    c.add(playShuffle(act, { Actions.playTracks(all, 0) }, { Actions.playTracks(all, 0, true) }), w = WRAP)
+                    rows.add(StaticRow(c))
+                    for ((name, albs, n) in favArtists) {
+                        val a = albs.first()
+                        rows.add(GroupRowItem(name, S(R.string.albums_songs, albs.size, n), Lead.Art(Actions.albumArt(a), 24f), initialOf(name)) {
+                            act.libPush("artist:$name")
+                        })
+                    }
+                }
+                list.list.setPadding(dp(12), 0, dp(12), dp(24))
             }
             list.setRows(rows)
         }
@@ -886,6 +926,20 @@ object LibraryPages {
             val map = app.lib.trackMap
             val songs = app.store.checkTracks.mapNotNull { map[it] }
             setup(pageTop(act, tileLabel("check"), S(R.string.sound_check_desc)) { acts ->
+                // 並べ替え(名前順・アーティスト順。並びは保存され、そのあと右のつまみを掴んで自由に動かせる)
+                if (songs.size > 1) {
+                    var sortBtn: View? = null
+                    sortBtn = text(act, S(R.string.check_sort), Type.LabelLarge, Pal.primary).also { b ->
+                        b.setPadding(dp(8), dp(12), dp(8), dp(12))
+                        b.tap {
+                            Menu(sortBtn!!)
+                                .item(S(R.string.fav_sort_title)) { app.store.sortCheck { u -> map[u]?.title?.lowercase() ?: "" } }
+                                .item(S(R.string.fav_sort_artist)) { app.store.sortCheck { u -> map[u]?.let { (it.artist + "\u0000" + it.title).lowercase() } ?: "" } }
+                                .show()
+                        }
+                    }
+                    acts.add(sortBtn, w = WRAP)
+                }
                 if (songs.isNotEmpty()) acts.add(iconButton(act, Icons.Delete, S(R.string.clear_sound_check_title)) {
                     val d = UDialog(act).title(S(R.string.clear_sound_check_title)).message(S(R.string.clear_sound_check_body))
                     d.button(S(R.string.cancel)) { d.dismiss() }
@@ -900,7 +954,18 @@ object LibraryPages {
                 val c = FrameLayout(act); c.setPadding(dp(8), dp(8), 0, dp(8))
                 c.add(playShuffle(act, { Actions.playTracks(songs, 0) }, { Actions.playTracks(songs, 0, true) }), w = WRAP)
                 rows.add(StaticRow(c))
-                songs.forEachIndexed { i, t -> rows.add(TrackRowItem(act, t, { Actions.playTracks(songs, i) })) }
+                songs.forEachIndexed { i, t ->
+                    rows.add(TrackRowItem(act, t, { Actions.playTracks(songs, i) }, handle = { h ->
+                        Drag.attach(list.list, h, i + 1) { from, to ->
+                            val now = app.store.checkTracks
+                            val m2 = app.lib.trackMap
+                            val pos = now.indices.filter { m2[now[it]] != null }
+                            val a = pos.getOrNull(from - 1)
+                            val b = pos.getOrNull(to - 1)
+                            if (a != null && b != null) app.store.moveCheck(a, b)
+                        }
+                    }))
+                }
             }
             list.list.setPadding(dp(8), 0, dp(8), dp(24))
             list.setRows(rows)

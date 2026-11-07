@@ -59,7 +59,11 @@ object Api21Media {
      */
     fun style(ctx: Context, b: android.app.Notification.Builder) {
         b.setStyle(android.app.Notification.MediaStyle().setMediaSession(session(ctx).sessionToken).setShowActionsInCompactView(0, 1, 2))
-        b.setVisibility(android.app.Notification.VISIBILITY_PUBLIC)
+        // UCRT のロック画面を使っていて、確実に出せるときは、システムのロック画面に再生の通知を出さない(二重にならないように。本家と同じ)
+        b.setVisibility(
+            if (com.uyatame.ucrt.legacy.LockGuard.enabled && com.uyatame.ucrt.legacy.LockGuard.canStartFromBackground(ctx)) android.app.Notification.VISIBILITY_SECRET
+            else android.app.Notification.VISIBILITY_PUBLIC,
+        )
     }
 
     fun stop() {

@@ -43,6 +43,10 @@ internal object CastServer {
     )
 
     private val entries = ConcurrentHashMap<String, Entry>()
+    /** 登録した曲の URL の有効な長さ(ミリ秒)。切断し忘れても、いつまでも LAN に公開し続けないように */
+    private const val TTL_MS = 6 * 60 * 60 * 1000L
+    /** 登録した時刻(SystemClock.elapsedRealtime) */
+    private val publishedAt = ConcurrentHashMap<String, Long>()
     /** 同時に処理する接続の数の上限 */
     private val slots = java.util.concurrent.Semaphore(8)
     private var server: ServerSocket? = null
@@ -88,13 +92,14 @@ internal object CastServer {
         val token = java.util.UUID.randomUUID().toString().replace("-", "")
         // 新しい登録を先に入れてから、古い登録を消す(同時に送るのは 1 曲だけ。消してから入れるまでの間に Chromecast が読みに来ても 404 にならないように)
         entries[token] = Entry(item, file, decode, mime, art)
-        entries.keys.filter { it != token }.forEach { entries.remove(it) }
+        publishedAt[token] = android.os.SystemClock.elapsedRealtime()
+        entries.keys.filter { it != token }.forEach { entries.remove(it); publishedAt.remove(it) }
         val base = "http://${hostFor(near)}:${ensureServer()}"
         val ext = when (mime) { "audio/flac" -> "flac"; "audio/wav" -> "wav"; "audio/mpeg" -> "mp3"; "audio/ogg" -> "ogg"; else -> "m4a" }
         return Triple("$base/a/$token.$ext", if (art != null) "$base/art/$token.jpg" else null, mime)
     }
 
-    fun clear() = entries.clear()
+    fun clear() { entries.clear(); publishedAt.clear() }
 
     private fun artBytes(item: PlayItem): ByteArray? {
         val key = item.artKey ?: return null
@@ -147,6 +152,7 @@ internal object CastServer {
     @Synchronized
     fun stopServer() {
         entries.clear()
+        publishedAt.clear()
         runCatching { server?.close() }
         server = null
     }
@@ -180,7 +186,9 @@ internal object CastServer {
                 if (method != "GET" && method != "HEAD") { status(out, 405, "Method Not Allowed"); out.flush(); return }
                 val head = method == "HEAD"
                 val token = path.substringAfterLast('/').substringBefore('.')
-                val e = entries[token]
+                val e = entries[token]?.takeIf {
+                    android.os.SystemClock.elapsedRealtime() - (publishedAt[token] ?: 0L) < TTL_MS
+                }
                 when {
                     e == null -> status(out, 404, "Not Found")
                     path.startsWith("/art/") -> {

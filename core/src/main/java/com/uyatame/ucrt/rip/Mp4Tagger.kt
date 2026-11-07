@@ -44,7 +44,11 @@ object Mp4Tagger {
         while (p + 8 <= end) {
             var size = u32(b, p)
             val type = String(b, p + 4, 4, Charsets.ISO_8859_1)
-            if (size == 1L) size = u64(b, p + 8) else if (size == 0L) size = (end - p).toLong()
+            if (size == 1L) {
+                // largesize(8 バイト)は、残りが 16 バイトあるときだけ読む(ファイルの終わりに壊れて付いていても、範囲外を読まない)
+                if (p + 16 > end) break
+                size = u64(b, p + 8)
+            } else if (size == 0L) size = (end - p).toLong()
             if (size < 8 || p + size > end) break
             out.add(Box(type, p, size.toInt()))
             p += size.toInt()
@@ -74,12 +78,15 @@ object Mp4Tagger {
     private fun patch(b: ByteArray, start: Int, end: Int, delta: Long) {
         for (x in boxes(b, start, end)) {
             when (x.type) {
+                // エントリの数は、ボックスの大きさで抑える(壊れた moov で、後ろのボックスを書き換えたり範囲外を読んだりしないように)
                 "stco" -> {
-                    val n = u32(b, x.off + 12).toInt()
+                    if (x.size < 16) continue
+                    val n = minOf(u32(b, x.off + 12), ((x.size - 16) / 4).toLong()).toInt()
                     for (i in 0 until n) { val o = x.off + 16 + i * 4; put32(b, o, u32(b, o) + delta) }
                 }
                 "co64" -> {
-                    val n = u32(b, x.off + 12).toInt()
+                    if (x.size < 16) continue
+                    val n = minOf(u32(b, x.off + 12), ((x.size - 16) / 8).toLong()).toInt()
                     for (i in 0 until n) { val o = x.off + 16 + i * 8; put64(b, o, u64(b, o) + delta) }
                 }
                 in containers -> patch(b, x.off + 8, x.off + x.size, delta)
@@ -168,10 +175,26 @@ object Mp4Tagger {
         val delta = newMoov.size - moov.size
         if (mdat != null && mdat.off > moov.off && delta != 0) patch(newMoov, 8, newMoov.size, delta.toLong())
 
-        file.outputStream().buffered().use { o ->
-            for (x in top) {
-                if (x === moov) o.write(newMoov) else o.write(b, x.off, x.size)
+        // 元のファイルは直接書き換えない(書き込み中にディスクが一杯になったり、アプリが止まったりしても、
+        // タグを付ける前の音声ファイルごと失わないように)。一時ファイルに書き終えてから入れ替える
+        val tmp = File(file.parentFile, file.name + ".tmp")
+        try {
+            tmp.outputStream().buffered().use { o ->
+                for (x in top) {
+                    if (x === moov) o.write(newMoov) else o.write(b, x.off, x.size)
+                }
             }
+            if (tmp.length() <= 0L) throw java.io.IOException("MP4: empty output")
+            if (!tmp.renameTo(file)) {
+                // 名前を変えて置き換えられないとき: 元のファイルを退避してから差し替え、だめなら元に戻す
+                val bak = File(file.parentFile, file.name + ".bak")
+                bak.delete()
+                if (!file.renameTo(bak)) throw java.io.IOException("MP4: replace failed")
+                if (tmp.renameTo(file)) bak.delete()
+                else { bak.renameTo(file); throw java.io.IOException("MP4: replace failed") }
+            }
+        } finally {
+            tmp.delete()
         }
     }
 }

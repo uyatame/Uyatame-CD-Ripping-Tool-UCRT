@@ -68,6 +68,7 @@ fun SoundSubPage(vm: MainViewModel, s: AppSettings, page: Int) {
         SoundPage.DAR -> DarPanel(vm, s)
         SoundPage.OUTPUT -> {
             BitPerfectPanel(vm, s)
+            BuiltinDacPanel(vm, s)
             DacKeepAliveSection(vm, s)
         }
         SoundPage.DSD -> DsdPanel(vm, s)

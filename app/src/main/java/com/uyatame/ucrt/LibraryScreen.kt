@@ -185,6 +185,7 @@ private fun LibraryRoute(vm: MainViewModel, s: AppSettings, route: String?) {
         }
         route.startsWith("playlist:") -> PlaylistPage(vm, route.removePrefix("playlist:"))
         route.startsWith("dir:") -> FolderBrowsePage(vm, route.removePrefix("dir:"))
+        route.startsWith("netdir:") -> NetworkBrowsePage(vm, route.removePrefix("netdir:"))
         else -> LibraryHome(vm, s)
     }
 }
@@ -193,7 +194,7 @@ private fun LibraryRoute(vm: MainViewModel, s: AppSettings, route: String?) {
 
 /** 戻るボタン付きの見出し */
 @Composable
-private fun PageTop(vm: MainViewModel, title: String, sub: String? = null, actions: @Composable RowScope.() -> Unit = {}) {
+internal fun PageTop(vm: MainViewModel, title: String, sub: String? = null, actions: @Composable RowScope.() -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton({ vm.libPop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, S(R.string.back)) }
         Column(Modifier.weight(1f).padding(start = 4.dp)) {
@@ -291,7 +292,7 @@ internal fun SelectionBar(vm: MainViewModel, modifier: Modifier) {
 // ---------------- トップ ----------------
 
 private val TILE_IDS = listOf(
-    "albums", "artists", "songs", "favorites", "check", "playlists", "recent", "history", "top", "hires", "genres", "years", "folders",
+    "albums", "artists", "songs", "favorites", "check", "playlists", "recent", "history", "top", "hires", "genres", "years", "folders", "network",
 )
 
 private fun tileIcon(id: String): ImageVector = when (id) {
@@ -307,6 +308,7 @@ private fun tileIcon(id: String): ImageVector = when (id) {
     "hires" -> AppIcons.HiRes
     "genres" -> AppIcons.Genre
     "years" -> Icons.Filled.DateRange
+    "network" -> AppIcons.Network
     else -> AppIcons.Folder
 }
 
@@ -323,6 +325,7 @@ private fun tileLabel(id: String): String = when (id) {
     "hires" -> S(R.string.by_quality)
     "genres" -> S(R.string.genres)
     "years" -> S(R.string.years)
+    "network" -> S(R.string.network)
     else -> S(R.string.folders)
 }
 
@@ -357,6 +360,8 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
     if (editTiles) TileEditDialog(vm, s) { editTiles = false }
     val albums = vm.albums
     val store = vm.store
+    val netCtx = androidx.compose.ui.platform.LocalContext.current
+    val netCount = com.uyatame.ucrt.network.NetSourceStore.all(netCtx).size
     // ライブラリから数えるもの(全曲を調べるので重い)は、ライブラリが変わったときだけ数える。
     // 再生履歴は曲が変わるたびに増えるので、そちらは別に数える
     val libCounts = remember(albums) {
@@ -371,10 +376,12 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
             "folders" to "${albums.flatMap { a -> a.tracks.map { trackFolder(it) } }.distinct().size}",
         )
     }
-    val counts = remember(libCounts, store.favTracks, store.favAlbums, store.checkTracks, store.playlists, store.history) {
+    val counts = remember(libCounts, netCount, vm.trackMap, store.favTracks, store.favAlbums, store.favArtists, store.checkTracks, store.playlists, store.history) {
         libCounts + mapOf(
-            "favorites" to "${store.favTracks.size + store.favAlbums.size}",
-            "check" to "${store.checkTracks.size}",
+            "favorites" to "${store.favTracks.size + store.favAlbums.size + store.favArtists.size}",
+            // ライブラリに今ある曲だけを数える(無くなった曲を数えない)
+            "check" to "${store.checkTracks.count { vm.trackMap.containsKey(it) }}",
+            "network" to "${netCount}",
             "playlists" to "${store.playlists.size}",
             "history" to "${store.history.size}",
         )
@@ -602,6 +609,7 @@ private fun CategoryPage(vm: MainViewModel, s: AppSettings, id: String) {
         "top" -> TopPage(vm)
         "genres" -> GenresPage(vm)
         "years" -> YearsPage(vm)
+        "network" -> NetworkPage(vm, s)
         else -> FoldersPage(vm)
     }
 }
@@ -663,7 +671,7 @@ private fun AlbumCollectionPage(
         Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 8.dp)) {
             if (sortable) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(S(R.string.artist), S(R.string.title), S(R.string.date_added), S(R.string.year))
+                    listOf(S(R.string.artist), S(R.string.album), S(R.string.date_added), S(R.string.year))
                         .forEachIndexed { i, l -> FilterChip(sort == i, { sort = i }, label = { Text(l) }) }
                 }
             }
@@ -738,16 +746,29 @@ private class ArtistEntry(val name: String, val albums: List<LibAlbum>, val trac
 
 @Composable
 private fun ArtistsPage(vm: MainViewModel) {
-    val artists = remember(vm.albums) {
+    // お気に入りのアーティストだけを出す
+    var favOnly by rememberSaveable { mutableStateOf(false) }
+    val all = remember(vm.albums) {
         vm.albums.groupBy { it.artist }.map { (n, l) -> ArtistEntry(n, l, l.sumOf { it.tracks.size }) }
             .sortedBy { it.name.lowercase() }
     }
+    val artists = remember(all, favOnly, vm.store.favArtistSet) { if (favOnly) all.filter { vm.store.isFavArtist(it.name) } else all }
     val labels = remember(artists) { artists.map { initialOf(it.name) } }
     Column(Modifier.fillMaxSize()) {
-        PageTop(vm, tileLabel("artists"), S(R.string.artists_2, artists.size))
+        PageTop(vm, tileLabel("artists"), S(R.string.artists_2, artists.size)) {
+            FilterChip(favOnly, { favOnly = !favOnly }, label = { Text(S(R.string.fav_artists_only)) }, modifier = Modifier.padding(end = 8.dp))
+        }
         Box(Modifier.fillMaxSize()) {
             val st = rememberLazyListState()
             LazyColumn(state = st, contentPadding = PaddingValues(start = 12.dp, end = 24.dp, bottom = 24.dp + barInset())) {
+                if (artists.isEmpty() && favOnly) {
+                    item(key = "none") {
+                        Text(
+                            S(R.string.no_favorite_artists_yet), Modifier.padding(16.dp),
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 items(artists, key = { it.name }) { e ->
                     val a = e.albums.first()
                     GroupRow(
@@ -770,7 +791,17 @@ private fun ArtistPage(vm: MainViewModel, name: String) {
     val tracks = remember(main, guest, name) { main.flatMap { it.tracks } + guest.flatMap { a -> a.tracks.filter { it.artist == name } } }
     val full: androidx.compose.foundation.lazy.grid.LazyGridItemSpanScope.() -> GridItemSpan = { GridItemSpan(maxLineSpan) }
     Column(Modifier.fillMaxSize()) {
-        PageTop(vm, name)
+        PageTop(vm, name) {
+            // アーティストをお気に入りに
+            val fav = vm.store.isFavArtist(name)
+            IconButton({ vm.store.toggleFavArtist(name) }) {
+                Icon(
+                    if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                    S(if (fav) R.string.remove_from_favorites else R.string.add_to_favorites),
+                    tint = if (fav) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                )
+            }
+        }
         LazyVerticalGrid(
             columns = GridCells.Adaptive(150.dp),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp + barInset()),
@@ -1172,6 +1203,11 @@ private fun FavoritesPage(vm: MainViewModel) {
             else -> l
         }
     }
+    // お気に入りのアーティスト(ライブラリにいるアーティストだけ。追加した順)
+    val favArtists = remember(vm.store.favArtists, vm.albums) {
+        val by = vm.albums.groupBy { it.artist }
+        vm.store.favArtists.mapNotNull { n -> by[n]?.let { l -> ArtistEntry(n, l, l.sumOf { it.tracks.size }) } }
+    }
     var sortMenu by remember { mutableStateOf(false) }
     val sortNames = listOf(
         S(R.string.fav_sort_added), S(R.string.fav_sort_title), S(R.string.fav_sort_artist),
@@ -1182,8 +1218,9 @@ private fun FavoritesPage(vm: MainViewModel) {
         Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             FilterChip(tab == 0, { tab = 0 }, label = { Text(S(R.string.songs_2, songs.size)) })
             FilterChip(tab == 1, { tab = 1 }, label = { Text(S(R.string.albums_2, albums.size)) })
+            FilterChip(tab == 2, { tab = 2 }, label = { Text(S(R.string.fav_artists_chip, favArtists.size)) })
             Spacer(Modifier.weight(1f))
-            Box {
+            if (tab != 2) Box {
                 TextButton({ sortMenu = true }) { Text(sortNames[sort]) }
                 DropdownMenu(sortMenu, { sortMenu = false }) {
                     sortNames.forEachIndexed { i, n ->
@@ -1209,7 +1246,7 @@ private fun FavoritesPage(vm: MainViewModel) {
                 }
                 itemsIndexed(songs, key = { _, t -> t.uri }) { i, t -> TrackRow(vm, t, { vm.playTracks(songs, i) }) }
             }
-        } else {
+        } else if (tab == 1) {
             if (albums.isEmpty()) {
                 EmptyState(
                     Icons.Filled.FavoriteBorder, S(R.string.no_favorite_albums_yet),
@@ -1219,11 +1256,35 @@ private fun FavoritesPage(vm: MainViewModel) {
             }
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(150.dp),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp + barInset()),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp + barInset()),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
+                // お気に入りのアルバムの曲を、まとめて再生・シャッフル再生する
+                item(key = "controls", span = { GridItemSpan(maxLineSpan) }) {
+                    val all = albums.flatMap { it.tracks }
+                    PlayShuffleButtons({ vm.playTracks(all, 0) }, { vm.playTracks(all, 0, shuffle = true) })
+                }
                 items(albums, key = { it.key }) { a -> AlbumTile(vm, a) }
+            }
+        } else {
+            if (favArtists.isEmpty()) {
+                EmptyState(Icons.Filled.FavoriteBorder, S(R.string.no_favorite_artists_yet), S(R.string.add_artists_with_heart_button))
+                return@Column
+            }
+            LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 24.dp + barInset())) {
+                // お気に入りのアーティストの曲を、まとめて再生・シャッフル再生する
+                item(key = "controls") {
+                    val all = favArtists.flatMap { vm.artistTracks(it.name) }
+                    PlayShuffleButtons({ vm.playTracks(all, 0) }, { vm.playTracks(all, 0, shuffle = true) }, Modifier.padding(bottom = 8.dp))
+                }
+                items(favArtists, key = { it.name }) { e ->
+                    val a = e.albums.first()
+                    GroupRow(
+                        e.name, S(R.string.albums_songs, e.albums.size, e.tracks),
+                        { vm.libPush("artist:" + e.name) },
+                    ) { ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(48.dp), 24.dp, 48.dp) }
+                }
             }
         }
     }
@@ -1237,6 +1298,16 @@ private fun SoundCheckPage(vm: MainViewModel) {
     val map = vm.trackMap
     val songs = remember(vm.store.checkTracks, map) { vm.store.checkTracks.mapNotNull { map[it] } }
     var confirm by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
+    val st = rememberLazyListState()
+    // 掴んで並べ替える(ライブラリに無い曲は飛ばして、今の中身から位置を求め直す)
+    val reorder = rememberReorder(st, 1) { from, to ->
+        val now = vm.store.checkTracks
+        val pos = now.indices.filter { vm.trackMap[now[it]] != null }
+        val a = pos.getOrNull(from)
+        val b = pos.getOrNull(to)
+        if (a != null && b != null) vm.store.moveCheck(a, b)
+    }
     if (confirm) {
         AlertDialog(
             onDismissRequest = { confirm = false },
@@ -1249,6 +1320,20 @@ private fun SoundCheckPage(vm: MainViewModel) {
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, tileLabel("check"), S(R.string.sound_check_desc)) {
             if (songs.isNotEmpty()) {
+                // 並べ替え(名前順・アーティスト順。並びは保存され、そのあと掴んで自由に動かせる)
+                Box {
+                    TextButton({ menu = true }) { Text(S(R.string.check_sort)) }
+                    DropdownMenu(menu, { menu = false }) {
+                        DropdownMenuItem(text = { Text(S(R.string.fav_sort_title)) }, onClick = {
+                            menu = false
+                            vm.store.sortCheck { u -> map[u]?.title?.lowercase() ?: "" }
+                        })
+                        DropdownMenuItem(text = { Text(S(R.string.fav_sort_artist)) }, onClick = {
+                            menu = false
+                            vm.store.sortCheck { u -> map[u]?.let { (it.artist + "\u0000" + it.title).lowercase() } ?: "" }
+                        })
+                    }
+                }
                 IconButton({ confirm = true }) { Icon(Icons.Filled.Delete, S(R.string.clear_sound_check_title)) }
             }
         }
@@ -1256,14 +1341,16 @@ private fun SoundCheckPage(vm: MainViewModel) {
             EmptyState(AppIcons.Headphones, S(R.string.no_sound_check_songs_yet), S(R.string.add_sound_check_hint))
             return@Column
         }
-        LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp + barInset())) {
+        LazyColumn(state = st, contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp + barInset())) {
             item(key = "controls") {
                 PlayShuffleButtons(
                     { vm.playTracks(songs, 0) }, { vm.playTracks(songs, 0, shuffle = true) },
                     Modifier.padding(start = 8.dp, top = 8.dp, bottom = 8.dp),
                 )
             }
-            itemsIndexed(songs, key = { _, t -> t.uri }) { i, t -> TrackRow(vm, t, { vm.playTracks(songs, i) }) }
+            itemsIndexed(songs, key = { _, t -> t.uri }) { i, t ->
+                TrackRow(vm, t, { vm.playTracks(songs, i) }, modifier = Modifier.reorderItem(reorder, i), handle = { DragHandle(reorder, i) })
+            }
         }
     }
 }

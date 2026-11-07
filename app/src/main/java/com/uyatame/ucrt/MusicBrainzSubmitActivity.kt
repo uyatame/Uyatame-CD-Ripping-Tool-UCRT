@@ -13,6 +13,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.Toast
+import com.uyatame.ucrt.player.AudioEngine
 import com.uyatame.ucrt.meta.MusicBrainz
 import java.io.File
 
@@ -59,6 +60,22 @@ class MusicBrainzSubmitActivity : Activity() {
                 intercept(request.url.toString())
 
             override fun onPageFinished(view: WebView, url: String) = pageFinished(url)
+
+            // つながらなかった・MusicBrainz がエラーを返したときは、理由を知らせる(白い画面のまま何も分からないことがないように)
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
+                if (!request.isForMainFrame) return
+                Toast.makeText(this@MusicBrainzSubmitActivity, S(R.string.mb_page_error, error.description?.toString() ?: ""), Toast.LENGTH_LONG).show()
+            }
+
+            override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: android.webkit.WebResourceResponse) {
+                if (!request.isForMainFrame || response.statusCode < 400) return
+                val why = when (response.statusCode) {
+                    401, 403 -> S(R.string.mb_http_auth)
+                    429, 503 -> S(R.string.mb_http_busy)
+                    else -> response.reasonPhrase.orEmpty()
+                }
+                Toast.makeText(this@MusicBrainzSubmitActivity, S(R.string.mb_http_error, response.statusCode, why), Toast.LENGTH_LONG).show()
+            }
         }
         web.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean =
@@ -160,12 +177,37 @@ class MusicBrainzSubmitActivity : Activity() {
             // 登録画面が開いたら、送信のボタンがある最後のタブ(Edit note。変更の一覧も見られる)に切り替える
             seeded && !jumped && url.contains("/release/add") -> {
                 jumped = true
+                showSeedErrors()
                 web.evaluateJavascript(
                     "setTimeout(function(){var a=document.querySelector('a[href=\"#edit-note\"]');if(a){a.click();window.scrollTo(0,0);}},800)",
                     null,
                 )
             }
         }
+    }
+
+    /**
+     * 登録画面が、送った曲情報の一部を受け付けなかったとき(「The data you've seeded contained the following errors」)、
+     * その内容をアプリの画面でも知らせる(英語の小さな表示だけだと気づきにくく、何が悪いのか分かりにくいため)
+     */
+    private fun showSeedErrors() {
+        val js = "(function(){var out=[];var all=document.querySelectorAll('div,p,h2,h3');" +
+            "for(var i=0;i<all.length;i++){var t=all[i].textContent||'';" +
+            "if(/seeded/i.test(t)&&/error/i.test(t)&&t.length<4000){var li=all[i].querySelectorAll('li');" +
+            "for(var j=0;j<li.length;j++){out.push(li[j].textContent.trim());}if(out.length)break;}}" +
+            "return out.join('\\n');})()"
+        web.postDelayed({
+            web.evaluateJavascript(js) { r ->
+                val text = runCatching { org.json.JSONArray("[$r]").getString(0) }.getOrDefault("").trim()
+                if (text.isEmpty() || isFinishing) return@evaluateJavascript
+                AudioEngine.log("musicbrainz seed errors: $text")
+                android.app.AlertDialog.Builder(this)
+                    .setTitle(S(R.string.mb_seed_errors_title))
+                    .setMessage(S(R.string.mb_seed_errors_body, text))
+                    .setPositiveButton(S(R.string.ok), null)
+                    .show()
+            }
+        }, 1200)
     }
 
     /**

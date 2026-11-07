@@ -10,21 +10,36 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- ロック画面: 画面が消えたときに、ロック画面を先に出しておくため(Android 10 から、裏から画面を開くのに要る。利用者が設定で許可したときだけ) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- サイレント DAP モード: おやすみモードにする(利用者が設定で許可したときだけ。許可が無ければ音量を 0 にする方式) -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <!-- キャスト(Chromecast)で、同じネットワークの機器を探し、音を送るため(Android 17 から必要。「付近のデバイス」の許可) -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <!-- USB DAC への直接出力中に CPU が眠って音が途切れないように(音切れ対策の設定がオンのとき) -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- ロック画面(システムのロックの上に再生画面を重ねて出す)を、画面が点いたときに起こすため(Android 14 からは、設定での許可も要る) -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- 任意: 「すべてのファイルへのアクセス」を許可すると、ライブラリの読み込みが速くなる -->
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
+    <!-- 「アプリ」タブ(ホーム画面として使うとき)で、ランチャーに出るアプリの一覧を作るため。すべてのアプリを見る権限(QUERY_ALL_PACKAGES)は使わない -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <!-- 平文の HTTP を許すのは、NAS の WebDAV(家の中の LAN で、HTTP のまま使うことが多い)につなぐため -->
     <application
         android:name=".UcrtApp"
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="true"
-        android:usesCleartextTraffic="false"
+        android:usesCleartextTraffic="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
@@ -44,7 +59,26 @@
             <meta-data
                 android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
                 android:resource="@xml/device_filter" />
+            <!-- ホーム画面として選べるようにする(設定の「ホーム」から。選ぶと、下のタブに「アプリ」が出る)。
+                 アイコンの別名ではなく、実体の MainActivity に付ける(アイコンを切り替えても、ホームの登録が外れないように) -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
+
+        <!-- ロック画面(設定の「再生画面」でオンにしたとき)。システムのロックの上に重なる。
+             別のタスク(taskAffinity)で、最近使ったアプリにも出さない。解除は、システムの requestDismissKeyguard を通す -->
+        <activity
+            android:name=".LockScreenActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:theme="@style/Theme.UCRT" />
 
         <!-- ホーム画面のアイコン(設定の「表示」で選ぶ。選んだもの 1 つだけを有効にする。LauncherIcons) -->
         <activity-alias
@@ -298,6 +332,17 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+        <!-- ネットワーク(NAS など)の場所を、端末のドキュメントとして見せる提供元。システムだけが直接つなげる(MANAGE_DOCUMENTS) -->
+        <provider
+            android:name=".network.NetworkProvider"
+            android:authorities="${applicationId}.network"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
         <!-- ホーム画面のウィジェット(縦長・横長) -->
         <receiver
             android:name=".PlayerWidgetTall"
@@ -338,6 +383,12 @@
             android:name=".KeepAliveService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice|mediaPlayback" />
+
+        <!-- 内蔵 DAC の調べ物: メーカーのライブラリを読み込めるかを、別のプロセスで試す(万一そこで落ちても、アプリ本体は落ちない) -->
+        <service
+            android:name=".player.VendorLibProbeService"
+            android:exported="false"
+            android:process=":libprobe" />
 
         <!-- アップサンプルのタブの変換 -->
         <service

@@ -106,11 +106,24 @@ object UsbDac {
     private var volMin = -12800
     private var volMax = 0
     @Volatile private var volumePercent = -1
+    /**
+     * 保存してある音量を受け取ったか。受け取る前に再生が始まると、自動(DAC によっては最大)の音量で鳴ってしまうので、
+     * それまでは無音(ハードウェア音量は最小)にしておく(聴覚の保護)
+     */
+    @Volatile private var volumeRestored = false
+    /** 再生を始めた直後の、音を出さない時刻(SystemClock.elapsedRealtime)。DAC が音量を初期値に戻してしまうことがあるので、送り直し終えるまで待つ */
+    @Volatile private var startMuteUntil = 0L
+
+    /** 今、音を出さずにおくべきか(保存してある音量をまだ受け取っていない・再生を始めた直後) */
+    fun muted(): Boolean = !volumeRestored || SystemClock.elapsedRealtime() < startMuteUntil
     /** ハードウェア音量が無いときに使うソフトウェア音量(倍率) */
     @Volatile var softGain = 1.0
         private set
 
     private val lock = Object()
+
+    /** 再生を始めた直後に音を出さない長さ(ミリ秒) */
+    private const val START_MUTE_MS = 300L
 
     /** USB DAC がつながった時刻(SystemClock.elapsedRealtime。つないだ直後は Android の準備が終わるまで待ってから確保する) */
     @Volatile private var attachedAt = 0L
@@ -230,8 +243,9 @@ object UsbDac {
     /** 音量(0〜100)。-1 は自動(USB から音量を変えられる DAC は 50、変えられない DAC は 100) */
     fun setVolume(percent: Int) {
         val v = if (percent < 0) -1 else percent.coerceIn(0, 100)
-        if (v == volumePercent && inited) return
+        if (v == volumePercent && inited && volumeRestored) return
         volumePercent = v
+        volumeRestored = true
         runCatching { volExec.execute { synchronized(lock) { applyVolume() } } }
     }
 
@@ -694,7 +708,8 @@ object UsbDac {
     }
 
     private fun applyVolume() {
-        val p = volume()
+        // 保存してある音量をまだ受け取っていなければ、いちばん小さい音量にしておく
+        val p = if (volumeRestored) volume() else 0
         val inf = info
         val u = volUnit
         if (!hwVolume || inf == null || u == null || conn == null) {
@@ -710,7 +725,14 @@ object UsbDac {
         val d = byteArrayOf(v.toByte(), (v shr 8).toByte())
         val idx = (u.id shl 8) or inf.acIface
         val chs = if (u.masterVolume) listOf(0) else u.channelVolume
-        for (c in chs) ctrlOut(0x21, 0x01, (0x02 shl 8) or c, idx, d)
+        var ok = false
+        for (c in chs) if (ctrlOut(0x21, 0x01, (0x02 shl 8) or c, idx, d)) ok = true
+        if (!ok) {
+            // DAC が音量の設定を受け付けなかったら、ソフトウェアの音量に切り替える(DAC が大きな音量のままになるのを防ぐ)
+            AudioEngine.log("usb dac: hardware volume rejected, using software volume")
+            hwVolume = false
+            softGain = if (p <= 0) 0.0 else if (p >= 100) 1.0 else 10.0.pow(percentToDb(p) / 20.0)
+        }
     }
 
     // ---------------- 転送 ----------------
@@ -735,8 +757,16 @@ object UsbDac {
             val n = c.controlTransfer(0x81, 0x0A, 0, alt.iface, r, 1, 500)
             AudioEngine.log("usb dac: if${alt.iface} now alt ${if (n == 1) r[0].toInt() and 0xFF else "? ($n)"} (asked alt${alt.alt})")
         }
-        // DAC によっては、周波数や代替設定を切り替えると音量が初期値(最大のことが多い)に戻るので、送り直す
-        if (hwVolume) applyVolume()
+        // DAC によっては、周波数や代替設定を切り替えると音量が初期値(最大のことが多い)に戻るので、送り直す。
+        // 少し遅れて戻る DAC もあるので、始めてしばらくは音を出さずに、もう一度送ってから鳴らす
+        startMuteUntil = SystemClock.elapsedRealtime() + START_MUTE_MS
+        applyVolume()
+        runCatching {
+            volExec.execute {
+                runCatching { Thread.sleep(START_MUTE_MS / 2) }
+                synchronized(lock) { if (conn != null) applyVolume() }
+            }
+        }
         val st = StreamThread(c.fileDescriptor, alt, fmt, speed)
         stream = st
         format = fmt
@@ -757,6 +787,8 @@ object UsbDac {
             }
             it.halt()
             runCatching { it.join(1500) }
+            // (記録: 前の転送のスレッドが終わったか。切り替えで止まる不具合を調べるため。処理は変えない)
+            AudioEngine.log("usb dac: stream #${it.id} stopped (ended=${!it.isAlive})")
         }
         stream = null
         format = null
@@ -992,6 +1024,10 @@ object UsbDac {
     private val FB_SHIFTS = intArrayOf(0, -1, 1, -2, 2, -3, 3, -4, 4)
 
     private class StreamThread(val fd: Int, val alt: UacAlt, val fmt: DacFormat, speed: Int) : Thread("usb-dac") {
+        /** 何本目の転送か(切り替えの前後を記録で見分けるため) */
+        val id = nextStreamId.incrementAndGet()
+        init { name = "usb-dac-$id" }
+        private var unknownReaped = 0
         @Volatile private var stopping = false
         // 1 秒分(アップサンプリングや DSD 変換で計算が一瞬遅れても、途切れないように)
         val ring = Ring(fmt.frameBytes, fmt.rate)
@@ -1079,7 +1115,10 @@ object UsbDac {
                 lengths[p] = bytes
                 total += bytes
             }
-            val got = if (warmedUp()) ring.read(u.buf, 0L, total) else 0
+            // 保存してある音量をまだ受け取っていない・再生を始めた直後(DAC の音量が整うまで)は、無音を送る(聴覚の保護)。
+            // リングからは取り出さない(音は捨てずに、整ってから頭から鳴らす。書き込む側で 0 にすると、
+            // その間に書いた約 1 秒分のリングが無音で埋まり、鳴り出すまで数秒遅れていたため)
+            val got = if (warmedUp() && !muted()) ring.read(u.buf, 0L, total) else 0
             if (got < total) u.buf.setMemory(got.toLong(), (total - got).toLong(), fmt.fill)
             u.dataFrames = got / fmt.frameBytes
             u.epoch = ring.epoch
@@ -1247,7 +1286,7 @@ object UsbDac {
                 lastReap = now
                 val u = urbAt(reapedAddress(ptr))
                 if (u == null) {
-                    AudioEngine.log("usb dac: unknown urb reaped")
+                    if (++unknownReaped <= 5) AudioEngine.log("usb dac: stream #$id reaped an unknown urb (not this stream's)")
                     continue
                 }
                 u.inFlight = false
@@ -1334,18 +1373,25 @@ object UsbDac {
             for (u in urbs) if (u.inFlight) runCatching { Usbfs.ioctl(fd, Usbfs.DISCARDURB, u.urb) }
             val ptr = Memory(Usbfs.PS.toLong())
             var guard = 0
+            var reaped = 0
+            var foreign = 0
             while (urbs.any { it.inFlight } && guard++ < 64) {
                 if (Usbfs.ioctl(fd, Usbfs.REAPURB, ptr) < 0) {
                     if (Usbfs.errno() == 4) continue // EINTR: やり直す
                     break
                 }
-                urbAt(reapedAddress(ptr))?.inFlight = false
+                val x = urbAt(reapedAddress(ptr))
+                if (x != null) { x.inFlight = false; reaped++ } else foreign++
             }
             val left = urbs.filter { it.inFlight }
             if (left.isNotEmpty()) synchronized(orphanUrbs) { orphanUrbs.addAll(left) }
+            AudioEngine.log("usb dac: stream #$id drained (reaped $reaped, left ${left.size}, foreign $foreign)")
         }
     }
 
     @Suppress("unused")
     private fun near(a: Int, b: Int) = abs(a - b) < 2
+
+    /** 転送の番号(記録用) */
+    private val nextStreamId = java.util.concurrent.atomic.AtomicInteger(0)
 }

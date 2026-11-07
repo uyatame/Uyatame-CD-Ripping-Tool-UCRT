@@ -82,7 +82,8 @@ object SpotifyAuth {
                     .putString(K_SCOPE, SCOPES)
                     .putBoolean(K_LOGGED_IN, true)
                 // 新しい Spotify アプリやブラウザでは PKCE が使われ、更新用のトークンも届く(届かなければ、期限が切れたらログインし直す)
-                e.putString(K_REFRESH, r.refreshToken.orEmpty())
+                // (届かなかったときに、すでにある有効なトークンを空で上書きしない。更新のときの save() と同じ)
+                r.refreshToken?.takeIf { it.isNotEmpty() }?.let { e.putString(K_REFRESH, it) }
                 e.apply()
             }
             AuthorizationResponse.Type.ERROR -> throw IOException(

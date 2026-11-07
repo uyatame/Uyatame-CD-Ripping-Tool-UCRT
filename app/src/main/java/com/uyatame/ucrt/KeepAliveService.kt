@@ -116,7 +116,12 @@ class KeepAliveService : Service() {
                 .setContentIntent(open)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
-                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                // UCRT のロック画面を使っていて、確実に出せる(重ねて表示の許可・ホーム画面)ときは、システムのロック画面に
+                // 再生の通知を出さない(ロック画面が二重にならないように)。出せないかもしれないときは、操作できるよう出しておく
+                .setVisibility(
+                    if (MainViewModel.instance?.settings?.value?.lockScreen == true && LockScreen.canStartFromBackground(ctx)) Notification.VISIBILITY_SECRET
+                    else Notification.VISIBILITY_PUBLIC,
+                )
             val p = MediaBridge.player
             if (info.media && p != null) {
                 // Icon は Android 6.0 から。5.x は番号でアイコンを渡す

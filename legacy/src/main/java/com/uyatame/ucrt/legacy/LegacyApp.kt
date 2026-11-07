@@ -35,6 +35,8 @@ class LegacyApp : Application() {
         player.dsp = dsp
         Disc.init(this)
         UsbAudio.init(this)
+        // ロック画面(画面の点灯・消灯を、アプリが動いている間ずっと受け取る)
+        LockGuard.register(this)
         applySound()
         Thread({ com.uyatame.ucrt.player.RgStore.load(this) }, "ucrt-rg").start()
         player.onTrackStart = { item -> store.recordPlay(item.uri) }
@@ -62,6 +64,9 @@ class LegacyApp : Application() {
         player.gapless = p.gapless
         dsp.apply(p)
         player.onQueueEnd = { ListQueue.onQueueEnd() }
+        player.onSkipPastEnd = { ListQueue.skipToNextList() }
+        player.onSkipBeforeStart = { ListQueue.skipToPrevList() }
+        player.swipePrevToTrack = prefs.sp.getInt("swipePrevMode", 0) == 1
         // (DSD への変換は Legacy には無いので、前に選んでいてもオフ)
         val dar = if (p.sourceDirect) 0 else p.sp.getInt("darMode", 0).let { if (it == 1) 1 else 0 }
         val pcm = p.sp.getInt("darPcm", 0)

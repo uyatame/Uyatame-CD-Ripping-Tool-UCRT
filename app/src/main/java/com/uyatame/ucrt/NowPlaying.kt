@@ -61,6 +61,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.ui.composed
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -107,6 +112,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -272,10 +278,36 @@ private fun PlayerBackground(ambient: Boolean, blur: Boolean, blurLevel: Int, ar
  * 全画面のプレイヤー。左右のページで「お気に入り|再生中|再生リスト」を切り替える。
  * アンビエントモードでは、ジャケットの色で画面を染め、一時停止中は暗くする。
  */
+/**
+ * ロック画面(システムのロックの上に重ねる再生画面)として出しているか。そのときは、ライブラリへ移る・曲を編集する・再生を止める・
+ * キャストなど、ロックのまま触らせたくない操作を出さず、画面を閉じる操作も受け付けない(閉じるのは、解除のスワイプだけ)
+ */
+val LocalLockMode = androidx.compose.runtime.compositionLocalOf { false }
+
+/**
+ * ロック画面で操作できる部品(再生/一時停止・前へ・次へ・再生バー)の、画面の中の場所。
+ * ロック画面は全体を受け止める層で覆い、ここに載っている場所だけ指を通す(ほかのボタンは見た目だけ)
+ */
+val LocalLockHotspots = androidx.compose.runtime.compositionLocalOf<MutableMap<String, androidx.compose.ui.geometry.Rect>?> { null }
+
+/** ロック画面で操作できる部品として、場所を知らせる(ロック画面でなければ何もしない) */
+fun Modifier.lockHotspot(key: String): Modifier = composed {
+    val m = LocalLockHotspots.current
+    if (m == null) this else this.onGloballyPositioned { m[key] = it.boundsInRoot() }
+}
+
 @Composable
 fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
     val p = vm.player
     val cur = p.current ?: return
+    val lock = LocalLockMode.current
+    // 歌詞の編集(画面いっぱい。ロック画面では出さない)
+    vm.lyricsEditItem?.let { item ->
+        if (!lock) {
+            LyricsEditorPage(vm, item) { vm.lyricsEditItem = null }
+            return
+        }
+    }
     val ctx = LocalContext.current
     val ambient = s.ambientPlayer
     val art = rememberArt(vm, cur)
@@ -285,7 +317,7 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
         value = null
         value = withContext(Dispatchers.IO) { runCatching { AudioInfo.detail(ctx, cur) }.getOrNull() }
     }
-    val lyrics by produceState<Lyrics?>(null, cur.id) {
+    val lyrics by produceState<Lyrics?>(null, cur.id, vm.lyricsGen) {
         value = null
         value = withContext(Dispatchers.IO) { runCatching { LyricsLoader.load(ctx, cur) }.getOrNull() }
     }
@@ -309,7 +341,8 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     // タブレットモードの右の再生画面は閉じない(戻るは左の画面に任せる)
     val inPane = LocalInPane.current
-    BackHandler(enabled = !inPane, onBack = onClose)
+    // ロック画面では、戻るでは閉じない(閉じるのは、解除のスワイプだけ)
+    BackHandler(enabled = !inPane && !lock, onBack = onClose)
     // 左右のページを表示中は、戻るで再生中のページへ
     BackHandler(enabled = pager.currentPage != 1) { scope.launch { pager.animateScrollToPage(1) } }
 
@@ -331,7 +364,11 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
             Column(Modifier.fillMaxSize().then(bars)) {
                 // ---- 上の帯: 閉じる・ページの切り替え・メニュー ----
                 var menu by remember { mutableStateOf(false) }
-                Row(Modifier.fillMaxWidth().padding(top = 4.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                // ロック画面では、上の帯は出さない(操作できないため。場所はそのまま空けて、並びを変えない)
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 4.dp, start = 4.dp, end = 4.dp).alpha(if (lock) 0f else 1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     if (inPane) Spacer(Modifier.size(48.dp))
                     else IconButton(onClose) { Icon(Icons.Filled.KeyboardArrowDown, S(R.string.close), tint = col.content) }
                     // ページの切り替え(リキッドグラスではガラスのカプセルの中に並べる)
@@ -356,7 +393,8 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                             }
                         }
                     } } }
-                    // キャスト(Chromecast)
+                    // キャスト(Chromecast)・メニューは、ロック画面では出さない(出力先を変えたり、ライブラリへ移ったり、再生を止めたりできてしまうため)
+                    run {
                     val castTo = com.uyatame.ucrt.player.cast.CastManager.connected
                     IconButton({ showCast = true }) {
                         Icon(
@@ -373,6 +411,14 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                                 leadingIcon = { Icon(AppIcons.Lyrics, null) },
                                 onClick = { menu = false; showLyrics = !showLyrics; scope.launch { pager.animateScrollToPage(1) } },
                             )
+                            // 歌詞を編集(ライブラリの曲だけ。CUE シートで分けた曲は、元のファイルの時刻と合わないので除く)
+                            if (lib != null && !com.uyatame.ucrt.library.Cue.isCue(lib.uri)) {
+                                DropdownMenuItem(
+                                    text = { Text(S(R.string.lyrics_edit)) },
+                                    leadingIcon = { Icon(Icons.Filled.Edit, null) },
+                                    onClick = { menu = false; vm.lyricsEditItem = cur },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text(S(R.string.sleep_timer)) },
                                 leadingIcon = { Icon(AppIcons.Timer, null) },
@@ -438,8 +484,9 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                             )
                         }
                     }
+                    }
                 }
-                HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth()) { page ->
+                HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth(), userScrollEnabled = !lock) { page ->
                     when (page) {
                         0 -> FavoritesPanel(vm, col)
                         1 -> PlayerPage(
@@ -483,11 +530,14 @@ private fun PlayerPage(
     onQueue: () -> Unit,
 ) {
     val p = vm.player
+    val lockMode = LocalLockMode.current
     val closeNow by rememberUpdatedState(onClose)
     val soundNow by rememberUpdatedState(onSound)
     var drag by remember { mutableStateOf(0f) }
     BoxWithConstraints(
-        Modifier.fillMaxSize().pointerInput(Unit) {
+        // ロック画面では、この縦スワイプ(閉じる・音質設定)を受けない(解除のスワイプと重なるため)
+        Modifier.fillMaxSize().pointerInput(lockMode) {
+            if (lockMode) return@pointerInput
             // 下へスワイプで閉じる、上へスワイプで音質設定
             detectVerticalDragGestures(
                 onDragEnd = {
@@ -513,13 +563,27 @@ private fun PlayerPage(
         // 再生画面の全体が 0.25 秒ごとに描き直されないようにする(性能の低い端末向け)
         val lib = vm.libTrackOf(cur)
 
+        // スペクトラムと VU メーター(設定で、どちらか・両方)。h はスペクトラムの高さ(針の VU は 1.5 倍、バーは 0.75 倍)
         val spectrum: @Composable (androidx.compose.ui.unit.Dp) -> Unit = { h ->
-            SpectrumView(
-                s.spectrumStyle, s.spectrumVocal, s.spectrumRefreshMs, s.spectrumDelayMs,
-                if (s.spectrumColor == 0) col.accent else Color(s.spectrumColor),
-                h,
-                onStyle = { vm.set(com.uyatame.ucrt.data.Keys.spectrumStyle, it) },
-            )
+            val meterColor = if (s.spectrumColor == 0) col.accent else Color(s.spectrumColor)
+            val vu: @Composable () -> Unit = {
+                VuMeterView(
+                    s.vuStyle, s.vuMode, s.vuRefDb, s.vuRedDb, s.vuHold, s.spectrumRefreshMs, s.spectrumDelayMs,
+                    meterColor, col.sub, if (s.vuStyle == 1) h * 0.75f else h * 1.5f,
+                    onStyle = { vm.set(com.uyatame.ucrt.data.Keys.vuStyle, it) },
+                )
+            }
+            val sp: @Composable () -> Unit = {
+                SpectrumView(
+                    s.spectrumStyle, s.spectrumVocal, s.spectrumRefreshMs, s.spectrumDelayMs, meterColor, h,
+                    onStyle = { vm.set(com.uyatame.ucrt.data.Keys.spectrumStyle, it) },
+                )
+            }
+            when (s.meterShow) {
+                MeterShow.VU -> vu()
+                MeterShow.BOTH -> Column { sp(); Spacer(Modifier.height(6.dp)); vu() }
+                else -> sp()
+            }
         }
 
         // ---- ジャケット(または歌詞) ----
@@ -545,8 +609,15 @@ private fun PlayerPage(
                     SwipeCover(
                         art, compact,
                         overlay = seeking?.let { fmtMs((it * dur).toLong()) },
-                        onPrev = { p.prev() }, onNext = { p.next() }, onTap = onToggleLyrics,
+                        onPrev = { p.prev(fromSwipe = true) }, onNext = { p.next() }, onTap = onToggleLyrics,
                     )
+                    // ロック画面: ジャケットの上に鍵のマーク(設定の向きにスワイプすると解除)
+                    if (lockMode) {
+                        Box(
+                            Modifier.size(64.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Filled.Lock, S(R.string.lock_locked), Modifier.size(32.dp), tint = Color.White) }
+                    }
                 }
             }
         }
@@ -592,11 +663,13 @@ private fun PlayerPage(
                 // 曲名が真ん中に来るように、左右のボタンの幅をそろえる:
                 // 通常はお気に入りと音質チェックを縦に重ねる(右の歌詞ボタンと同じ幅)。
                 // 高さに余裕がない画面では横に並べ、右にも同じ幅の空きを作る
-                if (compact) marks() else Column { marks() }
+                // (ロック画面では出さない。操作できないため。場所は空けて、曲名を真ん中のままにする)
+                val hideInLock = Modifier.alpha(if (lockMode) 0f else 1f)
+                if (compact) Row(hideInLock) { marks() } else Column(hideInLock) { marks() }
                 var related by remember { mutableStateOf(false) }
                 Box(Modifier.weight(1f)) {
                     Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(enabled = lib != null) { related = true }
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(enabled = lib != null && !lockMode) { related = true }
                             .padding(vertical = 2.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -627,7 +700,7 @@ private fun PlayerPage(
                     }
                 }
                 if (compact) Spacer(Modifier.width(48.dp))
-                IconButton(onToggleLyrics) {
+                IconButton(onToggleLyrics, hideInLock) {
                     Icon(
                         AppIcons.Lyrics, if (showLyrics) S(R.string.hide_lyrics) else S(R.string.show_lyrics),
                         tint = when { showLyrics -> col.accent; lyrics != null -> col.content; else -> col.sub.copy(alpha = 0.4f) },
@@ -641,43 +714,46 @@ private fun PlayerPage(
                 Spacer(Modifier.height(if (compact) 4.dp else 8.dp))
             }
             // ---- 再生位置 ----
-            SeekBar(p, dur, seeking, col, { seeking = it }) {
-                seeking?.let { p.seek((it * dur).toLong()) }
-                seeking = null
+            // (再生バーは、バーと時間の表示を縦に並べる。包むのは縦に並べる入れ物にする。重ねる入れ物だと、時間がバーに重なる)
+            Column(Modifier.fillMaxWidth().lockHotspot("seek")) {
+                SeekBar(p, dur, seeking, col, { seeking = it }) {
+                    seeking?.let { p.seek((it * dur).toLong()) }
+                    seeking = null
+                }
             }
             Spacer(Modifier.height(if (compact) 2.dp else 10.dp))
             // ---- 再生操作 ----
             // ボタンの並びは設定で変えられる(R: リピート、P: 前、X: 再生、N: 次、S: シャッフル)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 for (c in controlOrder(s.controlOrder)) when (c) {
-                    'R' -> IconButton({ p.cycleRepeat() }) {
+                    'R' -> IconButton({ p.cycleRepeat() }, Modifier.alpha(if (lockMode) 0f else 1f)) {
                         Icon(
                             if (p.repeatMode == 2) AppIcons.RepeatOne else AppIcons.Repeat,
                             when (p.repeatMode) { 1 -> S(R.string.repeat_all); 2 -> S(R.string.repeat_one); else -> S(R.string.repeat_off) },
                             tint = if (p.repeatMode != 0) col.accent else col.sub,
                         )
                     }
-                    'P' -> OutlinedIconButton({ p.prev() }, Modifier.size(skipSize), border = BorderStroke(2.dp, col.content)) {
+                    'P' -> OutlinedIconButton({ p.prev() }, Modifier.size(skipSize).lockHotspot("prev"), border = BorderStroke(2.dp, col.content)) {
                         Icon(AppIcons.SkipPrevious, S(R.string.previous_track), Modifier.size(skipSize * 0.47f), tint = col.content)
                     }
-                    'X' -> OutlinedIconButton({ p.toggle() }, Modifier.size(playSize), shape = CircleShape, border = BorderStroke(2.5.dp, col.content)) {
+                    'X' -> OutlinedIconButton({ p.toggle() }, Modifier.size(playSize).lockHotspot("play"), shape = CircleShape, border = BorderStroke(2.5.dp, col.content)) {
                         Icon(
                             if (p.isPlaying) AppIcons.Pause else Icons.Filled.PlayArrow,
                             if (p.isPlaying) S(R.string.pause) else S(R.string.play),
                             Modifier.size(playSize * 0.52f), tint = col.content,
                         )
                     }
-                    'N' -> OutlinedIconButton({ p.next() }, Modifier.size(skipSize), border = BorderStroke(2.dp, col.content)) {
+                    'N' -> OutlinedIconButton({ p.next() }, Modifier.size(skipSize).lockHotspot("next"), border = BorderStroke(2.dp, col.content)) {
                         Icon(AppIcons.SkipNext, S(R.string.next_track), Modifier.size(skipSize * 0.47f), tint = col.content)
                     }
-                    'S' -> IconButton({ p.toggleShuffle() }) {
+                    'S' -> IconButton({ p.toggleShuffle() }, Modifier.alpha(if (lockMode) 0f else 1f)) {
                         Icon(AppIcons.Shuffle, S(R.string.shuffle_2), tint = if (p.shuffle) col.accent else col.sub)
                     }
                 }
             }
             Spacer(Modifier.height(if (compact) 0.dp else 6.dp))
-            // ---- 下の帯: 音量・タイマー・曲番号・再生リスト ----
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // ---- 下の帯: 音量・タイマー・曲番号・再生リスト(ロック画面では出さない。場所は空ける) ----
+            Row(Modifier.fillMaxWidth().alpha(if (lockMode) 0f else 1f), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onVolume) { Icon(AppIcons.Volume, S(R.string.volume), tint = col.sub) }
                 // 残りの分は、時計に合わせて自分で更新する(画面の全体は再生位置では描き直さないので)
                 val sleepAt = p.sleepAtMs
@@ -1118,9 +1194,12 @@ private fun SaveQueueDialog(vm: MainViewModel, onDismiss: () -> Unit) {
 private fun VolumeSheet(vm: MainViewModel, onDismiss: () -> Unit, system: Boolean = false) {
     val ctx = LocalContext.current
     // ほかのアプリの音(system)は、DAC を直接使っていても Android の音量で変える
-    val usb = !system && AudioEngine.output?.kind == OutputKind.UsbDirect
-    // 細かい音量: 通常の出力では、アプリの中の音量(0.5 dB ごと、200 段階)を変える
     val st by vm.settings.collectAsState()
+    // まだ鳴らしていない(DAC を開く前)でも、USB DAC 直接出力を使う設定で DAC がつながっていれば、DAC の音量(100 段階)を出す
+    // (端末の音量の 15 段階を出すと、DAC の音量が変えられない)
+    val usb = !system && (AudioEngine.output?.kind == OutputKind.UsbDirect || UsbDac.inUse ||
+        (st.outputMode == 2 && remember(st.outputMode) { UsbDac.findDac() != null }))
+    // 細かい音量: 通常の出力では、アプリの中の音量(0.5 dB ごと、200 段階)を変える
     val fine = !system && !usb && st.fineVolume
     val am = remember { androidx.core.content.ContextCompat.getSystemService(ctx, AudioManager::class.java)!! }
     val max = if (usb) 100 else if (fine) 200 else am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)

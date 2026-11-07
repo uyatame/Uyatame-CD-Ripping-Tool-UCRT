@@ -289,6 +289,7 @@ class UsbScsiDrive private constructor(
     /** (総セクタ数, ブロックサイズ) */
     fun readCapacity(): Pair<Long, Int> {
         val d = execute(cdb(0x25, 0, 0, 0, 0, 0, 0, 0, 0, 0), 8)
+        if (d.size < 8) throw ScsiException(-1, 0, 0, S(R.string.invalid_usb_response))
         return (be32(d, 0) + 1) to be32(d, 4).toInt()
     }
 

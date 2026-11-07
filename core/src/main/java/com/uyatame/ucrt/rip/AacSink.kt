@@ -42,8 +42,15 @@ class AacSink(path: String, bitrate: Int) : AudioSink {
     override fun write(buf: ByteArray, off: Int, len: Int) {
         var o = off
         var left = len
+        // 入力の空きが取れないまま続くとき(エンコーダーが詰まったとき)は、永久に回らずに失敗にする
+        var stalledSince = 0L
         while (left > 0) {
             val idx = codec.dequeueInputBuffer(5_000)
+            if (idx < 0) {
+                val now = System.nanoTime()
+                if (stalledSince == 0L) stalledSince = now
+                else if (now - stalledSince > STALL_NS) throw java.io.IOException("AAC: the encoder is not accepting data")
+            } else stalledSince = 0L
             if (idx >= 0) {
                 val b = CodecCompat.input(codec, idx)
                 b.clear()
@@ -85,12 +92,16 @@ class AacSink(path: String, bitrate: Int) : AudioSink {
 
     override fun finish() {
         var queued = false
+        val begin = System.nanoTime()
         while (!queued) {
             val idx = codec.dequeueInputBuffer(10_000)
             if (idx >= 0) {
                 codec.queueInputBuffer(idx, 0, 0, fed * 1_000_000L / 176_400L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                 queued = true
-            } else drain(0)
+            } else {
+                if (System.nanoTime() - begin > STALL_NS) { release(false); throw java.io.IOException("AAC: the encoder is not accepting data") }
+                drain(0)
+            }
         }
         var guard = 0
         while (!eos && guard++ < 2000) drain(10_000)
@@ -98,6 +109,11 @@ class AacSink(path: String, bitrate: Int) : AudioSink {
     }
 
     override fun abort() = release(false)
+
+    private companion object {
+        /** エンコーダーが入力を受け付けないまま、これだけ経ったら失敗にする(30 秒) */
+        const val STALL_NS = 30_000_000_000L
+    }
 
     private fun release(ok: Boolean) {
         runCatching { codec.stop() }
