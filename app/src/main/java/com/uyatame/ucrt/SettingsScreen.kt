@@ -10,6 +10,9 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -99,6 +102,7 @@ fun SettingsScreen(vm: MainViewModel, s: AppSettings, page: Int, onPage: (Int) -
         5 -> SettingsPage(S(R.string.display), back) { DisplayPage(vm, s) }
         9 -> SettingsPage(S(R.string.player_screen), back) { PlayerScreenPage(vm, s) }
         10 -> FileTagsPage(vm) { vm.closeFileTags(); back() }
+        11 -> SettingsPage(S(R.string.profiles), back) { ProfilesPage(vm) }
         6 -> LogPage(vm, s, back)
         7 -> LicensePage(vm, s, back)
         8 -> SettingsPage(SoundPage.title(SoundPage.MAIN), back) { SoundMain(vm, s) { onPage(80 + it) } }
@@ -210,6 +214,8 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
             ) { onPage(5) }
             HorizontalDivider()
             CategoryRow(Icons.Filled.Edit, S(R.string.tag_edit_files), S(R.string.tag_edit_files_desc)) { onPage(10) }
+            HorizontalDivider()
+            CategoryRow(Icons.Filled.Settings, S(R.string.profiles), S(R.string.profiles_desc)) { onPage(11) }
             HorizontalDivider()
             CategoryRow(Icons.Filled.Build, S(R.string.log), S(R.string.activity_log_for_troubleshooting)) { onPage(6) }
             HorizontalDivider()
@@ -502,8 +508,125 @@ private fun AllFilesSection(vm: MainViewModel) {
     }
 }
 
+/**
+ * ロック画面(システムのロックの上に、再生画面を重ねて出す)の項目。解除のスワイプの向きを選べる。
+ * アプリがロック画面そのものを置き換えることはできないので、PIN・指紋などの認証はシステムのまま(解除のスワイプで、システムの認証を求める)
+ */
+@Composable
+private fun LockScreenSection(vm: MainViewModel, s: AppSettings) {
+    val ctx = LocalContext.current
+    // 許可の画面から戻ってきたときに、読み直す
+    var notif by remember { mutableStateOf(LockScreen.notificationsAllowed(ctx)) }
+    var fsi by remember { mutableStateOf(LockScreen.fullScreenAllowed(ctx)) }
+    var overlay by remember { mutableStateOf(LockScreen.canStartFromBackground(ctx)) }
+    LaunchedEffect(vm.resumeTick) {
+        notif = LockScreen.notificationsAllowed(ctx)
+        fsi = LockScreen.fullScreenAllowed(ctx)
+        overlay = LockScreen.canStartFromBackground(ctx)
+    }
+    Section(S(R.string.lock_screen)) {
+        // ロック画面のモード: 端末標準(システムのロック画面に再生の操作を出す)か、UCRT の画面を重ねて出すか
+        Segmented(S(R.string.lock_mode), listOf(S(R.string.lock_mode_system), S(R.string.lock_mode_custom)), if (s.lockScreen) 1 else 0) {
+            vm.set(Keys.lockScreen, it == 1)
+        }
+        Text(
+            S(if (s.lockScreen) R.string.lock_screen_desc else R.string.lock_mode_system_desc),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (s.lockScreen) {
+            // 出し方(画面が出ない端末では、ここを変えて試す)
+            Segmented(
+                S(R.string.lock_launch),
+                listOf(S(R.string.lock_launch_auto), S(R.string.lock_launch_direct), S(R.string.lock_launch_fsi)),
+                s.lockLaunch.coerceIn(0, 2),
+            ) { vm.set(Keys.lockLaunch, it) }
+            Text(S(R.string.lock_launch_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SwitchRow(S(R.string.lock_when_paused), S(R.string.lock_when_paused_desc), s.lockWhenPaused) { vm.set(Keys.lockWhenPaused, it) }
+            SwitchRow(S(R.string.lock_always), S(R.string.lock_always_desc), s.lockAlways) { vm.set(Keys.lockAlways, it) }
+            Segmented(
+                S(R.string.lock_clock), listOf(S(R.string.lock_clock_top), S(R.string.lock_clock_bottom), S(R.string.lock_clock_none)),
+                s.lockClock.coerceIn(0, 2),
+            ) { vm.set(Keys.lockClock, it) }
+            if (s.lockClock != 2) LockClockColorPicker(s.lockClockColor) { vm.set(Keys.lockClockColor, it) }
+            Segmented(
+                S(R.string.lock_orientation),
+                listOf(S(R.string.lock_orientation_system), S(R.string.lock_orientation_portrait), S(R.string.lock_orientation_landscape), S(R.string.lock_orientation_sensor)),
+                s.lockOrientation.coerceIn(0, 3),
+            ) { vm.set(Keys.lockOrientation, it) }
+            Segmented(S(R.string.lock_tablet), listOf(S(R.string.auto), S(R.string.on), S(R.string.off)), s.lockTablet.coerceIn(0, 2)) { vm.set(Keys.lockTablet, it) }
+            Text(S(R.string.lock_tablet_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // うまく出ないときの切り分け(コピーして送ってもらう)
+            androidx.compose.material3.TextButton({
+                val text = LockScreen.diagnose(ctx, vm)
+                val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("UCRT lock screen", text))
+                android.widget.Toast.makeText(ctx, S(R.string.lock_diagnose_copied), android.widget.Toast.LENGTH_SHORT).show()
+            }) { Text(S(R.string.lock_diagnose)) }
+            Segmented(
+                S(R.string.lock_swipe_direction),
+                listOf(S(R.string.lock_swipe_up), S(R.string.lock_swipe_down), S(R.string.lock_swipe_left), S(R.string.lock_swipe_right)),
+                s.lockSwipe.coerceIn(0, 3),
+            ) { vm.set(Keys.lockSwipe, it) }
+            // いちばん確実なのは「他のアプリの上に重ねて表示」の許可(画面が消えたときに、先に出しておける)
+            if (overlay) {
+                Text(S(R.string.lock_screen_overlay_ok), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            } else {
+                Text(S(R.string.lock_screen_overlay_need), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                androidx.compose.material3.OutlinedButton({ LockScreen.openOverlaySettings(ctx) }) { Text(S(R.string.lock_screen_overlay_allow)) }
+            }
+            // 許可が無いときは、画面を点けたときにフルスクリーン通知で出す(通知とフルスクリーン通知の許可が要る)
+            if (overlay) {
+                // (重ねて表示の許可があれば、通知の許可は要らない)
+            } else if (!notif || !fsi) {
+                Text(
+                    S(if (!notif) R.string.lock_screen_need_notifications else R.string.lock_screen_need_full_screen),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+                )
+                androidx.compose.material3.OutlinedButton({ LockScreen.openPermissionSettings(ctx) }) { Text(S(R.string.lock_screen_allow)) }
+            } else {
+                Text(S(R.string.lock_screen_ready), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            }
+            // 最後に画面が点いたときの結果(出なかったときに、理由が分かるように)
+            if (LockScreen.lastStatus.isNotEmpty()) {
+                Text(
+                    S(R.string.lock_screen_last, LockScreen.lastStatus),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // ロックしなくても、見た目と解除のスワイプを確かめられる
+            androidx.compose.material3.OutlinedButton({ LockScreen.preview(ctx) }, enabled = vm.player.current != null) {
+                Text(S(R.string.lock_screen_preview))
+            }
+            if (vm.player.current == null) {
+                Text(S(R.string.lock_screen_preview_need_track), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+/** UCRT をホーム画面(ホームボタンで開くアプリ)として使うための項目。選ぶと、下のバーに「アプリ」(アプリ一覧)が出る */
+@Composable
+private fun HomeSection(vm: MainViewModel) {
+    val ctx = LocalContext.current
+    // 既定のホームを選ぶ画面から戻ってきたときに、読み直す
+    var isHome by remember { mutableStateOf(HomeApps.isDefaultHome(ctx)) }
+    LaunchedEffect(vm.resumeTick) { isHome = HomeApps.isDefaultHome(ctx) }
+    Section(S(R.string.home_screen)) {
+        Text(
+            if (isHome) S(R.string.home_screen_on) else S(R.string.home_screen_off),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isHome) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(S(R.string.home_screen_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        androidx.compose.material3.OutlinedButton({ HomeApps.openHomeSettings(ctx) }) { Text(S(R.string.home_screen_choose)) }
+    }
+    SilentSection(vm)
+}
+
 @Composable
 private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
+    HomeSection(vm)
+    LockScreenSection(vm, s)
     LauncherIconSection()
     Section(S(R.string.appearance)) {
         Segmented(S(R.string.ui_style), listOf(S(R.string.ui_style_standard), S(R.string.ui_style_glass)), s.appearance) { vm.set(Keys.appearance, it) }
@@ -581,6 +704,10 @@ private fun PlayerScreenPage(vm: MainViewModel, s: AppSettings) {
         SwitchRow(S(R.string.fine_volume), S(R.string.fine_volume_desc), s.fineVolume) { vm.set(Keys.fineVolume, it) }
         SwitchRow(S(R.string.auto_resume), S(R.string.auto_resume_desc), s.autoResume) { vm.set(Keys.autoResume, it) }
         SwitchRow(S(R.string.auto_next_list), S(R.string.auto_next_list_desc), s.autoNextList) { vm.set(Keys.autoNextList, it) }
+        Segmented(S(R.string.swipe_prev_mode), listOf(S(R.string.swipe_prev_restart), S(R.string.swipe_prev_track)), s.swipePrevMode.coerceIn(0, 1)) {
+            vm.set(Keys.swipePrevMode, it)
+        }
+        Text(S(R.string.swipe_prev_mode_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Segmented(S(R.string.usb_volume_step), listOf("1", "2", "4"), listOf(1, 2, 4).indexOf(s.usbVolumeStep).coerceAtLeast(0)) {
             vm.set(Keys.usbVolumeStep, listOf(1, 2, 4)[it])
         }
@@ -631,10 +758,30 @@ private fun PlayerScreenPage(vm: MainViewModel, s: AppSettings) {
     Section(S(R.string.spectrum)) {
         SwitchRow(S(R.string.spectrum), S(R.string.spectrum_desc), s.spectrum) { vm.set(Keys.spectrum, it) }
         if (s.spectrum) {
+            Segmented(S(R.string.meter_show), listOf(S(R.string.meter_show_spectrum), S(R.string.meter_show_vu), S(R.string.meter_show_both)), s.meterShow) {
+                vm.set(Keys.meterShow, it)
+            }
+            if (s.meterShow != MeterShow.SPECTRUM) {
+                Segmented(S(R.string.vu_style), listOf(S(R.string.vu_style_needle), S(R.string.vu_style_bar)), s.vuStyle) { vm.set(Keys.vuStyle, it) }
+                if (s.vuStyle == 0) {
+                    Segmented(S(R.string.vu_mode), listOf(S(R.string.vu_mode_vu), S(R.string.vu_mode_peak)), s.vuMode) { vm.set(Keys.vuMode, it) }
+                    // 0 VU の基準(1 dB ずつ。音圧の高い曲で振り切れるときは、0 に近づける)
+                    IntSlider(S(R.string.vu_ref), s.vuRefDb, 0..30, { "−$it dBFS" }, S(R.string.vu_ref_desc)) { vm.set(Keys.vuRefDb, it) }
+                } else {
+                    // 赤にする音量(1 dB ずつ)
+                    IntSlider(S(R.string.vu_red), s.vuRedDb, 0..30, { "−$it dBFS" }, S(R.string.vu_red_desc)) { vm.set(Keys.vuRedDb, it) }
+                    SwitchRow(S(R.string.vu_hold), S(R.string.vu_hold_desc), s.vuHold) { vm.set(Keys.vuHold, it) }
+                }
+            }
+        }
+        if (s.spectrum && s.meterShow != MeterShow.VU) {
             ChoiceList(S(R.string.spectrum_style), (0 until SpectrumStyle.COUNT).map { SpectrumStyle.label(it) }, s.spectrumStyle) {
                 vm.set(Keys.spectrumStyle, it)
             }
             SwitchRow(S(R.string.spectrum_vocal), S(R.string.spectrum_vocal_desc), s.spectrumVocal) { vm.set(Keys.spectrumVocal, it) }
+        }
+        // 更新の間隔・遅れ・色は、スペクトラムと VU メーターの両方で使う
+        if (s.spectrum) {
             IntSlider(
                 S(R.string.spectrum_refresh), s.spectrumRefreshMs, 8..200, { "$it ms (${1000 / it} fps)" },
                 S(R.string.spectrum_refresh_desc),
@@ -662,6 +809,28 @@ private fun GlassTintPicker(value: Int, onChange: (Int) -> Unit) {
     ColorSettingRow(
         S(R.string.glass_color), if (value == 0) S(R.string.glass_color_auto) else hexOf(value) + S(R.string.separator) + S(R.string.glass_color_text_auto),
         if (value == 0) auto else Color(value), value == 0,
+    ) { picking = true }
+}
+
+/** ロック画面の時計の色(0 = 白) */
+@Composable
+private fun LockClockColorPicker(value: Int, onChange: (Int) -> Unit) {
+    var picking by remember { mutableStateOf(false) }
+    if (picking) {
+        ColorPickerDialog(
+            S(R.string.lock_clock_color), if (value == 0) Color.White.toArgb() else value, { picking = false }, onChange,
+            onReset = { onChange(0) },
+            preview = { c ->
+                // ロック画面に近い、暗い背景の上での見え方
+                Box(Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xFF202020)).padding(horizontal = 14.dp, vertical = 6.dp)) {
+                    Text("12:34", color = Color(c), style = MaterialTheme.typography.headlineMedium)
+                }
+            },
+        )
+    }
+    ColorSettingRow(
+        S(R.string.lock_clock_color), if (value == 0) S(R.string.lock_clock_color_default) else hexOf(value),
+        if (value == 0) Color.White else Color(value), value == 0,
     ) { picking = true }
 }
 
@@ -1127,3 +1296,142 @@ internal fun ExternalMediaSection(vm: MainViewModel, s: AppSettings) {
 
 
 private fun String.swap(a: Int, b: Int): String = toCharArray().also { val t = it[a]; it[a] = it[b]; it[b] = t }.concatToString()
+
+/**
+ * 設定のプロファイル: 今の設定を名前を付けて保存し、あとで切り替える。ファイルへの書き出し・読み込み(バックアップ・機種変更・共有)も
+ */
+@Composable
+private fun ProfilesPage(vm: MainViewModel) {
+    val ctx = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var gen by remember { mutableStateOf(0) }
+    val profiles by androidx.compose.runtime.produceState(emptyList<com.uyatame.ucrt.data.SettingsProfiles.Profile>(), gen) {
+        value = com.uyatame.ucrt.data.SettingsProfiles.list(ctx)
+    }
+    var naming by remember { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
+    fun toast(id: Int) = android.widget.Toast.makeText(ctx, S(id), android.widget.Toast.LENGTH_SHORT).show()
+    val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { u ->
+        if (u != null) scope.launch {
+            val ok = runCatching {
+                val o = com.uyatame.ucrt.data.SettingsProfiles.export(ctx)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    ctx.contentResolver.openOutputStream(u, "wt")?.use { it.write(o.toString(1).toByteArray()) } ?: error("open")
+                }
+            }.isSuccess
+            toast(if (ok) R.string.profiles_exported else R.string.profiles_failed)
+        }
+    }
+    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
+        if (u != null) scope.launch {
+            val ok = runCatching {
+                val text = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    ctx.contentResolver.openInputStream(u)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: error("open")
+                }
+                com.uyatame.ucrt.data.SettingsProfiles.apply(ctx, org.json.JSONObject(text))
+            }.getOrDefault(false)
+            toast(if (ok) R.string.profiles_applied else R.string.profiles_bad_file)
+        }
+    }
+    if (naming) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { naming = false },
+            title = { Text(S(R.string.profiles_save_current)) },
+            text = { androidx.compose.material3.OutlinedTextField(name, { name = it }, singleLine = true, label = { Text(S(R.string.profiles_name)) }) },
+            confirmButton = {
+                TextButton({
+                    naming = false
+                    scope.launch { com.uyatame.ucrt.data.SettingsProfiles.save(ctx, name); gen++; toast(R.string.profiles_saved) }
+                }, enabled = name.isNotBlank()) { Text(S(R.string.save)) }
+            },
+            dismissButton = { TextButton({ naming = false }) { Text(S(R.string.cancel)) } },
+        )
+    }
+    confirm?.let { (msg, act) ->
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            text = { Text(msg) },
+            confirmButton = { TextButton({ confirm = null; act() }) { Text(S(R.string.ok)) } },
+            dismissButton = { TextButton({ confirm = null }) { Text(S(R.string.cancel)) } },
+        )
+    }
+    Text(S(R.string.profiles_intro), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Section(S(R.string.profiles)) {
+        if (profiles.isEmpty()) {
+            Text(S(R.string.profiles_none), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        val fmt = remember { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT) }
+        for (p in profiles) {
+            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Text(p.name, style = MaterialTheme.typography.bodyLarge)
+                if (p.savedAt > 0) Text(fmt.format(java.util.Date(p.savedAt)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.FilledTonalButton({
+                        confirm = S(R.string.profiles_apply_confirm, p.name) to {
+                            scope.launch { toast(if (com.uyatame.ucrt.data.SettingsProfiles.load(ctx, p.id)) R.string.profiles_applied else R.string.profiles_failed) }
+                        }
+                    }) { Text(S(R.string.profiles_apply)) }
+                    TextButton({
+                        confirm = S(R.string.profiles_overwrite_confirm, p.name) to {
+                            scope.launch { com.uyatame.ucrt.data.SettingsProfiles.save(ctx, p.name, p.id); gen++; toast(R.string.profiles_saved) }
+                        }
+                    }) { Text(S(R.string.profiles_overwrite)) }
+                    TextButton({
+                        confirm = S(R.string.delete_2, p.name) to { scope.launch { com.uyatame.ucrt.data.SettingsProfiles.delete(ctx, p.id); gen++ } }
+                    }) { Text(S(R.string.delete)) }
+                }
+            }
+        }
+        androidx.compose.material3.OutlinedButton({ naming = true }) { Text(S(R.string.profiles_save_current)) }
+    }
+    Section(S(R.string.profiles_file)) {
+        Text(S(R.string.profiles_file_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.material3.OutlinedButton({ exporter.launch("UCRT_settings.json") }) { Text(S(R.string.profiles_export)) }
+            androidx.compose.material3.OutlinedButton({
+                confirm = S(R.string.profiles_import_confirm) to { importer.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }
+            }) { Text(S(R.string.profiles_import)) }
+        }
+    }
+}
+
+/** サイレントモード: 通知音・着信音などを止めて、音楽だけを鳴らす(ホーム画面にしている間だけ・いつも) */
+@Composable
+private fun SilentSection(vm: MainViewModel) {
+    val ctx = LocalContext.current
+    val s by vm.settings.collectAsState()
+    val silent = remember { com.uyatame.ucrt.player.SilentMode(ctx) }
+    var access by remember { mutableStateOf(silent.hasPolicyAccess) }
+    var active by remember { mutableStateOf(silent.isActive) }
+    LaunchedEffect(vm.resumeTick, s.silentMode) {
+        access = silent.hasPolicyAccess
+        kotlinx.coroutines.delay(300)
+        active = silent.isActive
+    }
+    Section(S(R.string.silent_mode)) {
+        Segmented(
+            S(R.string.silent_mode_when),
+            listOf(S(R.string.off), S(R.string.silent_mode_home), S(R.string.silent_mode_always)),
+            s.silentMode.coerceIn(0, 2),
+        ) { vm.set(Keys.silentMode, it) }
+        Text(S(R.string.silent_mode_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (s.silentMode != 0) {
+            Text(
+                S(if (active) R.string.silent_mode_now_on else R.string.silent_mode_now_off),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        // おやすみモードの方式を使うための許可(無くても、音量を 0 にする方式で動く)
+        Text(
+            S(if (access) R.string.silent_mode_dnd_ok else R.string.silent_mode_dnd_need),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (!access) {
+            androidx.compose.material3.OutlinedButton({
+                runCatching { ctx.startActivity(silent.policyAccessIntent().addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            }) { Text(S(R.string.silent_mode_dnd_allow)) }
+        }
+    }
+}

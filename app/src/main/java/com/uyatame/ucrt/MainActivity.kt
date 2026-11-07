@@ -33,6 +33,8 @@ class MainActivity : ComponentActivity() {
         // 画面の中の戻る操作は、あとから登録される画面側の処理が先に受け取る)
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                // ホーム画面として使っているときは、戻るボタンでは何もしない(ホームは、いちばん下の画面。閉じたり裏に回したりしない)
+                if (HomeApps.isDefaultHome(this@MainActivity)) return
                 if (vm.player.isPlaying || vm.busy) {
                     moveTaskToBack(true)
                 } else {
@@ -42,6 +44,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
         })
+        // ホームボタンで起動された(UCRT がホーム画面のとき)ら、前の画面を戻さず、最初の画面(ライブラリのトップ)から
+        if (intent?.hasCategory(Intent.CATEGORY_HOME) == true) vm.goHome()
         setContent {
             // 解像度の低い端末(短い辺が 360dp 未満)では、画面全体を同じ割合で縮めて、並びが崩れないようにする(0.75 倍まで)。
             // 文字の大きさの設定は 1.3 倍までにする(大きすぎると、ボタンや曲名が収まらなくなるため)
@@ -65,6 +69,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         vm.scan()
         vm.resumeTick++
+        // ホーム画面にした・やめたときに、サイレントモードを合わせる
+        vm.syncSilent()
         // カメラ・決済アプリなどに音を取られて止まっていたら、戻ってきたときに続きを再生する
         vm.player.resumeAfterInterruption()
         // 設定画面で「通知へのアクセス」を変えて戻ってきたときに反映する
@@ -79,6 +85,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         vm.scan()
+        // ホームボタンで開かれた(UCRT がホーム画面のとき)ら、最初の画面に戻る
+        if (intent.hasCategory(Intent.CATEGORY_HOME)) vm.goHome()
     }
 }

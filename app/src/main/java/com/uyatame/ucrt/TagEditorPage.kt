@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -138,6 +139,8 @@ fun TagEditorPage(
                     if (note != null) {
                         Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
+                    // アルバムの情報(ここで入れた値は、全曲に書き込む)
+                    Text(S(R.string.tag_album_common), style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(form.album, { form.album = it }, Modifier.fillMaxWidth(), label = { Text(S(R.string.album)) }, singleLine = true)
                     OutlinedTextField(
                         form.albumArtist, { form.albumArtist = it }, Modifier.fillMaxWidth(),
@@ -158,6 +161,8 @@ fun TagEditorPage(
                     }
                 }
             }
+            // 曲ごとの欄を、全曲まとめて入れる(同じアーティスト・作曲者のアルバムなど)
+            if (form.tracks.size > 1) item(key = "bulk") { BulkCard(form, loading) }
             item(key = "tracks-head") {
                 Column {
                     HorizontalDivider(Modifier.padding(vertical = 4.dp))
@@ -224,6 +229,68 @@ private fun TrackFormCard(t: TrackForm, albumArtist: String, loading: Boolean, n
                 )
             }
         }
+    }
+}
+
+/**
+ * 全曲にまとめて入力するカード。曲ごとの欄(アーティスト・作曲・作詞・コメント・何枚目か)を、全曲に同じ値で入れる。
+ * 「全曲に適用」を押したときだけ書き換えるので、押さなければ曲ごとの値はそのまま
+ */
+@Composable
+private fun BulkCard(form: TagForm, loading: Boolean) {
+    var open by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    UCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { open = !open }.padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(S(R.string.tag_bulk), style = MaterialTheme.typography.titleMedium)
+                    Text(S(R.string.tag_bulk_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(if (open) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, null, Modifier.size(24.dp))
+            }
+            if (!open) return@Column
+            var artist by remember { mutableStateOf(form.tracks.firstOrNull()?.artist.orEmpty()) }
+            var composer by remember { mutableStateOf("") }
+            var lyricist by remember { mutableStateOf("") }
+            var comment by remember { mutableStateOf("") }
+            var disc by remember { mutableStateOf("") }
+            BulkRow(artist, { artist = it }, S(R.string.artist), placeholder = form.albumArtist) { form.tracks.forEach { t -> t.artist = artist } }
+            // アルバムアーティストを、そのまま曲のアーティストにも入れる(よくある使い方なので、ボタン 1 つで)
+            androidx.compose.material3.TextButton({ form.tracks.forEach { t -> t.artist = form.albumArtist } }, enabled = form.albumArtist.isNotBlank()) {
+                Text(S(R.string.tag_bulk_artist_from_album))
+            }
+            BulkRow(composer, { composer = it }, S(R.string.composer), enabled = !loading) { form.tracks.filter { it.detailSupported }.forEach { t -> t.composer = composer } }
+            BulkRow(lyricist, { lyricist = it }, S(R.string.lyricist), enabled = !loading) { form.tracks.filter { it.detailSupported }.forEach { t -> t.lyricist = lyricist } }
+            BulkRow(comment, { comment = it }, S(R.string.comment), enabled = !loading) { form.tracks.filter { it.detailSupported }.forEach { t -> t.comment = comment } }
+            if (form.numbers) {
+                BulkRow(disc, { disc = digits(it) }, S(R.string.tag_disc_no), number = true) { form.tracks.forEach { t -> t.discNo = disc } }
+                // 曲番号を、並んでいる順に 1 から振り直す
+                androidx.compose.material3.TextButton({
+                    form.tracks.forEachIndexed { i, t -> t.trackNo = (i + 1).toString() }
+                    form.trackTotal = form.tracks.size.toString()
+                }) { Text(S(R.string.tag_renumber)) }
+            }
+        }
+    }
+}
+
+/** まとめて入力する 1 つの欄と、その「全曲に適用」ボタン */
+@Composable
+private fun BulkRow(
+    value: String, onChange: (String) -> Unit, label: String, placeholder: String = "", enabled: Boolean = true, number: Boolean = false,
+    apply: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value, onChange, Modifier.weight(1f), label = { Text(label) }, singleLine = true, enabled = enabled,
+            placeholder = if (placeholder.isNotEmpty()) ({ Text(placeholder) }) else null,
+            keyboardOptions = if (number) androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+            else androidx.compose.foundation.text.KeyboardOptions.Default,
+        )
+        androidx.compose.material3.FilledTonalButton(apply, enabled = enabled) { Text(S(R.string.tag_apply_all)) }
     }
 }
 

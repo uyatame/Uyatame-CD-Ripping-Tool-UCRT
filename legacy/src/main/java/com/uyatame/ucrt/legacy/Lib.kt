@@ -94,6 +94,15 @@ class Lib(private val ctx: Context, private val prefs: Prefs) {
         newCount = 0
         progress = ""
         Bus.emit(Bus.SCAN)
+        // バックグラウンド読み込み中に CPU が眠ると、microSD の走査が止まる端末がある。
+        // スキャン中だけ部分 WakeLock を持ち、finally で必ず解放する。
+        val pm = ctx.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
+        val wake = runCatching {
+            pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "ucrt:library-scan")?.apply {
+                setReferenceCounted(false)
+                acquire(30L * 60L * 1000L)
+            }
+        }.getOrNull()
         try {
             val roots = folders()
             val bad = ArrayList<String>()
@@ -101,9 +110,16 @@ class Lib(private val ctx: Context, private val prefs: Prefs) {
             unreadable = bad
             LibCore.saveCache(cacheFile, list)
             publish(list)
+            // 音質チェックの曲から、ライブラリに無くなった曲を外す(メインのスレッドで)。
+            // 読めないフォルダ(外した SD カードなど)があるときは、一時的に見えないだけかもしれないので外さない
+            if (bad.isEmpty()) {
+                val uris = list.mapTo(HashSet()) { it.uri }
+                android.os.Handler(android.os.Looper.getMainLooper()).post { runCatching { LegacyApp.app.store.reconcileCheck(uris) } }
+            }
         } catch (e: Throwable) {
             progress = e.message ?: e.javaClass.simpleName
         } finally {
+            runCatching { if (wake?.isHeld == true) wake.release() }
             scanning = false
             full = false
             Bus.emit(Bus.SCAN or Bus.LIBRARY)

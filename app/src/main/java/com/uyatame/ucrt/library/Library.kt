@@ -213,6 +213,8 @@ class Library(private val ctx: Context) {
         )
         runCatching {
             ctx.contentResolver.query(children, cols, null, null, null)?.use { c ->
+                // 提供元(ネットワークなど)が一覧を取れなかったときは、理由を記録に残す
+                c.extras?.getString(DocumentsContract.EXTRA_ERROR)?.let { com.uyatame.ucrt.player.AudioEngine.log("scan: cannot list $docId: $it") }
                 while (c.moveToNext()) {
                     val id = c.getString(0) ?: continue
                     val name = c.getString(1) ?: ""

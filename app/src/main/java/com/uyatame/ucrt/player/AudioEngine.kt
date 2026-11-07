@@ -84,6 +84,8 @@ object AudioEngine {
     @Volatile var dsdMode = 0
     /** ネイティブ DSD のバイト順を逆にする(DAC によって必要) */
     @Volatile var dsdSwap = false
+    /** 内蔵 DAC(イヤホンジャックなど)に DoP で DSD を送ってみるか(実験的。USB DAC 直接出力のときは使わない) */
+    @Volatile var builtinDop = false
 
     /** DAR: 0 = オフ, 1 = PCM アップサンプリング, 2 = DSD に変換(USB DAC 直接出力のときだけ使う) */
     @Volatile var darMode = 0
@@ -378,6 +380,8 @@ class AudioOutput(
     private var forcedFrac = false
     private val eq = ParamEqualizer(sampleRate, channels)
     private val toFloat = PcmToFloat()
+    /** 内蔵 DAC への DoP(24bit の整数のまま書く) */
+    private var dopDirect = false
     /** USB DAC 直接出力のときのイコライザー(DAC のチャンネル数で作る) */
     private var usbEq: ParamEqualizer? = null
     private var fbuf = FloatArray(0)
@@ -499,9 +503,19 @@ class AudioOutput(
                 )
             } else if (!AudioEngine.wantUsbDirect) AudioEngine.report(false, "")
             val stereo = if (channels == 1) AFormat.CHANNEL_OUT_MONO else AFormat.CHANNEL_OUT_STEREO
-            val enc = AFormat.ENCODING_PCM_FLOAT
+            // 1.5) 内蔵 DAC への DoP(DoP の出力を頼まれていて、端末が 24bit PCM の直接再生を申告しているとき)。
+            // float には変換せず、24bit の整数のまま書く(DoP の目印を壊さないため)
+            val dopTrack: AudioTrack? = if (exact && !AudioEngine.wantUsbDirect && channels == 2 && BuiltinDop.canTry(ctx, sampleRate)) {
+                runCatching {
+                    val f = AFormat.Builder().setSampleRate(sampleRate).setChannelMask(stereo)
+                        .setEncoding(AFormat.ENCODING_PCM_24BIT_PACKED).build()
+                    val min = AudioTrack.getMinBufferSize(sampleRate, stereo, AFormat.ENCODING_PCM_24BIT_PACKED)
+                    if (min <= 0) null else newAudioTrack(attrs, f, maxOf(min * 2, sampleRate * 6))
+                }.onFailure { AudioEngine.log("dop: cannot create the 24bit track (${it.javaClass.simpleName}: ${it.message})") }.getOrNull()
+            } else null
+            val enc = if (dopTrack != null) AFormat.ENCODING_PCM_24BIT_PACKED else AFormat.ENCODING_PCM_FLOAT
             // 2) 通常の出力
-            val t = try {
+            val t = dopTrack ?: try {
                 build(AFormat.Builder().setSampleRate(outRate).setChannelMask(stereo).setEncoding(enc).build(), enc, outRate)
             } catch (e: Exception) {
                 // 作れなかった出力の流れ作業のスレッドを止める(残ると動き続ける)
@@ -525,8 +539,10 @@ class AudioOutput(
             AudioEngine.setOutput(OutputDevices.selected(ctx, AudioEngine.preferredKey) ?: OutputDevices.defaultDevice(ctx))
             track = t
             outEnc = enc
-            bitPerfect = false
-            exactOk = false
+            // DoP のときは、加工しないので加工なしの出力として扱う(画面にもそう出す)
+            dopDirect = dopTrack != null
+            bitPerfect = dopTrack != null
+            exactOk = dopTrack != null
             OutputDevices.trackText(t)?.let { AudioEngine.log("track: $it") }
             AudioEngine.log(
                 "output: ${khz(trackRate)} ${channels}ch ${AudioEngine.encName(outEnc)}" +
@@ -693,6 +709,7 @@ class AudioOutput(
     /** USB DAC 直接出力への書き込み */
     private fun writeUsb(d: com.uyatame.ucrt.player.usb.DacFormat, src: ByteBuffer, srcEnc: Int, frames: Int, stop: () -> Boolean) {
         // DoP のときは音量を一切掛けない(目印のバイトが壊れるため)。ReplayGain も音量と一緒に掛ける
+        // (保存してある音量をまだ受け取っていない・再生を始めた直後の無音は、DAC へ送る側(UsbDac)で掛ける)
         val gain = if (exact) 1.0 else usbDac.softGain * ReplayGain.linear(rg)
         val slot = d.subslot
         val dch = d.channels
@@ -795,6 +812,10 @@ class AudioOutput(
             return
         }
         val t = track ?: return
+        if (dopDirect) {
+            writeDopDirect(t, src, stop)
+            return
+        }
         // 通常の出力: float に変換し、イコライザーと音量を通す
         if (fbuf.size < samples) fbuf = FloatArray(samples)
         if (srcEnc == AFormat.ENCODING_PCM_FLOAT) {
@@ -893,6 +914,26 @@ class AudioOutput(
     }
 
     /** 通常の出力へ書き込む(音割れしないよう ±1 に収める) */
+    /** 内蔵 DAC への DoP: 24bit の整数のバイト列を、何も変えずに書く(音量・イコライザー・ReplayGain は掛けない) */
+    private var dopBuf = ByteArray(0)
+    private fun writeDopDirect(t: AudioTrack, src: ByteBuffer, stop: () -> Boolean) {
+        val n = src.remaining()
+        if (n <= 0) return
+        if (dopBuf.size < n) dopBuf = ByteArray(n)
+        src.get(dopBuf, 0, n)
+        var off = 0
+        while (off < n && !stop() && !failed && !released) {
+            // 待たずに書ける分だけ書く(止められたときに、書き込みの待ちでスレッドが残らないように)
+            val w = t.write(dopBuf, off, n - off, AudioTrack.WRITE_NON_BLOCKING)
+            if (w < 0) {
+                AudioEngine.log("dop write error $w")
+                failed = true
+                return
+            }
+            if (w == 0) Thread.sleep(if (paused) 50 else 20) else off += w
+        }
+    }
+
     private fun writeTrack(buf: FloatArray, samples: Int, stop: () -> Boolean = { false }) {
         val t = track ?: return
         for (k in 0 until samples) {

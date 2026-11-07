@@ -6,6 +6,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.os.SystemClock
 import android.view.View
+import com.uyatame.ucrt.legacy.ui.add
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.exp
@@ -18,20 +19,31 @@ import kotlin.math.sqrt
 /**
  * スペクトラムアナライザー(本家の SpectrumTap・SpectrumView を、軽さ優先で写したもの)。
  *
- * 再生のスレッドが、音の加工のあとの音を左右を混ぜた 1 チャンネルにして輪のバッファーに入れておき、
+ * 再生のスレッドが、音の加工のあとの音を左右それぞれ輪のバッファーに入れておき(VU メーターのため。スペクトラムは混ぜて使う)、
  * 画面は「今鳴っている位置」(出力の再生位置)までの音を取り出して周波数に分ける。
  * 設定でオンにして、再生画面を開いている間だけ動く(それ以外は何もしない)
  */
 object Spectrum {
     /** 表示している画面があるか(ある間だけ写す) */
     @Volatile var enabled = false
+    /** 表示しているスペクトラムの数(再生画面とロック画面の両方に出ていても、片方を閉じたとき止まらないように) */
+    private var views = 0
 
-    private const val RING = 1 shl 16
+    /** スペクトラムの表示が増えた・減った(メインのスレッドから) */
+    fun viewAttached(on: Boolean) {
+        views = (views + if (on) 1 else -1).coerceAtLeast(0)
+        enabled = views > 0
+    }
+
+    // 写しておく長さ(約 6 秒分。44.1 kHz で)。鳴るまでの遅れ(DAR の x16 と USB DAC のリング)より長くないと、
+    // 鳴る前に上書きされて表示が崩れる(本家と同じ不具合を防ぐ)
+    private const val RING = 1 shl 18
     private const val MASK = RING - 1
     const val FFT_SIZE = 1024
     const val BANDS = 32
 
-    private val ring = FloatArray(RING)
+    private val ringL = FloatArray(RING)
+    private val ringR = FloatArray(RING)
     private val lock = Any()
     private var owner: Any? = null
     private var headOf: (() -> Long)? = null
@@ -55,14 +67,13 @@ object Spectrum {
                 stored = 0
                 base = start
             }
-            val use = min(channels, 2)
-            val inv = 1f / use
+            val two = channels >= 2
             var k = 0
             for (f in 0 until frames) {
-                var s = 0f
-                for (c in 0 until use) s += buf[k + c]
+                val m = (stored and MASK.toLong()).toInt()
+                ringL[m] = buf[k]
+                ringR[m] = if (two) buf[k + 1] else buf[k]
                 k += channels
-                ring[(stored and MASK.toLong()).toInt()] = s * inv
                 stored++
             }
         }
@@ -75,25 +86,35 @@ object Spectrum {
 
     private var lastHead = -1L
     private var headMovedAt = 0L
+    private val headLock = Any()
 
-    /** 今鳴っている位置までの dst.size 個の音を入れる。音が無い・止まっていれば 0(入れた周波数を返す) */
-    fun window(dst: FloatArray): Int {
+    /** 今鳴っている位置までの dst.size 個の音を入れる(左右を混ぜて)。音が無い・止まっていれば 0(入れた周波数を返す) */
+    fun window(dst: FloatArray): Int = read(dst, null, dst.size)
+
+    /** 今鳴っている位置までの n 個の音を、左右に分けて入れる(VU メーター用) */
+    fun windowStereo(l: FloatArray, r: FloatArray, n: Int): Int = read(l, r, n)
+
+    private fun read(l: FloatArray, r: FloatArray?, n: Int): Int {
         val h: () -> Long
-        val r: Int
-        synchronized(lock) { h = headOf ?: return 0; r = rate }
+        val rt: Int
+        synchronized(lock) { h = headOf ?: return 0; rt = rate }
         val head = runCatching { h() }.getOrDefault(0L)
         // 再生位置が少しの間進まなければ(一時停止・停止)、音は鳴っていないので 0(バーがすっと下がる)
         val now = SystemClock.uptimeMillis()
-        if (head != lastHead) { lastHead = head; headMovedAt = now } else if (now - headMovedAt > 150) return 0
+        synchronized(headLock) {
+            if (head != lastHead) { lastHead = head; headMovedAt = now } else if (now - headMovedAt > 150) return 0
+        }
         synchronized(lock) {
             if (stored == 0L) return 0
             val end = (head - base).coerceIn(0L, stored)
-            val start = end - dst.size
-            for (i in dst.indices) {
+            val start = end - n
+            for (i in 0 until n) {
                 val k = start + i
-                dst[i] = if (k < 0 || k < stored - RING) 0f else ring[(k and MASK.toLong()).toInt()]
+                if (k < 0 || k < stored - RING) { l[i] = 0f; if (r != null) r[i] = 0f; continue }
+                val m = (k and MASK.toLong()).toInt()
+                if (r == null) l[i] = (ringL[m] + ringR[m]) * 0.5f else { l[i] = ringL[m]; r[i] = ringR[m] }
             }
-            return r
+            return rt
         }
     }
 }
@@ -129,7 +150,7 @@ class SpectrumView(ctx: Context, private val color: Int, private val refreshMs: 
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        Spectrum.enabled = true
+        Spectrum.viewAttached(true)
         running = true
         post(tick)
     }
@@ -137,7 +158,7 @@ class SpectrumView(ctx: Context, private val color: Int, private val refreshMs: 
     override fun onDetachedFromWindow() {
         running = false
         removeCallbacks(tick)
-        Spectrum.enabled = false
+        Spectrum.viewAttached(false)
         super.onDetachedFromWindow()
     }
 
@@ -220,5 +241,86 @@ class SpectrumView(ctx: Context, private val color: Int, private val refreshMs: 
             }
             len = len shl 1
         }
+    }
+}
+
+/**
+ * 再生画面の VU メーター(本家の VuMeterView と同じ。描き方と動き方は core の VuMeter・VuPainter を使う)。
+ * style: 0 = 針、1 = バー。タップで切り替える(onStyle)。表示している間だけ計算し、止まったら描き直さない
+ */
+class VuMeterView(
+    ctx: Context, private var style: Int, mode: Int, refDb: Int, private val redDb: Int, private val hold: Boolean,
+    private val color: Int, private val textColor: Int, private val refreshMs: Int, private val onStyle: (Int) -> Unit,
+) : View(ctx) {
+    private val meter = com.uyatame.ucrt.player.VuMeter().apply { this.mode = mode; this.refDb = refDb.toFloat() }
+    private val painter = com.uyatame.ucrt.player.VuPainter(resources.displayMetrics.density)
+    private val l = FloatArray(8192)
+    private val r = FloatArray(8192)
+    private var running = false
+
+    private val tick = object : Runnable {
+        override fun run() {
+            if (!running) return
+            // 直前の約 50 ms の音
+            val rate = Spectrum.windowStereo(l, r, 8192)
+            val ok = rate > 0
+            val n = if (ok) (rate / 20).coerceIn(256, 8192) else 0
+            if (ok && n < 8192) { System.arraycopy(l, 8192 - n, l, 0, n); System.arraycopy(r, 8192 - n, r, 0, n) }
+            val moved = meter.step(l, r, n, ok, System.nanoTime())
+            val still = !ok && moved < 0.01f
+            if (!still) invalidate()
+            postDelayed(this, if (still) 200L else refreshMs.toLong().coerceIn(16L, 200L))
+        }
+    }
+
+    init {
+        setOnClickListener { style = if (style == 0) 1 else 0; onStyle(style); invalidate() }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        Spectrum.viewAttached(true)
+        running = true
+        post(tick)
+    }
+
+    override fun onDetachedFromWindow() {
+        running = false
+        removeCallbacks(tick)
+        Spectrum.viewAttached(false)
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat(); val h = height.toFloat()
+        if (style == 1) painter.drawBars(c, w, h, meter.peak[0], meter.peak[1], meter.hold[0], meter.hold[1], color, textColor, redDb.toFloat(), hold)
+        else painter.drawNeedles(c, w, h, meter.needle[0], meter.needle[1])
+    }
+}
+
+/**
+ * 再生画面(とロック画面)に、スペクトラムと VU メーターを設定どおりに足す(本家と同じ: スペクトラム・VU メーター・両方)。
+ * color はふだんの色、textColor は目盛りの数字の色
+ */
+fun addMeters(parent: android.widget.LinearLayout, ctx: Context, color: Int, textColor: Int, small: Boolean) {
+    val sp = LegacyApp.app.prefs.sp
+    val show = sp.getInt("meterShow", 0).coerceIn(0, 2)
+    val ms = sp.getInt("legacySpectrumMs", 50)
+    val base = if (small) 36 else 48
+    val top = if (small) 4 else 10
+    if (show != 1) parent.add(SpectrumView(ctx, color, ms), h = base, t = top, l = 6, r = 6)
+    if (show != 0) {
+        // 針は高さを 1.5 倍、バーは少し低く
+        fun heightOf(style: Int) = if (style == 1) (base * 0.85f).toInt() else (base * 1.5f).toInt()
+        lateinit var v: VuMeterView
+        v = VuMeterView(
+            ctx, sp.getInt("vuStyle", 0).coerceIn(0, 1), sp.getInt("vuMode", 0).coerceIn(0, 1), sp.getInt("vuRefDb", 18),
+            sp.getInt("vuRedDb", 6), sp.getBoolean("vuHold", true), color, textColor, ms,
+        ) { st ->
+            // タップで切り替えたら覚えておく(画面は作り直さず、高さだけ合わせる)
+            sp.edit().putInt("vuStyle", st).apply()
+            v.layoutParams?.let { it.height = com.uyatame.ucrt.legacy.ui.dp(heightOf(st)); v.layoutParams = it }
+        }
+        parent.add(v, h = heightOf(sp.getInt("vuStyle", 0).coerceIn(0, 1)), t = if (show == 2) 6 else top, l = 6, r = 6)
     }
 }

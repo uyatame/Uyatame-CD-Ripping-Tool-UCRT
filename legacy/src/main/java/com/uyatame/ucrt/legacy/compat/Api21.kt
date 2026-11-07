@@ -8,6 +8,9 @@ import android.view.Window
 
 /** Android 5.0 からの API(呼ぶ前に版を確かめる) */
 object Api21 {
+    /** 通知の種類を「アラーム」にする(フルスクリーン通知で画面を開いてもらいやすくする) */
+    fun alarmCategory(b: android.app.Notification.Builder) { b.setCategory(android.app.Notification.CATEGORY_ALARM) }
+
     /** 触ったときに波紋が広がる背景 */
     fun ripple(color: Int, content: Drawable?, mask: Drawable?): Drawable = RippleDrawable(ColorStateList.valueOf(color), content, mask)
 

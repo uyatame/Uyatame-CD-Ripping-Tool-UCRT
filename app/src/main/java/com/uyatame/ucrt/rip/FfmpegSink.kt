@@ -94,16 +94,31 @@ class FfmpegSink(
     override fun write(buf: ByteArray, off: Int, len: Int) {
         if (len <= 0) return
         error?.let { throw fail(it.message ?: it.javaClass.simpleName) }
-        queue.put(buf.copyOfRange(off, off + len))
+        offerOrFail(buf.copyOfRange(off, off + len))
+    }
+
+    /**
+     * キューに入れる。満杯でも、書き込みのスレッドが止まっていれば(FFmpeg が死んだなど)永久には待たずに失敗にする
+     * (以前は、キューが満杯の瞬間に書き込みのスレッドが死ぬと、読み取りが固まっていた)
+     */
+    private fun offerOrFail(b: ByteArray) {
+        val begin = System.nanoTime()
+        while (!queue.offer(b, 100, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+            error?.let { throw fail(it.message ?: it.javaClass.simpleName) }
+            if (!writer.isAlive) throw fail("writer stopped")
+            if (System.nanoTime() - begin > 60_000_000_000L) throw fail("timeout (FFmpeg is not reading)")
+        }
     }
 
     override fun finish() {
         if (finished) return
         finished = true
-        queue.put(ByteArray(0))
-        writer.join()
+        if (writer.isAlive) offerOrFail(ByteArray(0))
+        // 変換が長引いても、締め切りを付ける(超えたら FFmpeg を止める)
+        writer.join(WAIT_MS)
+        if (writer.isAlive) { proc.destroy(); writer.join(2000); throw fail("timeout") }
         error?.let { throw fail(it.message ?: it.javaClass.simpleName) }
-        val code = proc.waitFor()
+        val code = waitForExit()
         errReader.join(2000)
         if (code != 0) throw fail("exit $code")
         try {
@@ -111,6 +126,23 @@ class FfmpegSink(
         } finally {
             tmp.delete()
         }
+    }
+
+    /** FFmpeg の終わりを待つ(waitFor(時間) は Android 8 からなので、exitValue を見て待つ。長引けば止める) */
+    private fun waitForExit(): Int {
+        val deadline = System.nanoTime() + WAIT_MS * 1_000_000L
+        while (System.nanoTime() < deadline) {
+            val code = runCatching { proc.exitValue() }.getOrNull()
+            if (code != null) return code
+            Thread.sleep(50)
+        }
+        proc.destroy()
+        throw fail("timeout")
+    }
+
+    private companion object {
+        /** 変換の終わりを待つ長さの上限(ミリ秒)。1 曲の変換には十分に長い */
+        const val WAIT_MS = 120_000L
     }
 
     override fun abort() {

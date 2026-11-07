@@ -54,6 +54,11 @@ class PlayerStore(ctx: Context) {
         private set
     var favAlbumSet by mutableStateOf<Set<String>>(emptySet())
         private set
+    /** お気に入りのアーティスト(名前。新しく追加したものが先頭) */
+    var favArtists by mutableStateOf<List<String>>(emptyList())
+        private set
+    var favArtistSet by mutableStateOf<Set<String>>(emptySet())
+        private set
     var playlists by mutableStateOf<List<Playlist>>(emptyList())
         private set
     /** 再生履歴(新しいものが先頭。同じ曲は 1 件にまとめる) */
@@ -77,6 +82,8 @@ class PlayerStore(ctx: Context) {
         checkTrackSet = checkTracks.toHashSet()
         favAlbums = strings(o.optJSONArray("favAlbums"))
         favAlbumSet = favAlbums.toHashSet()
+        favArtists = strings(o.optJSONArray("favArtists"))
+        favArtistSet = favArtists.toHashSet()
         playlists = o.optJSONArray("playlists")?.let { a ->
             (0 until a.length()).mapNotNull { i ->
                 val p = a.optJSONObject(i) ?: return@mapNotNull null
@@ -99,6 +106,7 @@ class PlayerStore(ctx: Context) {
     /** 保存する中身(どれも書き換えずに作り直す一覧なので、そのまま別のスレッドへ渡せる) */
     private class Snapshot(
         val favTracks: List<String>, val favAlbums: List<String>, val checkTracks: List<String>,
+        val favArtists: List<String>,
         val playlists: List<Playlist>, val history: List<PlayRecord>, val counts: Map<String, Int>,
     )
 
@@ -110,7 +118,7 @@ class PlayerStore(ctx: Context) {
      * 続けて何度も呼ばれたとき(並べ替えのドラッグなど)は、最後の中身を 1 回だけ書く
      */
     private fun save() {
-        pending = Snapshot(favTracks, favAlbums, checkTracks, playlists, history, counts)
+        pending = Snapshot(favTracks, favAlbums, checkTracks, favArtists, playlists, history, counts)
         if (!saveQueued.compareAndSet(false, true)) return
         writer.execute {
             saveQueued.set(false)
@@ -119,6 +127,7 @@ class PlayerStore(ctx: Context) {
             o.put("favTracks", JSONArray(s.favTracks))
             o.put("favAlbums", JSONArray(s.favAlbums))
             o.put("checkTracks", JSONArray(s.checkTracks))
+            o.put("favArtists", JSONArray(s.favArtists))
             o.put("playlists", JSONArray().apply {
                 s.playlists.forEach { p -> put(JSONObject().put("id", p.id).put("name", p.name).put("uris", JSONArray(p.uris))) }
             })
@@ -198,6 +207,14 @@ class PlayerStore(ctx: Context) {
         save()
     }
 
+    fun isFavArtist(name: String?) = name != null && name in favArtistSet
+
+    fun toggleFavArtist(name: String) {
+        favArtists = if (isFavArtist(name)) favArtists - name else listOf(name) + favArtists
+        favArtistSet = favArtists.toHashSet()
+        save()
+    }
+
     fun moveFav(from: Int, to: Int) {
         if (from !in favTracks.indices || to !in favTracks.indices) return
         favTracks = favTracks.toMutableList().apply { add(to, removeAt(from)) }
@@ -217,6 +234,37 @@ class PlayerStore(ctx: Context) {
     fun moveCheck(from: Int, to: Int) {
         if (from !in checkTracks.indices || to !in checkTracks.indices) return
         checkTracks = checkTracks.toMutableList().apply { add(to, removeAt(from)) }
+        checkTrackSet = checkTracks.toHashSet()
+        save()
+    }
+
+    /** 音質チェックの曲を、key の順(名前順など)に並べ替える(並びはそのまま保存する) */
+    fun sortCheck(key: (String) -> String) {
+        checkTracks = checkTracks.sortedWith(compareBy(java.text.Collator.getInstance()) { key(it) })
+        checkTrackSet = checkTracks.toHashSet()
+        save()
+    }
+
+    /**
+     * ライブラリを読み直したあと、音質チェックの曲をライブラリに合わせる。
+     * フォルダの指定を変えて URI が変わった曲は、同じファイル(docKey が同じ)の新しい URI に置き換え、
+     * ライブラリに無くなった曲は外す(外さないと、曲数に数えられたまま増え続ける)。
+     * ライブラリが空のとき(読み込みに失敗したときなど)は何もしない
+     */
+    fun reconcileCheck(library: List<String>, docKey: (String) -> String) {
+        if (library.isEmpty() || checkTracks.isEmpty()) return
+        val have = library.toHashSet()
+        val byKey = HashMap<String, String>(library.size * 2)
+        for (u in library) byKey.putIfAbsent(docKey(u), u)
+        val out = LinkedHashSet<String>()
+        for (u in checkTracks) {
+            val now = if (u in have) u else byKey[docKey(u)]
+            if (now != null) out.add(now)
+        }
+        val list = out.toList()
+        if (list == checkTracks) return
+        checkTracks = list
+        checkTrackSet = list.toHashSet()
         save()
     }
 

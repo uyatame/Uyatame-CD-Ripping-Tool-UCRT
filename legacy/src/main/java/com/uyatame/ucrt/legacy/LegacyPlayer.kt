@@ -363,6 +363,8 @@ class LegacyPlayer(ctx: Context) {
         if (n >= q.size) {
             if (repeatMode == 1 || !auto) {
                 if (repeatMode == 1) { setQueue(q, 0); startAt(0, isPlaying || auto) }
+                // 最後の曲で次へを押したとき: 設定の「最後まで再生したら次のリストへ」がオンなら、次のリストの 1 曲目へ
+                else onSkipPastEnd?.invoke()
                 return
             }
             return
@@ -371,11 +373,20 @@ class LegacyPlayer(ctx: Context) {
         startAt(0, isPlaying || auto)
     }
 
-    fun prev() {
-        // 3 秒より後ろなら曲の頭へ、前なら前の曲へ
-        if (positionMs > 3000 || index <= 0) {
-            if (index <= 0 && repeatMode == 1 && queue.size > 1 && positionMs <= 3000) {
-                setQueue(queue, queue.lastIndex); startAt(0, isPlaying); return
+    /** 最後の曲で次へを押したとき(次のリストへ。本家と同じ) */
+    @Volatile var onSkipPastEnd: (() -> Boolean)? = null
+    /** 1 曲目で前へを押したとき(前のリストの最後の曲へ)。始めたら true */
+    @Volatile var onSkipBeforeStart: (() -> Boolean)? = null
+    /** ジャケット・ミニプレーヤーを右へスワイプしたときは、頭出しをせずにいつも前の曲へ(設定) */
+    @Volatile var swipePrevToTrack = false
+
+    /** 3 秒より後ろなら曲の頭へ、前なら前の曲へ。fromSwipe: スワイプから(設定で、頭出しをせずに前の曲へ) */
+    fun prev(fromSwipe: Boolean = false) {
+        val direct = fromSwipe && swipePrevToTrack
+        if ((!direct && positionMs > 3000) || index <= 0) {
+            if (index <= 0 && (direct || positionMs <= 3000)) {
+                if (repeatMode == 1 && queue.size > 1) { setQueue(queue, queue.lastIndex); startAt(0, isPlaying); return }
+                if (onSkipBeforeStart?.invoke() == true) return
             }
             seek(0); return
         }
@@ -986,6 +997,7 @@ class LegacyPlayer(ctx: Context) {
         val need = frames * fb
         if (usbBytes.size < need) usbBytes = ByteArray(need)
         val b = usbBytes
+        // (保存してある音量をまだ受け取っていない・再生を始めた直後の無音は、DAC へ送る側(UsbDac)で掛ける)
         val gain = com.uyatame.ucrt.legacy.usb.UsbDac.softGain
         val full = (1L shl (f.bits - 1)).toDouble()
         val max = (1L shl (f.bits - 1)) - 1

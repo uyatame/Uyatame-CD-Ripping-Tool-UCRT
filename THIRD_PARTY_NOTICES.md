@@ -5,6 +5,11 @@
 | 名前 | 用途 | ライセンス |
 |---|---|---|
 | [jump3r](https://codeberg.org/sciss/jump3r) 1.0.5（LAME 3.98.4のJava移植） | MP3エンコード | LGPL v2.1以降 |
+| [smbj](https://github.com/hierynomus/smbj) 0.13.0 | NASへの接続（SMB） | Apache-2.0 |
+| [sshj](https://github.com/hierynomus/sshj) 0.38.0 | NASへの接続（SFTP） | Apache-2.0 |
+| [Bouncy Castle](https://www.bouncycastle.org/) 1.78.1 | smbj・sshjの暗号 | MIT |
+| [OkHttp](https://square.github.io/okhttp/) 4.12.0 | NASへの接続（WebDAV） | Apache-2.0 |
+| [SLF4J](https://www.slf4j.org/) 2.0.9 | smbj・sshjのログ（出力しない版） | MIT |
 | [FFmpeg](https://github.com/FFmpeg/FFmpeg) 8.1.3（LAME 3.100を組み込み） | CDの取り込みのFLAC・MP3の変換（改変せず、独立したプログラムとして同梱）。内蔵のAACデコーダーの符号表と、HE-AAC（SBR・パラメトリックステレオ）の処理（libavcodecのaacsbr・aacpsをKotlinに移植） | LGPL v2.1以降 |
 | [minimp3](https://github.com/lieff/minimp3) | 内蔵のMP3デコーダー（Kotlinに移植） | CC0 1.0 |
 | [JNA](https://github.com/java-native-access/jna) 5.14.0 | USB DAC直接出力（usbfsの呼び出し） | Apache License 2.0（Apache-2.0 / LGPL-2.1のデュアルライセンスから選択） |

@@ -313,7 +313,7 @@ class NowPlayingView(private val act: LegacyActivity, private val inPane: Boolea
         val sp = act.app.prefs.sp
         if (sp.getBoolean("spectrum", false) && !(small && act.landscape)) {
             val color = sp.getInt("spectrumColor", 0).let { if (it == 0) col.accent else it }
-            ctl.add(SpectrumView(act, color, sp.getInt("legacySpectrumMs", 50)), h = if (small) 36 else 48, t = if (small) 4 else 10, l = 6, r = 6)
+            addMeters(ctl, act, color, col.sub, small)
         }
         // 再生位置
         ctl.add(seek, t = if (small) 4 else 12)
@@ -411,7 +411,7 @@ class NowPlayingView(private val act: LegacyActivity, private val inPane: Boolea
                         v.animate().translationX(if (next) -w else w).setDuration(150).setListener(object : android.animation.AnimatorListenerAdapter() {
                             override fun onAnimationEnd(a: android.animation.Animator) {
                                 v.animate().setListener(null)
-                                if (next) p.next() else p.prev()
+                                if (next) p.next() else p.prev(fromSwipe = true)
                                 v.translationX = if (next) w * 0.6f else -w * 0.6f
                                 v.rotation = 0f
                                 v.animate().translationX(0f).alpha(1f).setDuration(220).start()
@@ -580,25 +580,7 @@ class NowPlayingView(private val act: LegacyActivity, private val inPane: Boolea
         )
     }
 
-    /** ジャケットの代表色(本家の dominantColor と同じ) */
-    private fun dominant(src: Bitmap): Int {
-        val small = Bitmap.createScaledBitmap(src, 24, 24, true)
-        val hsv = FloatArray(3)
-        var r = 0.0; var g = 0.0; var b = 0.0; var w = 0.0
-        for (y in 0 until small.height) for (x in 0 until small.width) {
-            val c = small.getPixel(x, y)
-            Color.colorToHSV(c, hsv)
-            val wt = 0.05 + hsv[1] * hsv[2]
-            r += Color.red(c) * wt; g += Color.green(c) * wt; b += Color.blue(c) * wt; w += wt
-        }
-        if (small !== src) small.recycle()
-        if (w <= 0) return 0xFF2A2A2A.toInt()
-        val avg = Color.rgb((r / w).toInt(), (g / w).toInt(), (b / w).toInt())
-        Color.colorToHSV(avg, hsv)
-        hsv[1] = hsv[1].coerceAtMost(0.75f)
-        hsv[2] = hsv[2].coerceIn(0.32f, 0.58f)
-        return Color.HSVToColor(hsv)
-    }
+    private fun dominant(src: Bitmap): Int = dominantColor(src)
 
     // ---- 歌詞 ----
 
@@ -860,3 +842,23 @@ class NowPlayingView(private val act: LegacyActivity, private val inPane: Boolea
 
 /** 再生操作のボタンの並び(本家と同じ。壊れた値なら初めの並び) */
 fun controlOrder(v: String?): String = if (v != null && v.length == 5 && v.toSet() == "RPXNS".toSet()) v else "RPXNS"
+
+/** ジャケットの代表色(本家の dominantColor と同じ。ロック画面でも使う) */
+fun dominantColor(src: Bitmap): Int {
+    val small = Bitmap.createScaledBitmap(src, 24, 24, true)
+    val hsv = FloatArray(3)
+    var r = 0.0; var g = 0.0; var b = 0.0; var w = 0.0
+    for (y in 0 until small.height) for (x in 0 until small.width) {
+        val c = small.getPixel(x, y)
+        Color.colorToHSV(c, hsv)
+        val wt = 0.05 + hsv[1] * hsv[2]
+        r += Color.red(c) * wt; g += Color.green(c) * wt; b += Color.blue(c) * wt; w += wt
+    }
+    if (small !== src) small.recycle()
+    if (w <= 0) return 0xFF2A2A2A.toInt()
+    val avg = Color.rgb((r / w).toInt(), (g / w).toInt(), (b / w).toInt())
+    Color.colorToHSV(avg, hsv)
+    hsv[1] = hsv[1].coerceAtMost(0.75f)
+    hsv[2] = hsv[2].coerceIn(0.32f, 0.58f)
+    return Color.HSVToColor(hsv)
+}

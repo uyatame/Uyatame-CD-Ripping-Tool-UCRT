@@ -87,4 +87,46 @@ class TagExtraTest {
         assertEquals("歌詞", e.lyrics)
         f.delete()
     }
+
+    private fun mp4Box(t: String, vararg p: ByteArray): ByteArray {
+        fun be32(v: Int) = byteArrayOf((v shr 24).toByte(), (v shr 16).toByte(), (v shr 8).toByte(), v.toByte())
+        val b = p.fold(ByteArray(0)) { a, x -> a + x }
+        return be32(8 + b.size) + t.toByteArray() + b
+    }
+
+    @Test fun mp4TagLeavesNoTempFileAndKeepsAudio() {
+        val audio = ByteArray(64) { it.toByte() }
+        val f = File.createTempFile("ucrt", ".m4a")
+        f.writeBytes(mp4Box("ftyp", "M4A ".toByteArray()) + mp4Box("moov", mp4Box("mvhd", ByteArray(100))) + mp4Box("mdat", audio))
+        Mp4Tagger.tag(f, Mp4Tags("曲", "歌手", "アルバム", "歌手", "2024", 1, 1, 1, 1), null)
+        // 一時ファイルは残らず、音声のデータはそのまま入っている
+        assertEquals(false, File(f.parentFile, f.name + ".tmp").exists())
+        assertEquals(false, File(f.parentFile, f.name + ".bak").exists())
+        val bytes = f.readBytes()
+        val at = String(bytes, Charsets.ISO_8859_1).indexOf("mdat")
+        assertEquals(audio.toList(), bytes.copyOfRange(at + 4, at + 4 + 64).toList())
+        f.delete()
+    }
+
+    @Test fun mp4WithoutMoovFailsAndKeepsTheFile() {
+        val original = mp4Box("ftyp", "M4A ".toByteArray()) + mp4Box("mdat", ByteArray(64))
+        val f = File.createTempFile("ucrt", ".m4a")
+        f.writeBytes(original)
+        val failed = runCatching { Mp4Tagger.tag(f, Mp4Tags("曲", "歌手", "アルバム", "歌手", "2024", 1, 1, 1, 1), null) }.isFailure
+        assertEquals(true, failed)
+        // 失敗しても、元のファイルはそのまま(途中で消えたり、空になったりしない)
+        assertEquals(original.toList(), f.readBytes().toList())
+        f.delete()
+    }
+
+    @Test fun mp4CorruptChunkOffsetCountDoesNotCrash() {
+        fun be32(v: Int) = byteArrayOf((v shr 24).toByte(), (v shr 16).toByte(), (v shr 8).toByte(), v.toByte())
+        // stco が、実際より多いエントリ数を名乗っている(壊れた moov)。範囲外を読み書きせずに最後まで処理できる
+        val stco = mp4Box("stco", be32(0), be32(1_000_000), be32(100))
+        val f = File.createTempFile("ucrt", ".m4a")
+        f.writeBytes(mp4Box("ftyp", "M4A ".toByteArray()) + mp4Box("moov", mp4Box("trak", mp4Box("mdia", mp4Box("minf", mp4Box("stbl", stco))))) + mp4Box("mdat", ByteArray(64)))
+        Mp4Tagger.tag(f, Mp4Tags("曲", "歌手", "アルバム", "歌手", "2024", 1, 1, 1, 1), null)
+        assertEquals(true, f.length() > 0)
+        f.delete()
+    }
 }

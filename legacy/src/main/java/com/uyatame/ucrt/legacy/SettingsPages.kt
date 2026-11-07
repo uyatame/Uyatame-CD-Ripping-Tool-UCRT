@@ -145,6 +145,7 @@ object SettingsPages {
                     7 -> aboutPage(act).forEach { add(it) }
                     8 -> add(Sound.main(act) { act.openSettings(80 + it) })
                     9 -> playerPage(act).forEach { add(it) }
+                    12 -> profilesPage(act).forEach { add(it) }
                     in 81..89 -> add(Sound.sub(act, page - 80))
                 }
             }
@@ -167,6 +168,7 @@ object SettingsPages {
         7 -> S(R.string.about_this_app)
         8 -> Sound.title(Sound.MAIN)
         9 -> S(R.string.player_screen)
+        12 -> S(R.string.profiles)
         in 81..89 -> Sound.title(page - 80)
         else -> S(R.string.settings)
     }
@@ -205,6 +207,7 @@ object SettingsPages {
         col.add(cardOf(act, listOf(
             categoryRow(act, Icons.Edit, S(R.string.tag_edit_files), S(R.string.tag_edit_files_desc)) { Edit.editFiles(act) },
             categoryRow(act, Icons.Smartphone, S(R.string.display), listOf(S(R.string.auto), S(R.string.light), S(R.string.dark))[p.themeMode.coerceIn(0, 2)]) { act.openSettings(5) },
+            categoryRow(act, Icons.Settings, S(R.string.profiles), S(R.string.profiles_desc)) { act.openSettings(12) },
             categoryRow(act, Icons.Build, S(R.string.log), S(R.string.activity_log_for_troubleshooting)) { act.openSettings(6) },
             categoryRow(act, Icons.Info, S(R.string.about_this_app), S(R.string.version) + version(act) + S(R.string.licenses)) { act.openSettings(7) },
         )), b = 12)
@@ -218,6 +221,8 @@ object SettingsPages {
 
     /** アプリを終了する(再生を止めて、通知も消す) */
     private fun quit(act: LegacyActivity) {
+        // サイレントモードを戻す(戻す役が居なくなり、着信音などが止まったままにならないように)
+        runCatching { Silent.of(act).disable() }
         app.writeResume()
         app.player.pause()
         app.store.flush()
@@ -358,10 +363,88 @@ object SettingsPages {
         return out
     }
 
+    // ---------------- 設定のプロファイル ----------------
+
+    private fun profilesPage(act: LegacyActivity): List<View> {
+        fun reload() { act.show() }
+        fun confirm(msg: String, ok: () -> Unit) {
+            val d = UDialog(act).message(msg)
+            d.button(S(R.string.cancel)) { d.dismiss() }
+            d.button(S(R.string.ok)) { d.dismiss(); ok() }
+            d.show()
+        }
+        val intro = note(act, S(R.string.profiles_intro))
+        val s = Section(act, S(R.string.profiles))
+        val list = Profiles.list(act)
+        if (list.isEmpty()) s.add(note(act, S(R.string.profiles_none)))
+        val fmt = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+        for (p in list) {
+            val col = vbox(act)
+            col.add(text(act, p.name, Type.BodyLarge))
+            if (p.savedAt > 0) col.add(note(act, fmt.format(java.util.Date(p.savedAt))))
+            val row = hbox(act)
+            row.add(button(act, S(R.string.profiles_apply), Btn.Tonal) {
+                confirm(S(R.string.profiles_apply_confirm, p.name)) {
+                    act.snack(S(if (Profiles.load(act, p.id)) R.string.profiles_applied else R.string.profiles_failed)); reload()
+                }
+            }, w = WRAP, r = 8)
+            row.add(button(act, S(R.string.profiles_overwrite), Btn.Text) {
+                confirm(S(R.string.profiles_overwrite_confirm, p.name)) { Profiles.save(act, p.name, p.id); act.snack(S(R.string.profiles_saved)); reload() }
+            }, w = WRAP, r = 8)
+            row.add(button(act, S(R.string.delete), Btn.Text) {
+                confirm(S(R.string.delete_2, p.name)) { Profiles.delete(act, p.id); reload() }
+            }, w = WRAP)
+            col.add(row, t = 4)
+            s.add(col)
+        }
+        val saveRow = hbox(act)
+        saveRow.add(button(act, S(R.string.profiles_save_current), Btn.Outlined) {
+            Actions.nameDialog(act, S(R.string.profiles_save_current), "", S(R.string.save)) { name ->
+                if (name.isNotBlank()) { Profiles.save(act, name); act.snack(S(R.string.profiles_saved)); reload() }
+            }
+        }, w = WRAP)
+        s.add(saveRow)
+        // ファイルへの書き出し・読み込み(Android 4.4 からは保存先を選んでもらい、それより前はダウンロードのフォルダに置く)
+        val f = Section(act, S(R.string.profiles_file))
+        f.add(note(act, S(R.string.profiles_file_desc)))
+        val fileName = "UCRT_Legacy_settings.json"
+        @Suppress("DEPRECATION")
+        fun oldFile() = java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), fileName)
+        if (Build.VERSION.SDK_INT < 19) f.add(note(act, oldFile().path))
+        val io = hbox(act)
+        io.add(button(act, S(R.string.profiles_export), Btn.Outlined) {
+            val text = Profiles.export(act).toString(1).toByteArray()
+            val ok = { r: Result<Unit> -> act.snack(S(if (r.isSuccess) R.string.profiles_exported else R.string.profiles_failed)) }
+            if (Build.VERSION.SDK_INT >= 19) {
+                act.createFile(fileName, "application/json") { u ->
+                    ok(runCatching { act.contentResolver.openOutputStream(u, "wt")?.use { it.write(text) } ?: error("open"); Unit })
+                }
+            } else ok(runCatching { oldFile().parentFile?.mkdirs(); oldFile().writeBytes(text) })
+        }, w = WRAP, r = 8)
+        io.add(button(act, S(R.string.profiles_import), Btn.Outlined) {
+            confirm(S(R.string.profiles_import_confirm)) {
+                fun use(bytes: ByteArray?) {
+                    val ok = bytes != null && runCatching { Profiles.apply(org.json.JSONObject(String(bytes, Charsets.UTF_8))) }.getOrDefault(false)
+                    act.snack(S(if (ok) R.string.profiles_applied else R.string.profiles_bad_file)); if (ok) reload()
+                }
+                if (Build.VERSION.SDK_INT >= 19) {
+                    act.pickFiles("*/*", multiple = false, open = true) { l ->
+                        use(l.firstOrNull()?.let { u -> runCatching { act.contentResolver.openInputStream(u)?.use { it.readBytes() } }.getOrNull() })
+                    }
+                } else use(runCatching { oldFile().readBytes() }.getOrNull())
+            }
+        }, w = WRAP)
+        f.add(io)
+        return listOf(intro, s.view, f.view)
+    }
+
     // ---------------- 表示 ----------------
 
     private fun displayPage(act: LegacyActivity): List<View> {
         val s = Section(act, S(R.string.appearance))
+        val home = homeSection(act)
+        val silent = silentSection(act)
+        val lock = lockSection(act)
         s.add(segmented(act, S(R.string.theme), listOf(S(R.string.auto), S(R.string.light), S(R.string.dark)), p.themeMode) { p.set("themeMode", it) })
         s.add(themeColors(act))
         s.add(textColor(act))
@@ -373,7 +456,123 @@ object SettingsPages {
         s.add(switchRow(act, S(R.string.hide_status_bar), S(R.string.hide_status_bar_desc), p.sp.getBoolean("hideStatusBar", false)) { p.set("hideStatusBar", it) })
         s.add(segmented(act, S(R.string.tablet_mode), listOf(S(R.string.auto), S(R.string.on), S(R.string.off)), p.sp.getInt("tabletMode", 0)) { p.set("tabletMode", it) })
         s.add(note(act, S(R.string.moves_tabs_to_left_side)))
-        return listOf(s.view)
+        return listOf(home, lock, silent, s.view)
+    }
+
+    /**
+     * UCRT Legacy をホーム画面(ホームボタンで開くアプリ)として使うための項目(本家の HomeSection)。選ぶと、下のタブに「アプリ」が出る。
+     * 既定のホームアプリを選ぶ画面は Android 5.0 から。それより前は、ホームボタンを押したときに出る選択の画面で選ぶ
+     */
+    private fun homeSection(act: LegacyActivity): View {
+        val s = Section(act, S(R.string.home_screen))
+        val on = AppsPage.isDefaultHome(act)
+        s.add(text(act, S(if (on) R.string.home_screen_on else R.string.home_screen_off), Type.BodyMedium, if (on) Pal.primary else Pal.onSurfaceVariant, lines = 0))
+        s.add(note(act, S(R.string.home_screen_desc)))
+        if (Build.VERSION.SDK_INT < 21) s.add(note(act, S(R.string.home_screen_old_android)))
+        val row = hbox(act)
+        row.add(button(act, S(R.string.home_screen_choose), Btn.Outlined) { openHomeSettings(act) }, w = WRAP)
+        s.add(row)
+        return s.view
+    }
+
+    /** ロック画面(本家と同じ): 端末標準か UCRT の画面か、出し方、一時停止中も出すか、解除のスワイプの向き */
+    private fun lockSection(act: LegacyActivity): View {
+        val s = Section(act, S(R.string.lock_mode))
+        val on = p.sp.getBoolean("lockScreen", false)
+        s.add(segmented(act, null, listOf(S(R.string.lock_mode_system), S(R.string.lock_mode_custom)), if (on) 1 else 0) { p.set("lockScreen", it == 1) })
+        s.add(note(act, S(if (on) R.string.lock_screen_desc else R.string.lock_mode_system_desc)))
+        if (!on) return s.view
+        s.add(segmented(act, S(R.string.lock_launch), listOf(S(R.string.lock_launch_auto), S(R.string.lock_launch_direct), S(R.string.lock_launch_fsi)),
+            p.sp.getInt("lockLaunch", 0).coerceIn(0, 2)) { p.set("lockLaunch", it) })
+        s.add(note(act, S(R.string.lock_launch_desc)))
+        s.add(switchRow(act, S(R.string.lock_when_paused), S(R.string.lock_when_paused_desc), p.sp.getBoolean("lockWhenPaused", true)) { p.set("lockWhenPaused", it) })
+        s.add(switchRow(act, S(R.string.lock_always), S(R.string.lock_always_desc), p.sp.getBoolean("lockAlways", true)) { p.set("lockAlways", it) })
+        s.add(segmented(act, S(R.string.lock_clock), listOf(S(R.string.lock_clock_top), S(R.string.lock_clock_bottom), S(R.string.lock_clock_none)),
+            p.sp.getInt("lockClock", 0).coerceIn(0, 2)) { p.set("lockClock", it) })
+        // 時計の色(0 なら白)
+        if (p.sp.getInt("lockClock", 0) != 2) {
+            val v = p.sp.getInt("lockClockColor", 0)
+            s.add(colorRow(act, S(R.string.lock_clock_color), if (v == 0) S(R.string.lock_clock_color_default) else hexOf(v), if (v == 0) android.graphics.Color.WHITE else v) {
+                ColorPicker.show(act, S(R.string.lock_clock_color), if (v == 0) android.graphics.Color.WHITE else v, { p.set("lockClockColor", 0) }) { p.set("lockClockColor", it) }
+            })
+        }
+        s.add(segmented(act, S(R.string.lock_orientation),
+            listOf(S(R.string.lock_orientation_system), S(R.string.lock_orientation_portrait), S(R.string.lock_orientation_landscape), S(R.string.lock_orientation_sensor)),
+            p.sp.getInt("lockOrientation", 0).coerceIn(0, 3)) { p.set("lockOrientation", it) })
+        s.add(segmented(act, S(R.string.lock_tablet), listOf(S(R.string.auto), S(R.string.on), S(R.string.off)),
+            p.sp.getInt("lockTablet", 0).coerceIn(0, 2)) { p.set("lockTablet", it) })
+        s.add(note(act, S(R.string.lock_tablet_desc)))
+        s.add(segmented(act, S(R.string.lock_swipe_direction),
+            listOf(S(R.string.lock_swipe_up), S(R.string.lock_swipe_down), S(R.string.lock_swipe_left), S(R.string.lock_swipe_right)),
+            p.sp.getInt("lockSwipe", 0).coerceIn(0, 3)) { p.set("lockSwipe", it) })
+        // 裏から画面を開ける状態か(Android 10 から、重ねて表示の許可かホーム画面が要る)
+        if (LockGuard.canStartFromBackground(act)) {
+            s.add(note(act, S(R.string.lock_screen_overlay_ok), Pal.primary))
+        } else {
+            s.add(note(act, S(R.string.lock_screen_overlay_need), Pal.error))
+            val row = hbox(act)
+            row.add(button(act, S(R.string.lock_screen_overlay_allow), Btn.Outlined) {
+                val i = android.content.Intent("android.settings.action.MANAGE_OVERLAY_PERMISSION", android.net.Uri.parse("package:" + act.packageName))
+                runCatching { act.startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            }, w = WRAP)
+            s.add(row)
+        }
+        // Android 14 から: フルスクリーン通知の許可(無いと、重ねて表示の許可が無いとき、通知を押すまでロック画面が開かない)
+        if (Build.VERSION.SDK_INT >= 34 && !LockGuard.fullScreenAllowed(act)) {
+            s.add(note(act, S(R.string.lock_screen_need_full_screen), Pal.error))
+            val row = hbox(act)
+            row.add(button(act, S(R.string.lock_screen_allow), Btn.Outlined) {
+                runCatching { act.startActivity(com.uyatame.ucrt.legacy.compat.Api34.fullScreenSettings(act.packageName).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            }, w = WRAP)
+            s.add(row)
+        }
+        if (LockGuard.lastStatus.isNotEmpty()) s.add(note(act, S(R.string.lock_screen_last, LockGuard.lastStatus)))
+        val pv = hbox(act)
+        pv.add(button(act, S(R.string.lock_screen_preview), Btn.Outlined) {
+            if (app.player.current != null) LockGuard.preview(act) else act.snack(S(R.string.lock_screen_preview_need_track))
+        }, w = WRAP)
+        s.add(pv)
+        return s.view
+    }
+
+    /** サイレントモード(本家と同じ) */
+    private fun silentSection(act: LegacyActivity): View {
+        val s = Section(act, S(R.string.silent_mode))
+        val m = Silent.mode()
+        s.add(segmented(act, S(R.string.silent_mode_when), listOf(S(R.string.off), S(R.string.silent_mode_home), S(R.string.silent_mode_always)), m) {
+            p.set("silentMode", it)
+            Silent.sync(act)
+        })
+        s.add(note(act, S(R.string.silent_mode_desc)))
+        val sm = Silent.of(act)
+        if (m != 0) s.add(note(act, S(if (sm.isActive) R.string.silent_mode_now_on else R.string.silent_mode_now_off), if (sm.isActive) Pal.primary else Pal.onSurfaceVariant))
+        // おやすみモードは Android 6.0 から。それより前は、いつも音量を 0 にする方式
+        if (Build.VERSION.SDK_INT >= 23) {
+            s.add(note(act, S(if (sm.hasPolicyAccess) R.string.silent_mode_dnd_ok else R.string.silent_mode_dnd_need)))
+            if (!sm.hasPolicyAccess) {
+                val row = hbox(act)
+                row.add(button(act, S(R.string.silent_mode_dnd_allow), Btn.Outlined) {
+                    runCatching { act.startActivity(sm.policyAccessIntent().addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                }, w = WRAP)
+                s.add(row)
+            }
+        }
+        return s.view
+    }
+
+    /** 既定のホームアプリを選ぶ画面を開く(開けなければ、端末の設定) */
+    private fun openHomeSettings(act: LegacyActivity) {
+        // Android 10 からは、まずシステムの「ホームアプリにしますか」を出す
+        if (Build.VERSION.SDK_INT >= 29 && runCatching { com.uyatame.ucrt.legacy.compat.Api29.requestHomeRole(act) }.getOrDefault(false)) return
+        val intents = ArrayList<android.content.Intent>()
+        // Settings.ACTION_HOME_SETTINGS(Android 5.0 から)・ACTION_MANAGE_DEFAULT_APPS_SETTINGS(7.0 から)
+        if (Build.VERSION.SDK_INT >= 21) intents += android.content.Intent("android.settings.HOME_SETTINGS")
+        if (Build.VERSION.SDK_INT >= 24) intents += android.content.Intent("android.settings.MANAGE_DEFAULT_APPS_SETTINGS")
+        intents += android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
+        for (i in intents) {
+            if (runCatching { act.startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return
+        }
+        act.snack(S(R.string.apps_cannot_open_settings))
     }
 
     /** テーマの色の見本(本家の ThemeColorPicker) */
@@ -444,6 +643,11 @@ object SettingsPages {
         s.add(switchRow(act, S(R.string.fine_volume), S(R.string.fine_volume_desc), p.sp.getBoolean("fineVolume", false)) { p.set("fineVolume", it) })
         s.add(switchRow(act, S(R.string.auto_resume), S(R.string.auto_resume_desc), p.sp.getBoolean("autoResume", true)) { p.set("autoResume", it) })
         s.add(switchRow(act, S(R.string.auto_next_list), S(R.string.auto_next_list_desc), p.sp.getBoolean("autoNextList", false)) { p.set("autoNextList", it) })
+        s.add(segmented(act, S(R.string.swipe_prev_mode), listOf(S(R.string.swipe_prev_restart), S(R.string.swipe_prev_track)), p.sp.getInt("swipePrevMode", 0).coerceIn(0, 1)) {
+            p.set("swipePrevMode", it)
+            app.player.swipePrevToTrack = it == 1
+        })
+        s.add(note(act, S(R.string.swipe_prev_mode_desc)))
         // 再生操作のボタンの並び(本家と同じ。上が左)
         val o = Section(act, S(R.string.control_order))
         o.add(note(act, S(R.string.control_order_desc)))
@@ -463,6 +667,24 @@ object SettingsPages {
         // スペクトラムアナライザー(初めはオフ。オンにしても、再生画面を開いている間だけ計算する)
         val sp = Section(act, S(R.string.spectrum))
         sp.add(switchRow(act, S(R.string.spectrum), S(R.string.legacy_spectrum_desc), p.sp.getBoolean("spectrum", false)) { p.set("spectrum", it) })
+        if (p.sp.getBoolean("spectrum", false)) {
+            // 出すもの(スペクトラム・VU メーター・両方)と、VU メーターの設定(本家と同じ)
+            val show = p.sp.getInt("meterShow", 0).coerceIn(0, 2)
+            sp.add(segmented(act, S(R.string.meter_show), listOf(S(R.string.meter_show_spectrum), S(R.string.meter_show_vu), S(R.string.meter_show_both)), show) { p.set("meterShow", it) })
+            if (show != 0) {
+                val st = p.sp.getInt("vuStyle", 0).coerceIn(0, 1)
+                sp.add(segmented(act, S(R.string.vu_style), listOf(S(R.string.vu_style_needle), S(R.string.vu_style_bar)), st) { p.set("vuStyle", it) })
+                if (st == 0) {
+                    sp.add(segmented(act, S(R.string.vu_mode), listOf(S(R.string.vu_mode_vu), S(R.string.vu_mode_peak)), p.sp.getInt("vuMode", 0).coerceIn(0, 1)) { p.set("vuMode", it) })
+                    // 0 VU の基準(1 dB ずつ)
+                    sp.add(intSlider(act, S(R.string.vu_ref), p.sp.getInt("vuRefDb", 18).coerceIn(0, 30), 0..30, { "-$it dBFS" }, S(R.string.vu_ref_desc)) { p.set("vuRefDb", it) })
+                } else {
+                    // 赤にする音量(1 dB ずつ)
+                    sp.add(intSlider(act, S(R.string.vu_red), p.sp.getInt("vuRedDb", 6).coerceIn(0, 30), 0..30, { "-$it dBFS" }, S(R.string.vu_red_desc)) { p.set("vuRedDb", it) })
+                    sp.add(switchRow(act, S(R.string.vu_hold), S(R.string.vu_hold_desc), p.sp.getBoolean("vuHold", true)) { p.set("vuHold", it) })
+                }
+            }
+        }
         if (p.sp.getBoolean("spectrum", false)) {
             val opts = listOf(33, 50, 100)
             sp.add(segmented(act, S(R.string.spectrum_refresh), opts.map { "${1000 / it} fps" }, opts.indexOf(p.sp.getInt("legacySpectrumMs", 50)).coerceAtLeast(0)) {

@@ -263,11 +263,19 @@ fun App(vm: MainViewModel) {
             else if (t == TAB_STREAMING && tab == TAB_STREAMING) { if (spotifyOpen && sp.stack.isNotEmpty()) sp.home() else spotifyOpen = false }
             else tab = t
         }
+        // ホーム画面として使っているか(UCRT が既定のホームのとき)。ホームの設定を変えて戻ってきたら、読み直す
+        val homeCtx = LocalContext.current
+        var isHome by remember { mutableStateOf(HomeApps.isDefaultHome(homeCtx)) }
+        // 画面が前に出るたびに(MainActivity.onResume が resumeTick を増やす)、読み直す
+        LaunchedEffect(vm.resumeTick) { isHome = HomeApps.isDefaultHome(homeCtx) }
+        // ホームをやめたあとも「アプリ」を開いたままにならないよう、ホームでなくなったら、ほかのタブへ戻す
+        LaunchedEffect(isHome) { if (!isHome && tab == TAB_APPS) tab = 0 }
         val tabs = listOf(
             Triple(AppIcons.Library, S(R.string.library), 0),
             Triple(AppIcons.Album, S(R.string.disc), 1),
             Triple(AppIcons.Cloud, S(R.string.streaming), TAB_STREAMING),
             Triple(AppIcons.Upsample, S(R.string.upsample), TAB_UPSAMPLE),
+        ) + (if (isHome) listOf(Triple(AppIcons.Apps, S(R.string.apps), TAB_APPS)) else emptyList()) + listOf(
             Triple(Icons.Filled.Settings, S(R.string.settings), 2),
         )
         // リキッドグラス: 下のタブとミニプレーヤーなどを、中身の上に浮かぶガラスにする
@@ -351,6 +359,7 @@ fun App(vm: MainViewModel) {
                         1 -> CdScreen(vm, s) { tab = 2; settingsPage = 0 }
                         TAB_STREAMING -> StreamingScreen(vm, sp, s, spotifyOpen, { spotifyOpen = it }) { showSpotifyPlayer = true }
                         TAB_UPSAMPLE -> UpsampleScreen(vm, s)
+                        TAB_APPS -> AppsScreen()
                         else -> SettingsScreen(vm, s, settingsPage) { settingsPage = it }
                     }
                 }
@@ -471,6 +480,8 @@ val LocalTablet = androidx.compose.runtime.compositionLocalOf { false }
 
 /** タブレットモードで、右に出したままの再生画面の中か */
 val LocalInPane = androidx.compose.runtime.compositionLocalOf { false }
+/** 縦でも横向きの並び(左右に分ける)にするか(ロック画面のタブレットモード) */
+val LocalWideLayout = androidx.compose.runtime.compositionLocalOf { false }
 
 /**
  * 横向きの画面か(幅が高さより広い)。横向きでは、下のタブの代わりに左のレールを使い、
@@ -480,6 +491,7 @@ val LocalInPane = androidx.compose.runtime.compositionLocalOf { false }
 fun isLandscape(): Boolean {
     // タブレットモードの右の再生画面の中は、幅が狭いので縦向きと同じ並びにする
     if (LocalInPane.current) return false
+    if (LocalWideLayout.current) return true
     val c = LocalConfiguration.current
     return c.orientation == Configuration.ORIENTATION_LANDSCAPE || c.screenWidthDp > c.screenHeightDp
 }
@@ -796,7 +808,7 @@ fun MiniPlayer(vm: MainViewModel, onOpen: () -> Unit) {
                             onDragEnd = {
                                 val v = shift.value
                                 scope.launch {
-                                    if (v <= -limit) vm.player.next() else if (v >= limit) vm.player.prev()
+                                    if (v <= -limit) vm.player.next() else if (v >= limit) vm.player.prev(fromSwipe = true)
                                     shift.animateTo(0f)
                                 }
                             },

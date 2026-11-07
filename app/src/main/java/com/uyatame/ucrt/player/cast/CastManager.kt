@@ -168,7 +168,8 @@ object CastManager {
         val was = connected != null
         connected = null
         connecting = null
-        CastServer.clear()
+        // 切断したら、曲の公開もサーバーの待ち受けもやめる(次のキャストで、また作る)
+        CastServer.stopServer()
         if (ch != null) io.execute {
             runCatching {
                 if (t != null) ch.send(CastChannel.NS_RECEIVER, CastChannel.RECEIVER, JSONObject().put("type", "STOP").put("requestId", reqId.getAndIncrement()))

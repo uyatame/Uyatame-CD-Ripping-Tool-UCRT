@@ -58,10 +58,17 @@ android {
     // app と legacy で共通のソースと文言(core。どちらのアプリにもそのまま入る)
     sourceSets["main"].java.srcDir("../core/src/main/java")
     sourceSets["main"].res.srcDir("../core/src/main/res")
+    // テスト版(tools/termux-build.sh が -PtestVersion を渡したビルド)にだけ、動作を確かめるための調査用のコードを入れる。
+    // リリース版には、同じ名前の「何もしない」部品(notesttools)が入る(リリースのビルドに、調査用のコードを入れないため)
+    sourceSets["main"].java.srcDir(if (findProperty("testVersion") != null) "src/testtools/java" else "src/notesttools/java")
     // 取り込みの変換に使う FFmpeg(fetchFfmpeg が取ってくる lib/<ABI>/libffmpeg.so)
     sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("ffmpeg/jniLibs").get().asFile)
     // FFmpeg はプログラムとして実行するので、インストール時に lib を展開させる(展開しないと実行できない)
-    packaging { jniLibs { useLegacyPackaging = true } }
+    packaging {
+        jniLibs { useLegacyPackaging = true }
+        // ネットワーク(NAS)の部品(smbj・sshj・BouncyCastle)に入っている、重なるファイル
+        resources.excludes += setOf("META-INF/versions/**", "META-INF/DEPENDENCIES", "META-INF/INDEX.LIST", "META-INF/*.kotlin_module.bak", "META-INF/LICENSE*", "META-INF/NOTICE*")
+    }
 }
 
 kotlin {
@@ -152,6 +159,13 @@ dependencies {
     implementation("com.spotify.android:auth:5.0.0")
     // App Remote SDK が Spotify アプリとのやり取りに使う JSON ライブラリ(Apache-2.0)
     implementation("com.google.code.gson:gson:2.10.1")
+    // ネットワーク(NAS): SMB(smbj)、SFTP(sshj)、WebDAV(OkHttp)。FTP は自前
+    implementation("com.hierynomus:smbj:0.13.0")
+    implementation("com.hierynomus:sshj:0.38.0")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
+    implementation("org.slf4j:slf4j-nop:2.0.9")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // 単体テスト(PC 上で動かす。内蔵デコーダーや文言のリソースなどを確かめる)
     testImplementation("junit:junit:4.13.2")
