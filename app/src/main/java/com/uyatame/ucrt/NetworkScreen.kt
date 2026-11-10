@@ -116,7 +116,7 @@ internal fun NetworkPage(vm: MainViewModel, s: AppSettings) {
                     val root = NetworkProvider.treeUri(ctx, src.id).toString()
                     val inLib = root in s.libraryFolders
                     Column(
-                        Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(16.dp))
+                        Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(themedCorner(16.dp)))
                             .background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(12.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -306,7 +306,7 @@ internal fun NetworkBrowsePage(vm: MainViewModel, docId: String) {
             else -> LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp + barInset())) {
                 items(list, key = { it.docId }) { it ->
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        Modifier.fillMaxWidth().themedRow()
                             .clickable { if (it.isDir) vm.libPush("netdir:${it.docId}") else play(files.indexOf(it)) }
                             .padding(vertical = 8.dp, horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,

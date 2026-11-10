@@ -1142,7 +1142,7 @@ private fun SwipeCover(
             .clip(shape)
             .clickable(remember { MutableInteractionSource() }, null, onClick = onTap),
     ) {
-        CoverBox(art, Modifier.fillMaxSize(), corner)
+        CoverBox(art, Modifier.fillMaxSize(), corner, themed = false)
         if (overlay != null) {
             // 再生位置をドラッグしている間は、ジャケットの上に大きく時刻を出す
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {

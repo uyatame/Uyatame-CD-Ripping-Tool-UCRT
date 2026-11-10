@@ -278,11 +278,8 @@ fun BarSurface(onClick: () -> Unit, color: Color? = null, content: @Composable (
             Box(Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) { content() }
         }
     } else {
-        androidx.compose.material3.Surface(
-            color = color ?: MaterialTheme.colorScheme.surface,
-            tonalElevation = if (color == null) 3.dp else 0.dp,
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        ) { content() }
+        // テーマの帯の形(標準・浮いた丸いカード・平らな面と線)
+        ThemedBar(onClick, color, content)
     }
 }
 
@@ -305,7 +302,8 @@ fun UCard(
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     if (!LocalGlass.current) {
-        androidx.compose.material3.Card(modifier, colors = colors ?: androidx.compose.material3.CardDefaults.cardColors(), content = content)
+        // テーマのカードの形(塗り・枠線・面なし・表示窓)
+        themedCard(modifier, colors, content)
         return
     }
     val scheme = MaterialTheme.colorScheme

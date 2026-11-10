@@ -46,6 +46,23 @@ data class UiTheme(
     val titleWeight: Int = 700,
     /** 背景のぼかしの強さ(1〜10。0 = 設定のまま) */
     val blurLevel: Int = 0,
+    // ---- アプリ全体(ライブラリ・ディスク・アップサンプル・ストリーミング・設定など、すべての画面) ----
+    /** 下のタブ: bar(標準) / pill(選んだタブを横長の丸い面に) / floating(浮いた丸いバー) / line(平らな面と上の線) */
+    val nav: String = "bar",
+    /** カード(設定の区切り・アップサンプル・ディスクの情報など): filled(塗り) / outlined(枠線) / flat(面なし・区切り線) / panel(枠付きの表示窓) */
+    val card: String = "filled",
+    /** カードの見出し: accent(差し色) / caps(小さく字間を空ける) / bold(大きく太く) */
+    val sectionTitle: String = "accent",
+    /** 一覧の行(曲・アルバム・アーティストなど): plain(標準) / tinted(行ごとに薄い面) / divided(区切り線) */
+    val listRow: String = "plain",
+    /** 一覧などのジャケットの角の丸み(dp。-1 = 画面ごとの標準) */
+    val coverCorner: Int = -1,
+    /** ミニプレーヤー・取り込み中などの帯: bar(標準) / floating(浮いた丸いカード) / line(平らな面と上の線) */
+    val bars: String = "bar",
+    /** 画面の見出しの太さ(400〜900) */
+    val headlineWeight: Int = 400,
+    /** 画面の背景: plain / tint(上の方をテーマの色で薄く染める) */
+    val background: String = "plain",
 )
 
 object UiThemes {
@@ -57,6 +74,12 @@ object UiThemes {
     private val INFO = setOf("outline", "filled", "dark", "panel")
     private val CONTROLS = setOf("outline", "solid", "capsule", "square")
     private val SEEK = setOf("default", "thin", "ticks")
+    private val NAV = setOf("bar", "pill", "floating", "line")
+    private val CARD = setOf("filled", "outlined", "flat", "panel")
+    private val SECTION_TITLE = setOf("accent", "caps", "bold")
+    private val LIST_ROW = setOf("plain", "tinted", "divided")
+    private val BARS = setOf("bar", "floating", "line")
+    private val BACKGROUND = setOf("plain", "tint")
 
     /** 読み込み・削除のたびに増える(画面がテーマを読み直す合図) */
     var revision by mutableIntStateOf(0)
@@ -70,14 +93,20 @@ object UiThemes {
         UiTheme(
             "sumi", "Sumi", builtin = true, accent = 0xFFF3D58C.toInt(), corner = 16, tabs = "pill",
             artCorner = 18, info = "filled", controls = "solid", seek = "thin", titleWeight = 900,
+            nav = "pill", card = "filled", sectionTitle = "bold", listRow = "plain", coverCorner = 10, bars = "floating",
+            headlineWeight = 800,
         ),
         UiTheme(
             "stage", "Stage", builtin = true, accent = 0xFFBFE6FF.toInt(), corner = 20, tabs = "underline",
             artCorner = 24, artGlow = true, info = "dark", controls = "capsule", seek = "thin", titleWeight = 900, blurLevel = 7,
+            nav = "floating", card = "filled", sectionTitle = "accent", listRow = "tinted", coverCorner = 16, bars = "floating",
+            headlineWeight = 900, background = "tint",
         ),
         UiTheme(
             "instrument", "Instrument", builtin = true, accent = 0xFFFFC46B.toInt(), corner = 6, tabs = "segmented",
             artCorner = 2, artFrame = true, info = "panel", controls = "square", seek = "ticks", titleWeight = 700,
+            nav = "line", card = "panel", sectionTitle = "caps", listRow = "divided", coverCorner = 2, bars = "line",
+            headlineWeight = 700,
         ),
     )
 
@@ -152,6 +181,7 @@ object UiThemes {
         require(rawId.isNotEmpty() && name.isNotEmpty()) { "no id or name" }
         val d = UiTheme(rawId, name)
         val p = o.optJSONObject("player") ?: JSONObject()
+        val a = o.optJSONObject("app") ?: JSONObject()
         return UiTheme(
             id = rawId,
             name = name,
@@ -169,6 +199,14 @@ object UiThemes {
             seek = pick(p, "seek", SEEK, d.seek),
             titleWeight = (p.optInt("titleWeight", d.titleWeight) / 100 * 100).coerceIn(400, 900),
             blurLevel = p.optInt("blurLevel", d.blurLevel).coerceIn(0, 10),
+            nav = pick(a, "nav", NAV, d.nav),
+            card = pick(a, "card", CARD, d.card),
+            sectionTitle = pick(a, "sectionTitle", SECTION_TITLE, d.sectionTitle),
+            listRow = pick(a, "listRow", LIST_ROW, d.listRow),
+            coverCorner = a.optInt("coverCorner", d.coverCorner).coerceIn(-1, 40),
+            bars = pick(a, "bars", BARS, d.bars),
+            headlineWeight = (a.optInt("headlineWeight", d.headlineWeight) / 100 * 100).coerceIn(400, 900),
+            background = pick(a, "background", BACKGROUND, d.background),
         )
     }
 
@@ -192,6 +230,16 @@ object UiThemes {
             put("seek", t.seek)
             put("titleWeight", t.titleWeight)
             put("blurLevel", t.blurLevel)
+        })
+        put("app", JSONObject().apply {
+            put("nav", t.nav)
+            put("card", t.card)
+            put("sectionTitle", t.sectionTitle)
+            put("listRow", t.listRow)
+            put("coverCorner", t.coverCorner)
+            put("bars", t.bars)
+            put("headlineWeight", t.headlineWeight)
+            put("background", t.background)
         })
     }
 
@@ -217,6 +265,14 @@ object UiThemes {
             put("player.seek", "default | thin | ticks")
             put("player.titleWeight", "400..900")
             put("player.blurLevel", "0..10 (0 = your setting / 設定のまま)")
+            put("app.nav", "bar | pill | floating | line  (bottom tabs / 下のタブ)")
+            put("app.card", "filled | outlined | flat | panel  (cards in settings, disc, upsample... / カード)")
+            put("app.sectionTitle", "accent | caps | bold  (card titles / カードの見出し)")
+            put("app.listRow", "plain | tinted | divided  (song, album, artist rows / 一覧の行)")
+            put("app.coverCorner", "-1..40 (dp, -1 = standard)  (artwork in lists / 一覧のジャケット)")
+            put("app.bars", "bar | floating | line  (mini player, ripping bar / ミニプレーヤーなどの帯)")
+            put("app.headlineWeight", "400..900  (screen titles / 画面の見出し)")
+            put("app.background", "plain | tint")
         })
         return o.toString(2)
     }
@@ -229,3 +285,6 @@ fun rememberUiTheme(id: String): UiTheme {
     val rev = UiThemes.revision
     return remember(id, rev) { UiThemes.find(ctx, id) }
 }
+
+/** 今のテーマ(AppTheme の中で渡す。共通の部品がこれを読んで形を変える) */
+val LocalUiTheme = androidx.compose.runtime.staticCompositionLocalOf { UiThemes.classic }

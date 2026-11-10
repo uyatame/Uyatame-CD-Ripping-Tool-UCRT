@@ -154,10 +154,9 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
                     val st = vm.trackStatus[t.number].orEmpty()
                     val pr = vm.progress[t.number] ?: 0f
                     ListItem(
-                        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(enabled = !vm.busy) { vm.playCd(t) },
-                        colors = ListItemDefaults.colors(
-                            containerColor = if (playing) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-                        ),
+                        // 行の面と線はテーマで変わる
+                        modifier = Modifier.themedRow(playing).clickable(enabled = !vm.busy) { vm.playCd(t) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                         leadingContent = {
                             Checkbox(vm.selected[t.number] == true, { vm.toggle(t.number) }, enabled = !vm.busy)
                         },
@@ -236,7 +235,8 @@ private fun AlbumHeader(
     val audio = vm.audioTracks
     val totalSec = audio.sumOf { it.endLba - it.startLba }
     val year = vm.meta?.date?.take(4).orEmpty()
-    ElevatedCard(Modifier.fillMaxWidth()) {
+    // テーマのカードの形にする(塗り・枠線・面なし・表示窓)
+    UCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u ->
@@ -337,10 +337,8 @@ private fun AlbumHeader(
 internal fun CandidateRow(c: ReleaseCandidate, cdTracks: Int, enabled: Boolean, inUse: Boolean, onClick: () -> Unit) {
     val countOk = c.trackCount == cdTracks
     ListItem(
-        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(enabled = enabled, onClick = onClick),
-        colors = ListItemDefaults.colors(
-            containerColor = if (inUse) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-        ),
+        modifier = Modifier.themedRow(inUse).clickable(enabled = enabled, onClick = onClick),
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         overlineContent = {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("MusicBrainz", style = MaterialTheme.typography.labelSmall)

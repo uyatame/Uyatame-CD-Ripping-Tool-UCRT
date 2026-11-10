@@ -18,5 +18,15 @@
     "seek": "thin",
     "titleWeight": 800,
     "blurLevel": 0
+  },
+  "app": {
+    "nav": "floating",
+    "card": "outlined",
+    "sectionTitle": "bold",
+    "listRow": "tinted",
+    "coverCorner": 18,
+    "bars": "floating",
+    "headlineWeight": 800,
+    "background": "tint"
   }
 }

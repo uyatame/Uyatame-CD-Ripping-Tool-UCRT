@@ -117,7 +117,16 @@ fun TrackBadge(t: LibTrack, modifier: Modifier = Modifier) = QualityBadge(Qualit
 @Composable
 fun ListHeading(text: String, modifier: Modifier = Modifier, action: (@Composable () -> Unit)? = null) {
     Row(modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        // 見出しの書き方はテーマで変わる(標準・小さく字間を空ける・大きく太く)
+        val st = LocalUiTheme.current.sectionTitle
+        Text(
+            if (st == "caps") text.uppercase() else text,
+            style = when (st) { "caps" -> MaterialTheme.typography.labelMedium; "bold" -> MaterialTheme.typography.titleLarge; else -> MaterialTheme.typography.titleMedium },
+            fontWeight = when (st) { "caps" -> FontWeight.Bold; "bold" -> FontWeight.Black; else -> FontWeight.SemiBold },
+            letterSpacing = if (st == "caps") 1.5.sp else androidx.compose.ui.unit.TextUnit.Unspecified,
+            color = if (st == "caps") MaterialTheme.colorScheme.onSurfaceVariant else androidx.compose.ui.graphics.Color.Unspecified,
+            modifier = Modifier.weight(1f),
+        )
         action?.invoke()
     }
 }
@@ -141,8 +150,8 @@ fun TrackRow(
     val selected: Boolean? = if (vm.selecting) vm.isSelected(t.uri) else null
     val tap: () -> Unit = if (selected != null) ({ vm.toggleSelected(t.uri) }) else onClick
     Row(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-            .background(if (playing) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+        // 行の面と線はテーマで変わる(標準・行ごとの面・区切り線)
+        modifier.fillMaxWidth().themedRow(playing)
             .combinedClickable(onClick = tap, onLongClick = { if (selected != null) tap() else vm.showTrackMenu(t, playlist) })
             .padding(start = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -161,7 +170,7 @@ fun TrackRow(
                 TrackArt(vm, t, Modifier.size(48.dp), 6.dp, 48.dp)
                 if (playing) {
                     Box(
-                        Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.45f)),
+                        Modifier.size(48.dp).clip(RoundedCornerShape(themedCorner(6.dp))).background(Color.Black.copy(alpha = 0.45f)),
                         contentAlignment = Alignment.Center,
                     ) { Icon(AppIcons.Bars, null, Modifier.size(20.dp), tint = Color.White) }
                 }
@@ -197,7 +206,7 @@ fun TrackRow(
 @Composable
 fun AlbumTile(vm: MainViewModel, a: LibAlbum, modifier: Modifier = Modifier, sub: String? = null) {
     Column(
-        modifier.clip(RoundedCornerShape(12.dp))
+        modifier.clip(RoundedCornerShape(themedCorner(12.dp)))
             .combinedClickable(onClick = { vm.libPush("album:" + a.key) }, onLongClick = { vm.menuAlbum = a }),
     ) {
         Box {
@@ -227,7 +236,7 @@ fun AlbumTile(vm: MainViewModel, a: LibAlbum, modifier: Modifier = Modifier, sub
 @Composable
 fun AlbumListRow(vm: MainViewModel, a: LibAlbum, sub: String? = null) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+        Modifier.fillMaxWidth().themedRow()
             .combinedClickable(onClick = { vm.libPush("album:" + a.key) }, onLongClick = { vm.menuAlbum = a })
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -259,7 +268,7 @@ fun GroupRow(
     leading: @Composable () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick)
+        Modifier.fillMaxWidth().themedRow().clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

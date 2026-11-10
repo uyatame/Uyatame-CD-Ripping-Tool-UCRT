@@ -103,10 +103,12 @@ fun StreamingScreen(
 /** サービスの行: 名前・説明・使うかのスイッチ。使っていれば、行のタップでそのサービスの画面を開く */
 @Composable
 private fun ServiceRow(title: String, desc: String, enabled: Boolean, onToggle: (Boolean) -> Unit, onOpen: () -> Unit) {
+    // 角の丸みはテーマで変わる
+    val shape = RoundedCornerShape(themedCorner(16.dp))
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = shape,
         color = if (enabled) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(enabled = enabled, onClick = onOpen),
+        modifier = Modifier.fillMaxWidth().clip(shape).clickable(enabled = enabled, onClick = onOpen),
     ) {
         Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(AppIcons.Cloud, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)

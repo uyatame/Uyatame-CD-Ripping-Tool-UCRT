@@ -1,6 +1,7 @@
 # UCRT のテーマ
 
 UCRT の見た目の仕上げ(色・角の丸み・ボタンや情報の表示のしかた)は、テーマのファイルで変えられます。
+再生画面だけでなく、ライブラリ・ディスク・アップサンプル・ストリーミング・設定など、すべての画面に効きます。
 配置と操作は、どのテーマでも同じです。
 
 ## 使い方
@@ -40,6 +41,16 @@ UCRT の見た目の仕上げ(色・角の丸み・ボタンや情報の表示�
     "seek": "thin",
     "titleWeight": 900,
     "blurLevel": 0
+  },
+  "app": {
+    "nav": "pill",
+    "card": "filled",
+    "sectionTitle": "bold",
+    "listRow": "plain",
+    "coverCorner": 10,
+    "bars": "floating",
+    "headlineWeight": 800,
+    "background": "plain"
   }
 }
 ```
@@ -62,6 +73,14 @@ UCRT の見た目の仕上げ(色・角の丸み・ボタンや情報の表示�
 | `player.seek` | `default` / `thin` / `ticks` | 再生バー |
 | `player.titleWeight` | 400〜900 | 曲名の太さ |
 | `player.blurLevel` | 0〜10 | 背景のぼかしの強さ。0 は設定のまま |
+| `app.nav` | `bar` / `pill` / `floating` / `line` | 下のタブ。`pill` は選んだタブを横長の丸い面に、`floating` は浮いた丸いバー、`line` は平らな面と上の線 |
+| `app.card` | `filled` / `outlined` / `flat` / `panel` | カード(設定の区切り・ディスクの情報・アップサンプルなど)。`flat` は面なしで区切り線、`panel` は枠付きの表示窓 |
+| `app.sectionTitle` | `accent` / `caps` / `bold` | カードと一覧の見出し |
+| `app.listRow` | `plain` / `tinted` / `divided` | 一覧の行(曲・アルバム・アーティスト・ディスクの曲・設定の項目など) |
+| `app.coverCorner` | -1〜40 | 一覧などのジャケットの角の丸み(dp)。-1 は画面ごとの標準 |
+| `app.bars` | `bar` / `floating` / `line` | ミニプレーヤー・取り込み中・Spotify の帯 |
+| `app.headlineWeight` | 400〜900 | 画面の見出しの太さ |
+| `app.background` | `plain` / `tint` | `tint` は画面の上の方をテーマの色で薄く染める |
 
 知らない値や範囲の外の値は、標準の値に置き換えて読み込みます。`_help` など、ほかの項目は読み飛ばします。
 
@@ -70,8 +89,8 @@ UCRT の見た目の仕上げ(色・角の丸み・ボタンや情報の表示�
 | id | 名前 | 中身 |
 |---|---|---|
 | `classic` | 標準 | 今までの見た目 |
-| `sumi` | 澄 | 塗りの再生ボタン、やわらかいチップ、細いつまみ |
-| `stage` | 舞台 | ジャケットのまわりの光、1 本の帯にまとめたボタン |
-| `instrument` | 計器 | 1 枚の表示窓、ジャケットの額縁、目盛り付きの再生バー、角丸の四角のボタン |
+| `sumi` | 澄 | 塗りの再生ボタン、やわらかいチップ、細いつまみ。選んだタブが丸い面になる下のタブ、浮いたミニプレーヤー、太い見出し |
+| `stage` | 舞台 | ジャケットのまわりの光、1 本の帯にまとめたボタン。浮いた暗いタブ、行ごとの面、背景の色付け |
+| `instrument` | 計器 | 1 枚の表示窓、ジャケットの額縁、目盛り付きの再生バー、角丸の四角のボタン。線のタブ、枠付きのカード、区切り線の一覧、角の小さなジャケット |
 
 [`example.ucrttheme.json`](example.ucrttheme.json) は、そのまま読み込めるサンプルです。

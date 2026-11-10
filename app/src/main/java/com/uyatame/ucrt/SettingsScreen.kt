@@ -136,11 +136,12 @@ private fun SettingsPage(title: String, onBack: () -> Unit, content: @Composable
 @Composable
 private fun CategoryRow(icon: ImageVector, title: String, summary: String, onClick: () -> Unit) {
     ListItem(
-        modifier = Modifier.clickable(onClick = onClick),
+        // 行の面と線・アイコンの丸みはテーマで変わる
+        modifier = Modifier.themedRow().clickable(onClick = onClick),
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         leadingContent = {
             Box(
-                Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
+                Modifier.size(40.dp).clip(RoundedCornerShape(themedCorner(20.dp))).background(MaterialTheme.colorScheme.secondaryContainer),
                 contentAlignment = Alignment.Center,
             ) { Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer) }
         },

@@ -128,7 +128,10 @@ import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @Composable
-fun AppTheme(mode: Int, dynamic: Boolean, seed: Int, text: Int = 0, glass: Boolean = false, corner: Int = -1, content: @Composable () -> Unit) {
+fun AppTheme(
+    mode: Int, dynamic: Boolean, seed: Int, text: Int = 0, glass: Boolean = false, corner: Int = -1,
+    ui: UiTheme = UiThemes.classic, content: @Composable () -> Unit,
+) {
     val dark = when (mode) { 1 -> false; 2 -> true; else -> isSystemInDarkTheme() }
     val ctx = LocalContext.current
     val scheme = if (dynamic && android.os.Build.VERSION.SDK_INT >= 31) {
@@ -166,7 +169,23 @@ fun AppTheme(mode: Int, dynamic: Boolean, seed: Int, text: Int = 0, glass: Boole
             extraLarge = androidx.compose.foundation.shape.RoundedCornerShape((c * 1.6f).dp),
         )
     }
-    MaterialTheme(colorScheme = glassy, shapes = shapes, content = content)
+    // テーマの見出しの太さ(画面の見出し・カードの見出しなど)
+    val w = ui.headlineWeight
+    val typography = if (w == 400) MaterialTheme.typography else remember(w) {
+        val t = androidx.compose.material3.Typography()
+        val fw = androidx.compose.ui.text.font.FontWeight(w)
+        val fw2 = androidx.compose.ui.text.font.FontWeight((w - 100).coerceAtLeast(500))
+        t.copy(
+            displaySmall = t.displaySmall.copy(fontWeight = fw),
+            headlineLarge = t.headlineLarge.copy(fontWeight = fw),
+            headlineMedium = t.headlineMedium.copy(fontWeight = fw),
+            headlineSmall = t.headlineSmall.copy(fontWeight = fw),
+            titleLarge = t.titleLarge.copy(fontWeight = fw2),
+        )
+    }
+    MaterialTheme(colorScheme = glassy, shapes = shapes, typography = typography) {
+        androidx.compose.runtime.CompositionLocalProvider(LocalUiTheme provides ui, content = content)
+    }
 }
 
 @Composable
@@ -176,7 +195,7 @@ fun App(vm: MainViewModel) {
     val ut = rememberUiTheme(s.uiTheme)
     // テーマに色があれば、アプリ全体の色もその色にする(ダイナミックカラーより優先)
     AppTheme(
-        s.themeMode, s.dynamicColor && ut.seed == 0, if (ut.seed != 0) ut.seed else s.themeColor, s.textColor, s.appearance == 1, ut.corner,
+        s.themeMode, s.dynamicColor && ut.seed == 0, if (ut.seed != 0) ut.seed else s.themeColor, s.textColor, s.appearance == 1, ut.corner, ut,
     ) {
         val view = LocalView.current
         val keep = vm.busy && s.keepScreenOn
@@ -355,13 +374,7 @@ fun App(vm: MainViewModel) {
                     if (vm.player.current != null && !pane) MiniPlayer(vm) { showPlayer = true }
                     // Spotify アプリで再生中の曲(Spotify の機能を使っているとき。ストリーミングのタブでは、一時停止中でも出す)
                     if (s.spotifyEnabled && sp.connected && sp.hasTrack && (tab == TAB_STREAMING || !sp.paused)) SpotifyBar(sp) { showSpotifyPlayer = true }
-                    if (!land) {
-                        NavigationBar {
-                            tabs.forEach { (icon, label, i) ->
-                                NavigationBarItem(tab == i, { onTab(i) }, { Icon(icon, null) }, label = { Text(label) })
-                            }
-                        }
-                    }
+                    if (!land) ThemedNavBar(tabs, tab, onTab)
                 }
             }),
         ) { pad ->
@@ -380,7 +393,15 @@ fun App(vm: MainViewModel) {
                 }
             }
             if (!glass) {
-                Box(Modifier.padding(pad).fillMaxSize()) { screens() }
+                // テーマ: 背景の上の方をテーマの色で薄く染める
+                val tint = if (ut.background == "tint") {
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        0f to MaterialTheme.colorScheme.primary.copy(alpha = 0.10f), 0.45f to Color.Transparent,
+                    )
+                } else null
+                Box(Modifier.fillMaxSize().then(if (tint != null) Modifier.background(tint) else Modifier)) {
+                    Box(Modifier.padding(pad).fillMaxSize()) { screens() }
+                }
             } else {
                 // 中身は画面の下の端まで広げ(ガラスの下までスクロールできる)、いちばん下にはガラスの分の余白を足す
                 val dir = LocalLayoutDirection.current
@@ -545,8 +566,12 @@ fun PageHeader(title: String, onBack: () -> Unit) {
 @Composable
 fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
     UCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        val flat = LocalUiTheme.current.card == "flat" && !LocalGlass.current
+        Column(
+            Modifier.padding(horizontal = if (flat) 4.dp else 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            SectionTitle(title)
             content()
         }
     }
@@ -679,9 +704,11 @@ fun EmptyState(icon: ImageVector, title: String, body: String, action: String? =
 }
 
 @Composable
-fun CoverBox(img: ImageBitmap?, modifier: Modifier, corner: Dp = 8.dp) {
+fun CoverBox(img: ImageBitmap?, modifier: Modifier, corner: Dp = 8.dp, themed: Boolean = true) {
+    // テーマでジャケットの角を決めていれば、その丸みにする(再生画面の大きなジャケットは、再生画面の設定のまま)
+    val c = if (themed) themedCorner(corner) else corner
     Box(
-        modifier.clip(RoundedCornerShape(corner)).background(MaterialTheme.colorScheme.surfaceVariant),
+        modifier.clip(RoundedCornerShape(c)).background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         if (img != null) {
