@@ -128,7 +128,7 @@ import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @Composable
-fun AppTheme(mode: Int, dynamic: Boolean, seed: Int, text: Int = 0, glass: Boolean = false, content: @Composable () -> Unit) {
+fun AppTheme(mode: Int, dynamic: Boolean, seed: Int, text: Int = 0, glass: Boolean = false, corner: Int = -1, content: @Composable () -> Unit) {
     val dark = when (mode) { 1 -> false; 2 -> true; else -> isSystemInDarkTheme() }
     val ctx = LocalContext.current
     val scheme = if (dynamic && android.os.Build.VERSION.SDK_INT >= 31) {
@@ -155,14 +155,29 @@ fun AppTheme(mode: Int, dynamic: Boolean, seed: Int, text: Int = 0, glass: Boole
             surfaceContainerHighest = withText.surfaceContainerHighest.copy(alpha = 0.70f),
         )
     }
-    MaterialTheme(colorScheme = glassy, content = content)
+    // テーマの角の丸み(-1 なら標準のまま)
+    val shapes = if (corner < 0) MaterialTheme.shapes else remember(corner) {
+        val c = corner.toFloat()
+        androidx.compose.material3.Shapes(
+            extraSmall = androidx.compose.foundation.shape.RoundedCornerShape((c * 0.35f).dp),
+            small = androidx.compose.foundation.shape.RoundedCornerShape((c * 0.55f).dp),
+            medium = androidx.compose.foundation.shape.RoundedCornerShape((c * 0.75f).dp),
+            large = androidx.compose.foundation.shape.RoundedCornerShape(c.dp),
+            extraLarge = androidx.compose.foundation.shape.RoundedCornerShape((c * 1.6f).dp),
+        )
+    }
+    MaterialTheme(colorScheme = glassy, shapes = shapes, content = content)
 }
 
 @Composable
 fun App(vm: MainViewModel) {
     val s by vm.settings.collectAsState()
     val sp: com.uyatame.ucrt.spotify.SpotifyViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-    AppTheme(s.themeMode, s.dynamicColor, s.themeColor, s.textColor, s.appearance == 1) {
+    val ut = rememberUiTheme(s.uiTheme)
+    // テーマに色があれば、アプリ全体の色もその色にする(ダイナミックカラーより優先)
+    AppTheme(
+        s.themeMode, s.dynamicColor && ut.seed == 0, if (ut.seed != 0) ut.seed else s.themeColor, s.textColor, s.appearance == 1, ut.corner,
+    ) {
         val view = LocalView.current
         val keep = vm.busy && s.keepScreenOn
         DisposableEffect(keep) {

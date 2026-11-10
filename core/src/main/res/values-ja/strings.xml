@@ -1502,4 +1502,23 @@
     <string name="vu_red_desc">"この音量を超えた所を赤で表示します（1 dBずつ）。0 dBFSがデジタルの最大です。"</string>
     <string name="vu_hold">"ピークホールド"</string>
     <string name="vu_hold_desc">"いちばん大きかった所に、少しの間印を残します"</string>
+    <string name="ui_theme">"テーマ"</string>
+    <string name="ui_theme_desc">"再生画面とアプリの仕上げを変えます。配置と操作は変わりません。"</string>
+    <string name="theme_name_classic">"標準"</string>
+    <string name="theme_name_sumi">"澄"</string>
+    <string name="theme_name_stage">"舞台"</string>
+    <string name="theme_name_instrument">"計器"</string>
+    <string name="theme_desc_classic">"今までの見た目"</string>
+    <string name="theme_desc_sumi">"今の見た目を磨いたもの。塗りの再生ボタン、やわらかいチップ"</string>
+    <string name="theme_desc_stage">"ジャケットが主役。ジャケットのまわりの光、1本の帯にまとめたボタン"</string>
+    <string name="theme_desc_instrument">"オーディオ機器の質感。1枚の表示窓にまとめた情報、角丸の四角のボタン"</string>
+    <string name="theme_by">"作者: %1$s"</string>
+    <string name="theme_import">"ファイルから読み込む"</string>
+    <string name="theme_export">"ひな形として書き出す"</string>
+    <string name="theme_export_desc">"選んでいるテーマを、書き換えられるファイルとして書き出します。値を書き換えて読み込むと、自分のテーマになります。"</string>
+    <string name="theme_imported">"テーマを読み込みました"</string>
+    <string name="theme_bad_file">"UCRTのテーマのファイルではありません"</string>
+    <string name="theme_exported">"テーマを書き出しました"</string>
+    <string name="theme_failed">"ファイルを保存できませんでした"</string>
+    <string name="theme_delete_title">"「%1$s」を削除しますか？"</string>
 </resources>
