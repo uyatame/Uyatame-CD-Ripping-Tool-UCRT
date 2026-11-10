@@ -1,0 +1,22 @@
+{
+  "format": "ucrt-theme",
+  "formatVersion": 1,
+  "id": "example-sakura",
+  "name": "Sakura",
+  "author": "UCRT",
+  "description": "Sample theme: pink accent, round buttons in one bar",
+  "accent": "#FFC2D1",
+  "seed": "",
+  "corner": 20,
+  "player": {
+    "tabs": "pill",
+    "artCorner": 28,
+    "artFrame": false,
+    "artGlow": true,
+    "info": "filled",
+    "controls": "capsule",
+    "seek": "thin",
+    "titleWeight": 800,
+    "blurLevel": 0
+  }
+}

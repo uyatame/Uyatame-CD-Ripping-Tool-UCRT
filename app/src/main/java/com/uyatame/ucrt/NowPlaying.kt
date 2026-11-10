@@ -19,6 +19,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -208,8 +209,15 @@ internal fun dominantColor(img: ImageBitmap): Color {
 /** 再生画面の文字色など */
 private class PlayerColors(val content: Color, val sub: Color, val accent: Color, val ambient: Boolean, val panel: Color)
 
+/** 再生画面の色。テーマに差し色があれば、アンビエントモード(暗い背景)のときだけその色を使う */
 @Composable
-private fun playerColors(ambient: Boolean): PlayerColors = if (ambient) {
+private fun playerColors(ambient: Boolean, accent: Int = 0): PlayerColors {
+    val c = playerColorsBase(ambient)
+    return if (accent == 0 || !ambient) c else PlayerColors(c.content, c.sub, Color(accent), c.ambient, c.panel)
+}
+
+@Composable
+private fun playerColorsBase(ambient: Boolean): PlayerColors = if (ambient) {
     PlayerColors(Color.White, Color.White.copy(alpha = 0.75f), Color(0xFFF3D58C), true, Color.White.copy(alpha = 0.12f))
 } else {
     PlayerColors(
@@ -347,11 +355,12 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
     BackHandler(enabled = pager.currentPage != 1) { scope.launch { pager.animateScrollToPage(1) } }
 
     PlayerStatusBar(ambient, inPane)
-    val col = playerColors(ambient)
+    val ut = rememberUiTheme(s.uiTheme)
+    val col = playerColors(ambient, ut.accent)
 
     // 下にある画面へタッチが抜けないよう、空の pointerInput で受け止める
     Box(Modifier.fillMaxSize().playerBackdrop(ambient).pointerInput(Unit) {}) {
-        PlayerBackground(ambient, s.ambientBlur, s.ambientBlurLevel, art, tint, dim)
+        PlayerBackground(ambient, s.ambientBlur, if (ut.blurLevel > 0) ut.blurLevel else s.ambientBlurLevel, art, tint, dim)
         CompositionLocalProvider(LocalContentColor provides col.content) {
             // 横向きでは、カメラの切り欠きが左右に来るので、そこも避ける
             val bars = when {
@@ -375,21 +384,40 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { GlassIf(RoundedCornerShape(22.dp)) { Row(horizontalArrangement = Arrangement.Center) {
                         listOf(S(R.string.favorites), S(R.string.playing), S(R.string.queue)).forEachIndexed { i, l ->
                             val sel = pager.currentPage == i
+                            // テーマ: underline(下線)/ pill(選んでいるものに丸い面)/ segmented(枠で区切り、選んでいるものを塗る)
+                            val base = LocalContentColor.current
+                            val tabShape = RoundedCornerShape(when (ut.tabs) { "segmented" -> 6.dp; "pill" -> 16.dp; else -> 8.dp })
+                            val tabBg = when {
+                                !sel -> Color.Transparent
+                                ut.tabs == "pill" -> base.copy(alpha = 0.16f)
+                                ut.tabs == "segmented" -> base.copy(alpha = 0.9f)
+                                else -> Color.Transparent
+                            }
+                            val tabFg = when {
+                                sel && ut.tabs == "segmented" -> if (base.luminance() > 0.5f) Color(0xFF0A1A30) else Color.White
+                                sel -> base
+                                else -> base.copy(alpha = 0.55f)
+                            }
+                            val underline = ut.tabs == "underline"
                             Column(
-                                Modifier.clip(RoundedCornerShape(8.dp)).clickable { scope.launch { pager.animateScrollToPage(i) } }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                Modifier.padding(horizontal = if (underline) 0.dp else 2.dp).clip(tabShape).background(tabBg)
+                                    .then(if (ut.tabs == "segmented") Modifier.border(1.dp, base.copy(alpha = 0.3f), tabShape) else Modifier)
+                                    .clickable { scope.launch { pager.animateScrollToPage(i) } }
+                                    .padding(horizontal = if (underline) 8.dp else 12.dp, vertical = if (underline) 4.dp else 7.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
                                 Text(
                                     l, style = MaterialTheme.typography.labelLarge, maxLines = 1,
                                     // (ガラスの中では、ガラスに合わせた読みやすい色)
-                                    color = if (sel) LocalContentColor.current else LocalContentColor.current.copy(alpha = 0.55f),
+                                    color = tabFg,
                                     fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
                                 )
-                                Box(
-                                    Modifier.padding(top = 3.dp).size(width = 16.dp, height = 3.dp).clip(CircleShape)
-                                        .background(if (sel) col.accent else Color.Transparent),
-                                )
+                                if (underline) {
+                                    Box(
+                                        Modifier.padding(top = 3.dp).size(width = 16.dp, height = 3.dp).clip(CircleShape)
+                                            .background(if (sel) col.accent else Color.Transparent),
+                                    )
+                                }
                             }
                         }
                     } } }
@@ -530,6 +558,7 @@ private fun PlayerPage(
     onQueue: () -> Unit,
 ) {
     val p = vm.player
+    val ut = rememberUiTheme(s.uiTheme)
     val lockMode = LocalLockMode.current
     val closeNow by rememberUpdatedState(onClose)
     val soundNow by rememberUpdatedState(onSound)
@@ -610,6 +639,7 @@ private fun PlayerPage(
                         art, compact,
                         overlay = seeking?.let { fmtMs((it * dur).toLong()) },
                         onPrev = { p.prev(fromSwipe = true) }, onNext = { p.next() }, onTap = onToggleLyrics,
+                        corner = ut.artCorner.dp, frame = ut.artFrame, glow = if (ut.artGlow) col.accent else null,
                     )
                     // ロック画面: ジャケットの上に鍵のマーク(設定の向きにスワイプすると解除)
                     if (lockMode) {
@@ -623,7 +653,8 @@ private fun PlayerPage(
         }
         // ---- 曲の情報と操作(縦向きではジャケットの下、横向きでは右) ----
         val controls: @Composable ColumnScope.() -> Unit = {
-            // ---- 音質 ----
+            // ---- 音質・出力先・EQ・DAR(テーマが panel なら 1 枚の表示窓にまとめる) ----
+            val infoBlock: @Composable () -> Unit = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (detail?.hiRes == true) {
                     QualityBadge("Hi-Res", QualityClass.HiRes)
@@ -637,7 +668,18 @@ private fun PlayerPage(
             }
             Spacer(Modifier.height(if (compact) 2.dp else 6.dp))
             // ---- 出力先・ビットパーフェクト・EQ・DAR ----
-            SoundStatus(s, col, compact, onOutput, onSound)
+            SoundStatus(s, col, compact, onOutput, onSound, ut.info)
+            }
+            if (ut.info == "panel") {
+                val panelShape = RoundedCornerShape(10.dp)
+                Column(
+                    Modifier.fillMaxWidth().clip(panelShape)
+                        .background(if (col.ambient) Color.Black.copy(alpha = 0.4f) else col.panel)
+                        .border(1.dp, col.content.copy(alpha = 0.14f), panelShape)
+                        .padding(horizontal = 10.dp, vertical = if (compact) 4.dp else 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) { infoBlock() }
+            } else infoBlock()
             Spacer(Modifier.height(if (compact) 4.dp else 10.dp))
             // ---- 曲名(タップでアルバム・アーティストへ)とお気に入り ----
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -676,7 +718,7 @@ private fun PlayerPage(
                         // 長い曲名・狭い画面では、1 行に収めて流す
                         MarqueeText(
                             cur.title, if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
-                            LocalContentColor.current, FontWeight.Bold,
+                            LocalContentColor.current, FontWeight(ut.titleWeight),
                         )
                         MarqueeText(cur.artist, if (compact) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleMedium, col.sub)
                         if (cur.album.isNotEmpty() && !tiny) MarqueeText(cur.album, MaterialTheme.typography.bodyMedium, col.sub)
@@ -716,7 +758,7 @@ private fun PlayerPage(
             // ---- 再生位置 ----
             // (再生バーは、バーと時間の表示を縦に並べる。包むのは縦に並べる入れ物にする。重ねる入れ物だと、時間がバーに重なる)
             Column(Modifier.fillMaxWidth().lockHotspot("seek")) {
-                SeekBar(p, dur, seeking, col, { seeking = it }) {
+                SeekBar(p, dur, seeking, col, { seeking = it }, ut.seek) {
                     seeking?.let { p.seek((it * dur).toLong()) }
                     seeking = null
                 }
@@ -724,8 +766,55 @@ private fun PlayerPage(
             Spacer(Modifier.height(if (compact) 2.dp else 10.dp))
             // ---- 再生操作 ----
             // ボタンの並びは設定で変えられる(R: リピート、P: 前、X: 再生、N: 次、S: シャッフル)
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                for (c in controlOrder(s.controlOrder)) when (c) {
+            // テーマ: outline(丸い枠)/ solid(前・次は枠なし、再生は塗り)/ capsule(前・再生・次を 1 本の帯に)/ square(角丸の四角)
+            val ctl = ut.controls
+            val onAccent = if (col.accent.luminance() > 0.5f) Color(0xFF101418) else Color.White
+            val onContent = if (col.content.luminance() > 0.5f) Color(0xFF0B1E3A) else Color.White
+            val squareShape = RoundedCornerShape(12.dp)
+            val skipButton: @Composable (Boolean) -> Unit = { prev ->
+                val click: () -> Unit = { if (prev) p.prev() else p.next() }
+                val m = Modifier.size(skipSize).lockHotspot(if (prev) "prev" else "next")
+                val icon: @Composable () -> Unit = {
+                    Icon(
+                        if (prev) AppIcons.SkipPrevious else AppIcons.SkipNext,
+                        if (prev) S(R.string.previous_track) else S(R.string.next_track),
+                        Modifier.size(skipSize * (if (ctl == "solid" || ctl == "capsule") 0.55f else 0.47f)), tint = col.content,
+                    )
+                }
+                when (ctl) {
+                    "solid", "capsule" -> IconButton(click, m) { icon() }
+                    "square" -> OutlinedIconButton(
+                        click, m, shape = squareShape, border = BorderStroke(1.dp, col.content.copy(alpha = 0.45f)),
+                        colors = androidx.compose.material3.IconButtonDefaults.outlinedIconButtonColors(
+                            containerColor = if (col.ambient) Color.Black.copy(alpha = 0.25f) else col.panel,
+                        ),
+                    ) { icon() }
+                    else -> OutlinedIconButton(click, m, border = BorderStroke(2.dp, col.content)) { icon() }
+                }
+            }
+            val playButton: @Composable () -> Unit = {
+                val m = Modifier.size(playSize).lockHotspot("play")
+                val fg = when (ctl) { "solid" -> onContent; "capsule", "square" -> onAccent; else -> col.content }
+                val icon: @Composable () -> Unit = {
+                    Icon(
+                        if (p.isPlaying) AppIcons.Pause else Icons.Filled.PlayArrow,
+                        if (p.isPlaying) S(R.string.pause) else S(R.string.play),
+                        Modifier.size(playSize * 0.52f), tint = fg,
+                    )
+                }
+                when (ctl) {
+                    "solid", "capsule", "square" -> androidx.compose.material3.FilledIconButton(
+                        { p.toggle() }, if (ctl == "capsule") Modifier.size(playSize * 0.86f).lockHotspot("play") else m,
+                        shape = if (ctl == "square") RoundedCornerShape(16.dp) else CircleShape,
+                        colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
+                            containerColor = if (ctl == "solid") col.content else col.accent, contentColor = fg,
+                        ),
+                    ) { icon() }
+                    else -> OutlinedIconButton({ p.toggle() }, m, shape = CircleShape, border = BorderStroke(2.5.dp, col.content)) { icon() }
+                }
+            }
+            val button: @Composable (Char) -> Unit = { c ->
+                when (c) {
                     'R' -> IconButton({ p.cycleRepeat() }, Modifier.alpha(if (lockMode) 0f else 1f)) {
                         Icon(
                             if (p.repeatMode == 2) AppIcons.RepeatOne else AppIcons.Repeat,
@@ -733,22 +822,36 @@ private fun PlayerPage(
                             tint = if (p.repeatMode != 0) col.accent else col.sub,
                         )
                     }
-                    'P' -> OutlinedIconButton({ p.prev() }, Modifier.size(skipSize).lockHotspot("prev"), border = BorderStroke(2.dp, col.content)) {
-                        Icon(AppIcons.SkipPrevious, S(R.string.previous_track), Modifier.size(skipSize * 0.47f), tint = col.content)
-                    }
-                    'X' -> OutlinedIconButton({ p.toggle() }, Modifier.size(playSize).lockHotspot("play"), shape = CircleShape, border = BorderStroke(2.5.dp, col.content)) {
-                        Icon(
-                            if (p.isPlaying) AppIcons.Pause else Icons.Filled.PlayArrow,
-                            if (p.isPlaying) S(R.string.pause) else S(R.string.play),
-                            Modifier.size(playSize * 0.52f), tint = col.content,
-                        )
-                    }
-                    'N' -> OutlinedIconButton({ p.next() }, Modifier.size(skipSize).lockHotspot("next"), border = BorderStroke(2.dp, col.content)) {
-                        Icon(AppIcons.SkipNext, S(R.string.next_track), Modifier.size(skipSize * 0.47f), tint = col.content)
-                    }
+                    'P' -> skipButton(true)
+                    'X' -> playButton()
+                    'N' -> skipButton(false)
                     'S' -> IconButton({ p.toggleShuffle() }, Modifier.alpha(if (lockMode) 0f else 1f)) {
                         Icon(AppIcons.Shuffle, S(R.string.shuffle_2), tint = if (p.shuffle) col.accent else col.sub)
                     }
+                    else -> {}
+                }
+            }
+            // capsule では、並んでいる前・再生・次を 1 つの帯にまとめる(並びは設定のまま)
+            val groups = remember(s.controlOrder, ctl) {
+                val g = mutableListOf<String>()
+                for (c in controlOrder(s.controlOrder)) {
+                    val transport = c == 'P' || c == 'X' || c == 'N'
+                    if (ctl == "capsule" && transport && g.isNotEmpty() && g.last().last().let { it == 'P' || it == 'X' || it == 'N' }) {
+                        g[g.size - 1] = g.last() + c
+                    } else g.add(c.toString())
+                }
+                g.toList()
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                for (g in groups) {
+                    if (ctl == "capsule" && g.any { it == 'P' || it == 'X' || it == 'N' }) {
+                        Row(
+                            Modifier.clip(CircleShape).background(if (col.ambient) Color.Black.copy(alpha = 0.32f) else col.panel)
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) { for (c in g) button(c) }
+                    } else button(g[0])
                 }
             }
             Spacer(Modifier.height(if (compact) 0.dp else 6.dp))
@@ -827,13 +930,32 @@ private fun PlayerPage(
  * 再生画面と、ほかのアプリの音を UCRT で鳴らしているときの画面で使う
  */
 @Composable
-private fun SoundStatus(s: AppSettings, col: PlayerColors, compact: Boolean, onOutput: () -> Unit, onSound: () -> Unit) {
+private fun SoundStatus(
+    s: AppSettings, col: PlayerColors, compact: Boolean, onOutput: () -> Unit, onSound: () -> Unit, style: String = "outline",
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         // ---- 出力先・ビットパーフェクト・EQ ----
+        // テーマ: outline(枠線)/ filled(半透明の塗り)/ dark(暗い塗り)/ panel(表示窓の中。控えめな塗り)
+        val outlined = style == "outline"
+        val fill = when (style) {
+            "filled" -> col.content.copy(alpha = 0.14f)
+            "dark" -> if (col.ambient) Color.Black.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surfaceContainerHigh
+            "panel" -> col.content.copy(alpha = 0.08f)
+            else -> Color.Transparent
+        }
+        val chipShape = when (style) {
+            "filled" -> CircleShape
+            "dark" -> RoundedCornerShape(10.dp)
+            "panel" -> RoundedCornerShape(6.dp)
+            else -> FilterChipDefaults.shape
+        }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val chipColors = if (col.ambient) {
-                FilterChipDefaults.filterChipColors(labelColor = col.sub, selectedLabelColor = Color.Black, selectedContainerColor = col.accent)
-            } else FilterChipDefaults.filterChipColors()
+                FilterChipDefaults.filterChipColors(
+                    containerColor = fill, labelColor = if (outlined) col.sub else col.content,
+                    selectedLabelColor = Color.Black, selectedContainerColor = col.accent,
+                )
+            } else if (outlined) FilterChipDefaults.filterChipColors() else FilterChipDefaults.filterChipColors(containerColor = fill)
             val outDev = AudioEngine.output
             val castTo = com.uyatame.ucrt.player.cast.CastManager.connected
             FilterChip(
@@ -847,20 +969,21 @@ private fun SoundStatus(s: AppSettings, col: PlayerColors, compact: Boolean, onO
                     )
                 },
                 colors = chipColors,
-                border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = false),
+                shape = chipShape,
+                border = if (!outlined) null else if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = false),
                 modifier = Modifier.widthIn(max = 180.dp),
             )
-            val border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = true)
+            val border = if (!outlined) null else if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = true)
             // 状態の表示は、実際にその状態のときだけ出す
             val perfect = AudioEngine.bitPerfectActive
             if (perfect) {
-                FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_bit_perfect)) }, colors = chipColors, border = border)
+                FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_bit_perfect)) }, colors = chipColors, shape = chipShape, border = border)
             } else if (s.sourceDirect) {
-                FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_source_direct)) }, colors = chipColors, border = border)
+                FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_source_direct)) }, colors = chipColors, shape = chipShape, border = border)
             }
             if (!perfect && !s.sourceDirect && s.eqEnabled) {
                 val name = eqPresetName(s) ?: S(R.string.custom)
-                FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_eq, name)) }, colors = chipColors, border = border)
+                FilterChip(selected = true, onClick = onSound, label = { Text(S(R.string.chip_eq, name)) }, colors = chipColors, shape = chipShape, border = border)
             }
             // 音質設定を開く(いつでも開けるように、アイコンだけのボタン)
             FilterChip(
@@ -868,7 +991,8 @@ private fun SoundStatus(s: AppSettings, col: PlayerColors, compact: Boolean, onO
                 onClick = onSound,
                 label = { Icon(AppIcons.Tune, S(R.string.sound_settings), Modifier.size(18.dp)) },
                 colors = chipColors,
-                border = if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = false),
+                shape = chipShape,
+                border = if (!outlined) null else if (col.ambient) BorderStroke(1.dp, col.sub) else FilterChipDefaults.filterChipBorder(enabled = true, selected = false),
             )
         }
         // ---- DAR が効いているときの中身(変換の方法と、実際に送っている周波数・ビットレート) ----
@@ -893,6 +1017,7 @@ private fun SoundStatus(s: AppSettings, col: PlayerColors, compact: Boolean, onO
 }
 
 /** 再生位置のバーと時刻。再生位置を読むのはここだけ(0.25 秒ごとに描き直すのを、この部分だけにする) */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SeekBar(
     p: PlayerController,
@@ -900,17 +1025,44 @@ private fun SeekBar(
     seeking: Float?,
     col: PlayerColors,
     onSeeking: (Float) -> Unit,
+    style: String = "default",
     onDone: () -> Unit,
 ) {
     val frac = seeking ?: (p.positionMs.toFloat() / dur).coerceIn(0f, 1f)
-    Slider(
-        value = frac,
-        onValueChange = onSeeking,
-        onValueChangeFinished = onDone,
-        colors = if (col.ambient) {
-            SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = 0.28f))
-        } else SliderDefaults.colors(),
-    )
+    val colors = if (col.ambient) {
+        SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = 0.28f))
+    } else SliderDefaults.colors()
+    // テーマ: default / thin(小さな丸いつまみ)/ ticks(目盛り付き。つまみは差し色の細い棒)
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        if (style == "ticks") {
+            val tickColor = col.sub.copy(alpha = 0.5f)
+            Canvas(Modifier.matchParentSize().padding(horizontal = 10.dp)) {
+                val h = 10.dp.toPx()
+                val cy = size.height / 2
+                for (i in 0..10) {
+                    val x = size.width * i / 10f
+                    drawLine(tickColor, Offset(x, cy - h / 2), Offset(x, cy + h / 2), 1.dp.toPx())
+                }
+            }
+        }
+        if (style == "default") {
+            Slider(value = frac, onValueChange = onSeeking, onValueChangeFinished = onDone, colors = colors)
+        } else {
+            val src = remember { MutableInteractionSource() }
+            val thumbColor = if (style == "ticks") col.accent else if (col.ambient) Color.White else MaterialTheme.colorScheme.primary
+            Slider(
+                value = frac,
+                onValueChange = onSeeking,
+                onValueChangeFinished = onDone,
+                colors = colors,
+                interactionSource = src,
+                thumb = {
+                    if (style == "ticks") Box(Modifier.size(width = 4.dp, height = 22.dp).clip(RoundedCornerShape(2.dp)).background(thumbColor))
+                    else Box(Modifier.size(16.dp).clip(CircleShape).background(thumbColor))
+                },
+            )
+        }
+    }
     Row(Modifier.fillMaxWidth()) {
         Text(fmtMs((frac * dur).toLong()), style = MaterialTheme.typography.labelMedium, color = col.sub)
         Spacer(Modifier.weight(1f))
@@ -927,9 +1079,13 @@ private fun SwipeCover(
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onTap: () -> Unit,
+    corner: Dp = 12.dp,
+    frame: Boolean = false,
+    glow: Color? = null,
 ) {
     val scope = rememberCoroutineScope()
     val shift = remember { Animatable(0f) }
+    val shape = RoundedCornerShape(corner)
     var width by remember { mutableIntStateOf(1) }
     val prevNow by rememberUpdatedState(onPrev)
     val nextNow by rememberUpdatedState(onNext)
@@ -974,11 +1130,19 @@ private fun SwipeCover(
                 rotationZ = shift.value / width * 5f
                 alpha = 1f - (abs(shift.value) / width * 0.7f).coerceIn(0f, 0.7f)
             }
-            .shadow(if (compact) 12.dp else 24.dp, RoundedCornerShape(12.dp))
-            .clip(RoundedCornerShape(12.dp))
+            // テーマ: 額縁(細い線で囲む)・光(影をテーマの差し色にする)
+            .then(
+                if (frame) Modifier.border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(corner + 3.dp)).padding(3.dp)
+                else Modifier,
+            )
+            .then(
+                if (glow != null) Modifier.shadow(if (compact) 18.dp else 32.dp, shape, ambientColor = glow, spotColor = glow)
+                else Modifier.shadow(if (compact) 12.dp else 24.dp, shape),
+            )
+            .clip(shape)
             .clickable(remember { MutableInteractionSource() }, null, onClick = onTap),
     ) {
-        CoverBox(art, Modifier.fillMaxSize(), 12.dp)
+        CoverBox(art, Modifier.fillMaxSize(), corner)
         if (overlay != null) {
             // 再生位置をドラッグしている間は、ジャケットの上に大きく時刻を出す
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {

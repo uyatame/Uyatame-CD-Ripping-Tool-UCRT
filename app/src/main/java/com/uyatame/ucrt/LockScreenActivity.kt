@@ -144,7 +144,10 @@ class LockScreenActivity : ComponentActivity() {
             val fixed = androidx.compose.ui.unit.Density(d.density * scale, d.fontScale.coerceIn(0.85f, 1.3f))
             CompositionLocalProvider(LocalDensity provides fixed, LocalWideLayout provides wide) {
                 val s = st
-                AppTheme(s.themeMode, s.dynamicColor, s.themeColor, s.textColor, s.appearance == 1) {
+                val ut = rememberUiTheme(s.uiTheme)
+                AppTheme(
+                    s.themeMode, s.dynamicColor && ut.seed == 0, if (ut.seed != 0) ut.seed else s.themeColor, s.textColor, s.appearance == 1, ut.corner,
+                ) {
                     LockScreenContent(vm, s, onUnlock = { done -> unlock(done) })
                 }
             }

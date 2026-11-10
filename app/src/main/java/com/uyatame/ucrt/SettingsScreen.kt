@@ -628,6 +628,7 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
     HomeSection(vm)
     LockScreenSection(vm, s)
     LauncherIconSection()
+    ThemeSection(vm, s)
     Section(S(R.string.appearance)) {
         Segmented(S(R.string.ui_style), listOf(S(R.string.ui_style_standard), S(R.string.ui_style_glass)), s.appearance) { vm.set(Keys.appearance, it) }
         Text(

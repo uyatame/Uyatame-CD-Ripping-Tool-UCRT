@@ -60,6 +60,8 @@ data class AppSettings(
     val themeColor: Int = 0,
     /** 文字の色(ARGB。0 = テーマの標準の色) */
     val textColor: Int = 0,
+    /** UI のテーマ(UiThemes の id。組み込み・読み込んだもの) */
+    val uiTheme: String = "classic",
     val ambientPlayer: Boolean = true,
     /** アンビエントモードで背景のジャケットをぼかす(オフならぼかさずに薄く敷く) */
     val ambientBlur: Boolean = true,
@@ -281,6 +283,7 @@ object Keys {
     val ambientPlayer = booleanPreferencesKey("ambientPlayer")
     val themeColor = intPreferencesKey("themeColor")
     val textColor = intPreferencesKey("textColor")
+    val uiTheme = stringPreferencesKey("uiTheme")
     val ambientBlur = booleanPreferencesKey("ambientBlur")
     val hideNavBar = booleanPreferencesKey("hideNavBar")
     val trackArt = booleanPreferencesKey("trackArt")
@@ -400,6 +403,7 @@ class SettingsRepository(private val context: Context) {
             dynamicColor = p[Keys.dynamicColor] ?: d.dynamicColor,
             ambientPlayer = p[Keys.ambientPlayer] ?: d.ambientPlayer,
             themeColor = p[Keys.themeColor] ?: d.themeColor,
+            uiTheme = p[Keys.uiTheme] ?: d.uiTheme,
             textColor = p[Keys.textColor] ?: d.textColor,
             ambientBlur = p[Keys.ambientBlur] ?: d.ambientBlur,
             hideNavBar = p[Keys.hideNavBar] ?: d.hideNavBar,
