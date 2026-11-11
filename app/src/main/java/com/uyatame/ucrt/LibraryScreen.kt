@@ -92,6 +92,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -345,10 +346,59 @@ private fun encodeTiles(list: List<Pair<String, Boolean>>): String =
 
 /**
  * トップにジャケットの列(最近追加・最近再生)を出すか。カテゴリーと同じ設定の文字列に「-strip:recent」のように書く
- * (書いていなければ出す)
+ * (書いていなければ出す)。これは今までの設定で、最近追加・最近再生だけ。ほかのカテゴリーは artOn を使う
  */
 private fun stripOn(setting: String, id: String): Boolean =
     setting.split(',').none { it.trim() == "-strip:$id" }
+
+/** ジャケットの列をほかのカテゴリーでも使えるようにした分(ネットワークはジャケットが無いので除く) */
+private val ART_IDS = TILE_IDS.filter { it != "network" }
+
+/**
+ * トップに、そのカテゴリーのジャケットの列を出すか。設定の文字列に「art:favorites」のように書く(書いていなければ出さない。
+ * 今までのトップは変わらない)。最近追加・最近再生は、今までの「-strip:」が先(書いていなければ出す)
+ */
+private fun artOn(setting: String, id: String): Boolean =
+    if (id == "recent" || id == "history") stripOn(setting, id) else setting.split(',').any { it.trim() == "art:$id" }
+
+/** そのカテゴリーのアイコンを消すか(設定に「noicon:favorites」と書く。列だけで開けるようにするとき) */
+private fun iconOff(setting: String, id: String): Boolean =
+    setting.split(',').any { it.trim() == "noicon:$id" }
+
+/** ジャケットの列の中身: カテゴリーごとに、見える並びのアルバム(最大 15 枚) */
+private const val ART_ROW_MAX = 15
+
+/**
+ * ジャケットの列に並べるアルバム(カテゴリーごと。アルバム単位・重複なし・最大 ART_ROW_MAX 枚)。
+ * その列のジャケットを押すと、見えているこの並びのまま、最後まで再生したら次のアルバムへ進む
+ */
+private fun artRowAlbums(vm: MainViewModel, id: String, albums: List<LibAlbum>, albumByKey: Map<String, LibAlbum>): List<LibAlbum> {
+    val store = vm.store
+    fun fromTracks(uris: Sequence<String>) =
+        uris.mapNotNull { vm.albumKeyOf(it) }.distinct().mapNotNull { albumByKey[it] }.take(ART_ROW_MAX).toList()
+    return when (id) {
+        "albums" -> albums.sortedWith(compareBy({ it.artist.lowercase() }, { it.title.lowercase() })).take(ART_ROW_MAX)
+        "recent", "songs" -> albums.sortedByDescending { it.added }.take(ART_ROW_MAX)
+        "history" -> fromTracks(store.history.asSequence().map { it.uri })
+        "favorites" -> (store.favAlbums.mapNotNull { albumByKey[it] } + fromTracks(store.favTracks.asSequence())).distinctBy { it.key }.take(ART_ROW_MAX)
+        "check" -> fromTracks(store.checkTracks.asSequence())
+        "top" -> fromTracks(store.counts.entries.asSequence().filter { it.value > 0 }.sortedByDescending { it.value }.map { it.key })
+        "hires" -> albums.filter { Quality.classOf(it) == QualityClass.HiRes }.sortedByDescending { it.added }.take(ART_ROW_MAX)
+        "playlists" -> fromTracks(store.playlists.asSequence().mapNotNull { p -> p.uris.firstOrNull() })
+        // アーティストは、アルバムの多い順に、その代表のアルバム(新しい順の先頭)
+        "artists" -> albums.groupBy { it.artist }.entries.sortedByDescending { it.value.size }
+            .map { (_, l) -> l.maxByOrNull { it.year }!! }.take(ART_ROW_MAX)
+        // ジャンル・年は、それぞれの代表のアルバム(新しい順の先頭)
+        "genres" -> albums.groupBy { a -> a.first.genre }.filterKeys { it.isNotEmpty() }.entries.sortedByDescending { it.value.size }
+            .map { (_, l) -> l.maxByOrNull { it.added }!! }.take(ART_ROW_MAX)
+        "years" -> albums.filter { it.year.isNotEmpty() }.groupBy { it.year }.entries.sortedByDescending { it.key }
+            .map { (_, l) -> l.maxByOrNull { it.added }!! }.take(ART_ROW_MAX)
+        // フォルダは、フォルダごとの代表のアルバム
+        "folders" -> albums.groupBy { a -> folderPath(a) }.entries.sortedBy { it.key.lowercase() }
+            .map { (_, l) -> l.maxByOrNull { it.added }!! }.take(ART_ROW_MAX)
+        else -> emptyList()
+    }
+}
 
 @Composable
 private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
@@ -386,16 +436,23 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
             "history" to "${store.history.size}",
         )
     }
-    val tiles = remember(s.libTiles) { tileOrder(s.libTiles).filter { it.second }.map { it.first } }
-    // ジャケットの列は、そのカテゴリーを表示していて、列もオフにしていないときだけ出す
-    val showRecent = "recent" in tiles && stripOn(s.libTiles, "recent")
-    val showPlayed = "history" in tiles && stripOn(s.libTiles, "history")
-    val recentAlbums = remember(albums, showRecent) { if (showRecent) albums.sortedByDescending { it.added }.take(15) else emptyList() }
-    // 曲が変わるたびに作り直すので、アルバムはキーの表で引き、15 枚そろったらやめる
+    val order = remember(s.libTiles) { tileOrder(s.libTiles) }
+    // アイコンを出すカテゴリー(表示がオンで、アイコンを消していないもの)
+    val tiles = remember(order, s.libTiles) { order.filter { it.second && !iconOff(s.libTiles, it.first) }.map { it.first } }
+    // ジャケットの列を出すカテゴリー(列の並びも、カテゴリーの並びに従う)。
+    // 最近追加・最近再生は今までどおり(カテゴリーがオンで、列もオフにしていないとき)。ほかは、列をオンにしたとき。
+    // カテゴリーがオフでも、列をオンにしていれば出す(アイコンを出さずに、ジャケットだけから開ける)
+    val rowIds = remember(order, s.libTiles) {
+        order.map { it.first }.filter { id ->
+            if (id == "recent" || id == "history") order.first { it.first == id }.second && stripOn(s.libTiles, id)
+            else id in ART_IDS && artOn(s.libTiles, id)
+        }
+    }
+    // 曲が変わるたびに作り直すので、アルバムはキーの表で引く(列は最大 ART_ROW_MAX 枚)
     val albumByKey = remember(albums) { albums.associateBy { it.key } }
-    val playedAlbums = remember(albumByKey, store.history, showPlayed) {
-        if (!showPlayed) return@remember emptyList()
-        store.history.asSequence().mapNotNull { vm.albumKeyOf(it.uri) }.distinct().mapNotNull { k -> albumByKey[k] }.take(15).toList()
+    // 列の中身は、ライブラリ・お気に入り・再生履歴などが変わったときだけ作り直す
+    val rowAlbums = remember(rowIds, albums, albumByKey, vm.trackMap, store.history, store.favAlbums, store.favTracks, store.checkTracks, store.counts, store.playlists) {
+        rowIds.associateWith { artRowAlbums(vm, it, albums, albumByKey) }
     }
     val full: androidx.compose.foundation.lazy.grid.LazyGridItemSpanScope.() -> GridItemSpan = { GridItemSpan(maxLineSpan) }
 
@@ -479,21 +536,19 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
         items(tiles, key = { "tile:$it" }) { id ->
             CategoryTile(tileIcon(id), tileLabel(id), counts[id].orEmpty()) { vm.libPush("cat:$id") }
         }
-        if (recentAlbums.isNotEmpty()) {
-            item(key = "recentHead", span = full) {
-                ListHeading(S(R.string.recently_added_2), Modifier.padding(start = 4.dp)) {
-                    TextButton({ vm.libPush("cat:recent") }) { Text(S(R.string.all)) }
+        // ジャケットの列(カテゴリーごと。見出しを押すと、そのカテゴリーのページへ)
+        for (id in rowIds) {
+            val list = rowAlbums[id].orEmpty()
+            if (list.isEmpty()) continue
+            item(key = "rowHead:$id", span = full) {
+                ListHeading(
+                    if (id == "recent") S(R.string.recently_added_2) else if (id == "history") S(R.string.recently_played_2) else tileLabel(id),
+                    Modifier.padding(start = 4.dp),
+                ) {
+                    TextButton({ vm.libPush("cat:$id") }) { Text(if (id == "history") S(R.string.history) else S(R.string.all)) }
                 }
             }
-            item(key = "recentRow", span = full) { AlbumStrip(vm, recentAlbums) }
-        }
-        if (playedAlbums.isNotEmpty()) {
-            item(key = "playedHead", span = full) {
-                ListHeading(S(R.string.recently_played_2), Modifier.padding(start = 4.dp)) {
-                    TextButton({ vm.libPush("cat:history") }) { Text(S(R.string.history)) }
-                }
-            }
-            item(key = "playedRow", span = full) { AlbumStrip(vm, playedAlbums) }
+            item(key = "row:$id", span = full) { AlbumStrip(vm, list, "strip:$id") }
         }
     }
     ScrollTopButton(remember(homeState) { derivedStateOf { homeState.firstVisibleItemIndex > 6 } }.value) { homeState.scrollToItem(0) }
@@ -502,9 +557,11 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
 
 /** 横に流れるアルバムの列 */
 @Composable
-private fun AlbumStrip(vm: MainViewModel, list: List<LibAlbum>) {
+private fun AlbumStrip(vm: MainViewModel, list: List<LibAlbum>, from: String) {
+    // 列に並んでいる順(最近追加・最近再生など)で、次のアルバムへ進む
+    val order = remember(list, from) { MainViewModel.AlbumOrder(from, list.map { it.key }) }
     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
-        items(list, key = { it.key }) { a -> AlbumTile(vm, a, Modifier.width(132.dp)) }
+        items(list, key = { it.key }) { a -> AlbumTile(vm, a, Modifier.width(132.dp), order = order) }
     }
 }
 
@@ -528,44 +585,73 @@ private fun CategoryTile(icon: ImageVector, label: String, count: String, onClic
     }
 }
 
-/** トップに並べるカテゴリーの並べ替え・表示の切り替え */
+/**
+ * トップに並べるカテゴリーの並べ替え・表示の切り替え。
+ * カテゴリーごとに「アイコン」と「ジャケット(その中身をジャケットの列で出す)」を選べる。
+ * 両方出す・アイコンだけ(今まで)・ジャケットだけ(アイコンを出さずに、ジャケットから開く)。
+ * 最近追加・最近再生は、今までどおり、カテゴリーをオンにするとアイコンと列が出る(列だけをオフにもできる)
+ */
 @Composable
 private fun TileEditDialog(vm: MainViewModel, s: AppSettings, onDismiss: () -> Unit) {
     val list = remember { mutableStateListOf<Pair<String, Boolean>>().apply { addAll(tileOrder(s.libTiles)) } }
-    var recentStrip by remember { mutableStateOf(stripOn(s.libTiles, "recent")) }
-    var playedStrip by remember { mutableStateOf(stripOn(s.libTiles, "history")) }
+    // 列の表示(ジャケット)とアイコンの消去は、カテゴリーごとに持つ
+    val art = remember {
+        mutableStateMapOf<String, Boolean>().apply { ART_IDS.forEach { put(it, artOn(s.libTiles, it)) } }
+    }
+    val noIcon = remember {
+        mutableStateMapOf<String, Boolean>().apply { ART_IDS.forEach { put(it, iconOff(s.libTiles, it)) } }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(S(R.string.reorder_categories_2)) },
         text = {
-            LazyColumn(Modifier.heightIn(max = 480.dp)) {
-                itemsIndexed(list, key = { _, it -> it.first }) { i, (id, on) ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(on, { list[i] = id to it })
-                        Icon(tileIcon(id), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.width(10.dp))
-                        Text(tileLabel(id), modifier = Modifier.weight(1f))
-                        IconButton({ if (i > 0) list.add(i - 1, list.removeAt(i)) }, enabled = i > 0) {
-                            Icon(Icons.Filled.KeyboardArrowUp, S(R.string.up))
-                        }
-                        IconButton({ if (i < list.lastIndex) list.add(i + 1, list.removeAt(i)) }, enabled = i < list.lastIndex) {
-                            Icon(Icons.Filled.KeyboardArrowDown, S(R.string.down))
-                        }
-                    }
-                }
-                // ---- トップのジャケットの列(カテゴリーをオフにすると、列も出なくなる) ----
-                item(key = "strips") {
-                    Column(Modifier.padding(top = 12.dp)) {
-                        Text(S(R.string.show_as_artwork_rows), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                        val recentTile = list.firstOrNull { it.first == "recent" }?.second == true
-                        val playedTile = list.firstOrNull { it.first == "history" }?.second == true
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(recentStrip && recentTile, { recentStrip = it }, enabled = recentTile)
-                            Text(S(R.string.recently_added_2))
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(playedStrip && playedTile, { playedStrip = it }, enabled = playedTile)
-                            Text(S(R.string.recently_played_2))
+            Column {
+                Text(S(R.string.home_layout_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LazyColumn(Modifier.heightIn(max = 460.dp).padding(top = 8.dp)) {
+                    itemsIndexed(list, key = { _, it -> it.first }) { i, (id, on) ->
+                        val hasArt = id in ART_IDS
+                        val isStripCat = id == "recent" || id == "history"
+                        val artChecked = art[id] == true
+                        // アイコンのチェック: 表示がオンで、アイコンを消していない(最近追加・最近再生は、表示そのもの)
+                        val iconChecked = on && (isStripCat || noIcon[id] != true)
+                        Column(Modifier.padding(vertical = 2.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // 最近追加・最近再生: チェックはカテゴリーそのもの(アイコンと列)。ほかは、アイコンのチェック
+                                Checkbox(iconChecked, { checked ->
+                                    if (isStripCat || !hasArt) list[i] = id to checked
+                                    else {
+                                        // アイコンだけを消せる(ジャケットが出ているとき。ジャケットも出ていなければ、カテゴリーごと隠す)
+                                        noIcon[id] = !checked
+                                        list[i] = id to (checked || artChecked)
+                                    }
+                                })
+                                Icon(tileIcon(id), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.width(10.dp))
+                                Text(tileLabel(id), modifier = Modifier.weight(1f))
+                                IconButton({ if (i > 0) list.add(i - 1, list.removeAt(i)) }, enabled = i > 0) {
+                                    Icon(Icons.Filled.KeyboardArrowUp, S(R.string.up))
+                                }
+                                IconButton({ if (i < list.lastIndex) list.add(i + 1, list.removeAt(i)) }, enabled = i < list.lastIndex) {
+                                    Icon(Icons.Filled.KeyboardArrowDown, S(R.string.down))
+                                }
+                            }
+                            if (hasArt && !isStripCat) {
+                                Row(Modifier.padding(start = 40.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(artChecked, { checked ->
+                                        art[id] = checked
+                                        // ジャケットを出すカテゴリーは、表示をオンにする(アイコンを消しているなら、ジャケットだけ出る)。
+                                        // ジャケットを外して、アイコンも消えているなら、カテゴリーごと隠す
+                                        list[i] = id to (checked || noIcon[id] != true)
+                                    })
+                                    Text(S(R.string.home_show_artwork_row), style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                            if (!hasArt) {
+                                Text(
+                                    S(R.string.home_no_artwork), Modifier.padding(start = 48.dp),
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -573,8 +659,12 @@ private fun TileEditDialog(vm: MainViewModel, s: AppSettings, onDismiss: () -> U
         },
         confirmButton = {
             TextButton({
-                val strips = (if (recentStrip) "" else ",-strip:recent") + (if (playedStrip) "" else ",-strip:history")
-                vm.set(Keys.libTiles, encodeTiles(list) + strips)
+                val rows = list.filter { it.first == "recent" || it.first == "history" }
+                val strips = rows.filter { !it.second }.joinToString("") { ",-strip:" + it.first }
+                val extra = ART_IDS.filter { it != "recent" && it != "history" }.joinToString("") { id ->
+                    (if (art[id] == true) ",art:$id" else "") + (if (noIcon[id] == true) ",noicon:$id" else "")
+                }
+                vm.set(Keys.libTiles, encodeTiles(list) + strips + extra)
                 onDismiss()
             }) { Text(S(R.string.save)) }
         },
@@ -656,6 +746,9 @@ private fun AlbumCollectionPage(
             else -> f.sortedWith(compareBy({ it.artist.lowercase() }, { it.title.lowercase() }))
         }
     }
+    // 今見えている並び(ソート・音質の絞り込みのあと)。アルバムを開く・再生するとき、最後まで再生したら
+    // 次のアルバムへ、この並びで進む。並びが変わったときだけ作り直す
+    val order = remember(shown, key) { MainViewModel.AlbumOrder(key, shown.map { it.key }) }
     // 日付の書式は 1 つを使い回す(アルバムごとに作ると、大きなライブラリでは重い)
     val ymFmt = remember { java.text.SimpleDateFormat("yyyy/MM", java.util.Locale.getDefault()) }
     val labelOf: (LibAlbum) -> String = { a ->
@@ -722,7 +815,7 @@ private fun AlbumCollectionPage(
                     contentPadding = PaddingValues(start = 12.dp, end = 24.dp, bottom = 24.dp + barInset()),
                 ) {
                     item(key = "controls") { controls() }
-                    items(shown, key = { it.key }) { a -> AlbumListRow(vm, a, subOf?.invoke(a)) }
+                    items(shown, key = { it.key }) { a -> AlbumListRow(vm, a, subOf?.invoke(a), order) }
                 }
                 FastScroller(st) { labels.getOrElse(it) { "" } }
             } else {
@@ -735,7 +828,7 @@ private fun AlbumCollectionPage(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     item(key = "controls", span = { GridItemSpan(maxLineSpan) }) { controls() }
-                    items(shown, key = { it.key }) { a -> AlbumTile(vm, a, sub = subOf?.invoke(a)) }
+                    items(shown, key = { it.key }) { a -> AlbumTile(vm, a, sub = subOf?.invoke(a), order = order) }
                 }
                 FastScroller(st) { labels.getOrElse(it) { "" } }
             }
@@ -790,6 +883,8 @@ private fun ArtistPage(vm: MainViewModel, name: String) {
         vm.albums.filter { a -> a.artist != name && a.tracks.any { it.artist == name } }
     }
     val tracks = remember(main, guest, name) { main.flatMap { it.tracks } + guest.flatMap { a -> a.tracks.filter { it.artist == name } } }
+    // 見えている並び(そのアーティストのアルバムを新しい順に、そのあと参加したアルバム)
+    val order = remember(main, guest, name) { MainViewModel.AlbumOrder("artist:$name", (main + guest).map { it.key }) }
     val full: androidx.compose.foundation.lazy.grid.LazyGridItemSpanScope.() -> GridItemSpan = { GridItemSpan(maxLineSpan) }
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, name) {
@@ -827,10 +922,10 @@ private fun ArtistPage(vm: MainViewModel, name: String) {
                     }
                 }
             }
-            items(main, key = { it.key }) { a -> AlbumTile(vm, a, sub = a.year.ifEmpty { a.artist }) }
+            items(main, key = { it.key }) { a -> AlbumTile(vm, a, sub = a.year.ifEmpty { a.artist }, order = order) }
             if (guest.isNotEmpty()) {
                 item(key = "guestHead", span = full) { ListHeading(S(R.string.appears_on)) }
-                items(guest, key = { "g:" + it.key }) { a -> AlbumTile(vm, a) }
+                items(guest, key = { "g:" + it.key }) { a -> AlbumTile(vm, a, order = order) }
             }
         }
     }
@@ -1085,6 +1180,8 @@ private fun FolderBrowsePage(vm: MainViewModel, path: String) {
             return@Column
         }
         val children = remember(node) { node.children.values.toList() }
+        // 見えているアルバムの並び(そのフォルダの直下のアルバム)
+        val dirOrder = remember(node, path) { MainViewModel.AlbumOrder("dir:$path", node.albums.map { it.key }) }
         Box(Modifier.fillMaxSize()) {
             val st = rememberLazyListState()
             LazyColumn(state = st, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp + barInset())) {
@@ -1094,7 +1191,7 @@ private fun FolderBrowsePage(vm: MainViewModel, path: String) {
                         { vm.libPush("dir:" + c.path) },
                     ) { RoundIcon(AppIcons.Folder) }
                 }
-                items(node.albums, key = { "a:" + it.key }) { a -> AlbumListRow(vm, a) }
+                items(node.albums, key = { "a:" + it.key }) { a -> AlbumListRow(vm, a, order = dirOrder) }
             }
             ScrollTopButton(remember(st) { derivedStateOf { st.firstVisibleItemIndex > 8 } }.value) { st.scrollToItem(0) }
         }
@@ -1130,6 +1227,8 @@ private fun FoldersPage(vm: MainViewModel) {
         walk(tree, 0)
         out
     }
+    // 見えているアルバムの並び(開いているフォルダの中を、上から順に)
+    val folderOrder = remember(rows) { MainViewModel.AlbumOrder("folders", rows.mapNotNull { it.album?.key }.distinct()) }
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, tileLabel("folders"))
         Box(Modifier.fillMaxSize()) {
@@ -1171,7 +1270,7 @@ private fun FoldersPage(vm: MainViewModel) {
                             }
                         }
                     } else {
-                        Box(Modifier.padding(start = (r.depth * 20 + 20).dp)) { AlbumListRow(vm, r.album!!) }
+                        Box(Modifier.padding(start = (r.depth * 20 + 20).dp)) { AlbumListRow(vm, r.album!!, order = folderOrder) }
                     }
                 }
             }
@@ -1204,6 +1303,8 @@ private fun FavoritesPage(vm: MainViewModel) {
             else -> l
         }
     }
+    // 見えているアルバムの並び(お気に入りのアルバムを、選んだ並べ替えの順に)
+    val favOrder = remember(albums) { MainViewModel.AlbumOrder("favorites", albums.map { it.key }) }
     // お気に入りのアーティスト(ライブラリにいるアーティストだけ。追加した順)
     val favArtists = remember(vm.store.favArtists, vm.albums) {
         val by = vm.albums.groupBy { it.artist }
@@ -1266,7 +1367,7 @@ private fun FavoritesPage(vm: MainViewModel) {
                     val all = albums.flatMap { it.tracks }
                     PlayShuffleButtons({ vm.playTracks(all, 0) }, { vm.playTracks(all, 0, shuffle = true) })
                 }
-                items(albums, key = { it.key }) { a -> AlbumTile(vm, a) }
+                items(albums, key = { it.key }) { a -> AlbumTile(vm, a, order = favOrder) }
             }
         } else {
             if (favArtists.isEmpty()) {
@@ -1633,6 +1734,8 @@ private fun SearchPage(vm: MainViewModel) {
             EmptyState(Icons.Filled.Search, S(R.string.no_results), "")
             return@Column
         }
+        // 見えているアルバムの並び(検索の結果の順)
+        val searchOrder = remember(al) { MainViewModel.AlbumOrder("search", al.map { it.key }) }
         LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp + barInset())) {
             if (artists.isNotEmpty()) {
                 item(key = "ah") { ListHeading(S(R.string.artists), Modifier.padding(start = 8.dp)) }
@@ -1642,7 +1745,7 @@ private fun SearchPage(vm: MainViewModel) {
             }
             if (al.isNotEmpty()) {
                 item(key = "alh") { ListHeading(S(R.string.albums), Modifier.padding(start = 8.dp)) }
-                items(al, key = { "al:" + it.key }) { a -> AlbumListRow(vm, a) }
+                items(al, key = { "al:" + it.key }) { a -> AlbumListRow(vm, a, order = searchOrder) }
             }
             if (songs.isNotEmpty()) {
                 item(key = "sh") { ListHeading(S(R.string.songs_3), Modifier.padding(start = 8.dp)) }
@@ -1691,7 +1794,7 @@ private fun AlbumDetail(vm: MainViewModel, a: LibAlbum) {
                 if (land) favButton()
                 IconButton({ lookup = true; vm.libLookup(a) }) { Icon(Icons.Filled.Search, S(R.string.get_track_info)) }
                 IconButton({ editing = true }) { Icon(Icons.Filled.Edit, S(R.string.edit_track_info)) }
-                IconButton({ vm.menuAlbum = a }) { Icon(Icons.Filled.MoreVert, S(R.string.more_options)) }
+                IconButton({ vm.showAlbumMenu(a, vm.orderFor(a.key)) }) { Icon(Icons.Filled.MoreVert, S(R.string.more_options)) }
             }
         }
     }

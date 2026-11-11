@@ -132,6 +132,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (libStack.isNotEmpty()) libStack.removeAt(libStack.lastIndex)
     }
 
+    /**
+     * アルバムの一覧で今見えている並び(アルバムのキーの順)。アルバムを開く・再生するときに、
+     * 「最後まで再生したら次のリストへ」でその並びのまま次のアルバムへ進むために、一覧の側が渡す。
+     * from はこの並びが作られた一覧の名前(アルバムの詳細を開いたまま別の一覧へ移ったときに、古い並びを使わないため)
+     */
+    class AlbumOrder(val from: String, val keys: List<String>)
+
+    /** 一覧から開いたアルバムごとの、そのとき見えていた並び(アルバムのキー → 並び)。開いた直後の 1 件だけ覚える */
+    private var openedOrder: Pair<String, AlbumOrder>? = null
+
+    /** アルバムの詳細を開く(order: 開いた一覧の並び)。並びが無ければ、今までどおりの順で進む */
+    fun openAlbum(a: LibAlbum, order: AlbumOrder? = null) {
+        openedOrder = if (order == null) null else a.key to order
+        libPush("album:" + a.key)
+    }
+
+    /** アルバムを開いたときの並び(そのアルバムを開いたときのものだけ。それ以外は null) */
+    fun orderFor(albumKey: String): AlbumOrder? = openedOrder?.takeIf { it.first == albumKey }?.second
+
     fun libReplaceTop(route: String) {
         if (libStack.isEmpty()) libStack.add(route) else libStack[libStack.lastIndex] = route
     }
@@ -197,6 +216,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var menuTrackPlaylist by mutableStateOf<Pair<String, Int>?>(null)
     /** アルバムの操作メニュー */
     var menuAlbum by mutableStateOf<LibAlbum?>(null)
+        private set
+    /** 操作メニューを開いたアルバムの一覧の並び(メニューの「再生」で、その並びで次のアルバムへ進む) */
+    var menuAlbumOrder: AlbumOrder? = null
+        private set
+
+    fun showAlbumMenu(a: LibAlbum?, order: AlbumOrder? = null) {
+        menuAlbum = a
+        menuAlbumOrder = if (a == null) null else order
+    }
     /** プレイリストに追加する曲(選ぶ画面を出す) */
     var playlistPick by mutableStateOf<List<String>?>(null)
     /** 曲の詳細情報を出す曲 */
@@ -2770,13 +2798,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
-    fun playAlbum(a: LibAlbum, start: Int, shuffle: Boolean = false) = playTracks(a.tracks, start, shuffle, PlaySource(PlaySource.ALBUM, a.key))
+    /**
+     * アルバムを再生する。order: 一覧で見えていた並び(あればそれを、なければアルバムを開いたときの並びを使う)。
+     * 次のアルバムへは、この並びで進む
+     */
+    fun playAlbum(a: LibAlbum, start: Int, shuffle: Boolean = false, order: AlbumOrder? = null) =
+        playTracks(a.tracks, start, shuffle, PlaySource(PlaySource.ALBUM, a.key, (order ?: orderFor(a.key))?.keys))
 
     /**
      * 再生しているリストの出どころ(アルバム・アーティスト・ジャンル・年・プレイリスト・フォルダ)。
      * 設定の「最後まで再生したら次のリストへ」で、次のリストを探すのに使う。null = それ以外(曲の一覧・検索など)
      */
-    class PlaySource(val kind: String, val key: String) {
+    class PlaySource(val kind: String, val key: String, val order: List<String>? = null) {
         companion object {
             const val ALBUM = "album"
             const val ARTIST = "artist"
@@ -2838,9 +2871,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         when (src.kind) {
             PlaySource.ALBUM -> {
-                val order = albums.sortedWith(compareBy({ it.artist.lowercase() }, { it.title.lowercase() }))
-                val a = after(order.map { it.key }, src.key).firstNotNullOfOrNull { k -> order.firstOrNull { it.key == k && it.tracks.isNotEmpty() } } ?: return null
-                return Triple(PlaySource(src.kind, a.key), a.title, a.tracks)
+                // 一覧で見えていた並びがあれば、その並びで進む(音質別の追加日順など)。ライブラリから消えたアルバムは飛ばす。
+                // 並びが無いとき(検索・再生画面から開いたときなど)は、アーティスト名→タイトルの順
+                val byKey = albums.associateBy { it.key }
+                val keys = src.order?.filter { it in byKey }?.takeIf { it.isNotEmpty() }
+                    ?: albums.sortedWith(compareBy({ it.artist.lowercase() }, { it.title.lowercase() })).map { it.key }
+                val nextKey = after(keys, src.key).firstNotNullOfOrNull { k -> byKey[k]?.takeIf { it.tracks.isNotEmpty() } } ?: return null
+                // 並びは次のアルバムにも引き継ぐ(2 つ先でも同じ並びで進む)
+                return Triple(PlaySource(src.kind, nextKey.key, src.order), nextKey.title, nextKey.tracks)
             }
             PlaySource.ARTIST -> {
                 val names = albums.map { it.artist }.distinct().sortedBy { it.lowercase() }

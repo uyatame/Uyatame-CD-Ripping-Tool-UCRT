@@ -1521,4 +1521,7 @@
     <string name="theme_exported">"テーマを書き出しました"</string>
     <string name="theme_failed">"ファイルを保存できませんでした"</string>
     <string name="theme_delete_title">"「%1$s」を削除しますか？"</string>
+    <string name="home_layout_desc">"トップに出すカテゴリーを選びます。アイコンを押すとそのカテゴリーが開きます。「ジャケットの列で出す」をオンにすると、中身のアルバムをジャケットで並べます(見出しを押すとカテゴリーが開きます)。アイコンを消して、ジャケットだけで出すこともできます。"</string>
+    <string name="home_show_artwork_row">"ジャケットの列で出す"</string>
+    <string name="home_no_artwork">"ジャケットが無いので、アイコンのままです"</string>
 </resources>

@@ -202,12 +202,15 @@ fun TrackRow(
     }
 }
 
-/** アルバムのタイル(グリッド表示)。長押しで操作メニュー */
+/**
+ * アルバムのタイル(グリッド表示)。長押しで操作メニュー。
+ * order: このタイルが並んでいる一覧の並び(アルバムのキーの順)。開く・再生するときに渡して、最後まで再生したら次のアルバムへ、その並びで進む
+ */
 @Composable
-fun AlbumTile(vm: MainViewModel, a: LibAlbum, modifier: Modifier = Modifier, sub: String? = null) {
+fun AlbumTile(vm: MainViewModel, a: LibAlbum, modifier: Modifier = Modifier, sub: String? = null, order: MainViewModel.AlbumOrder? = null) {
     Column(
         modifier.clip(RoundedCornerShape(themedCorner(12.dp)))
-            .combinedClickable(onClick = { vm.libPush("album:" + a.key) }, onLongClick = { vm.menuAlbum = a }),
+            .combinedClickable(onClick = { vm.openAlbum(a, order) }, onLongClick = { vm.showAlbumMenu(a, order) }),
     ) {
         Box {
             ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.fillMaxWidth().aspectRatio(1f), 12.dp)
@@ -216,7 +219,7 @@ fun AlbumTile(vm: MainViewModel, a: LibAlbum, modifier: Modifier = Modifier, sub
                 QualityBadge(Quality.badge(a), q, Modifier.align(Alignment.TopStart).padding(6.dp))
             }
             FilledIconButton(
-                { vm.playAlbum(a, 0) },
+                { vm.playAlbum(a, 0, order = order) },
                 Modifier.align(Alignment.BottomEnd).padding(8.dp).size(38.dp),
             ) { Icon(Icons.Filled.PlayArrow, S(R.string.play)) }
         }
@@ -234,10 +237,10 @@ fun AlbumTile(vm: MainViewModel, a: LibAlbum, modifier: Modifier = Modifier, sub
 
 /** アルバムの行(リスト表示) */
 @Composable
-fun AlbumListRow(vm: MainViewModel, a: LibAlbum, sub: String? = null) {
+fun AlbumListRow(vm: MainViewModel, a: LibAlbum, sub: String? = null, order: MainViewModel.AlbumOrder? = null) {
     Row(
         Modifier.fillMaxWidth().themedRow()
-            .combinedClickable(onClick = { vm.libPush("album:" + a.key) }, onLongClick = { vm.menuAlbum = a })
+            .combinedClickable(onClick = { vm.openAlbum(a, order) }, onLongClick = { vm.showAlbumMenu(a, order) })
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -255,7 +258,7 @@ fun AlbumListRow(vm: MainViewModel, a: LibAlbum, sub: String? = null) {
                 )
             }
         }
-        IconButton({ vm.playAlbum(a, 0) }) { Icon(Icons.Filled.PlayArrow, S(R.string.play)) }
+        IconButton({ vm.playAlbum(a, 0, order = order) }) { Icon(Icons.Filled.PlayArrow, S(R.string.play)) }
     }
 }
 
@@ -560,7 +563,8 @@ private fun TrackMenuSheet(vm: MainViewModel) {
 @Composable
 private fun AlbumMenuSheet(vm: MainViewModel) {
     val a = vm.menuAlbum ?: return
-    val close = { vm.menuAlbum = null }
+    val close = { vm.showAlbumMenu(null) }
+    val menuOrder = vm.menuAlbumOrder
     val land = isLandscape()
     // 横向きでは高さが足りないので、半分だけ開かずに全体を出し、スクロールできるようにする
     ModalBottomSheet(onDismissRequest = close, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = land)) {
@@ -578,8 +582,8 @@ private fun AlbumMenuSheet(vm: MainViewModel) {
                 }
             }
             HorizontalDivider()
-            SheetAction(Icons.Filled.PlayArrow, S(R.string.play)) { vm.playAlbum(a, 0); close() }
-            SheetAction(AppIcons.Shuffle, S(R.string.shuffle)) { vm.playAlbum(a, 0, shuffle = true); close() }
+            SheetAction(Icons.Filled.PlayArrow, S(R.string.play)) { vm.playAlbum(a, 0, order = menuOrder); close() }
+            SheetAction(AppIcons.Shuffle, S(R.string.shuffle)) { vm.playAlbum(a, 0, shuffle = true, order = menuOrder); close() }
             SheetAction(AppIcons.PlayNext, S(R.string.play_next)) { vm.playNext(a.tracks); close() }
             SheetAction(AppIcons.Queue, S(R.string.add_to_queue)) { vm.addToQueue(a.tracks); close() }
             val fav = vm.store.isFavAlbum(a.key)

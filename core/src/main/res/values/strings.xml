@@ -1525,4 +1525,7 @@
     <string name="theme_exported">"Theme exported"</string>
     <string name="theme_failed">"Could not save the file"</string>
     <string name="theme_delete_title">"Delete \"%1$s\"?"</string>
+    <string name="home_layout_desc">"Pick how each category appears on the library home. The icon opens the category. Turn on the artwork row to see its albums as covers (tap the heading to open the category). You can show the covers without the icon."</string>
+    <string name="home_show_artwork_row">"Show as artwork row"</string>
+    <string name="home_no_artwork">"No artwork for this one, so it stays an icon"</string>
 </resources>
