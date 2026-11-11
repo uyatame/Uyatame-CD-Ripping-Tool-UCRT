@@ -133,9 +133,9 @@ internal fun NetworkPage(vm: MainViewModel, s: AppSettings) {
                             IconButton({ deleting = src }) { Icon(Icons.Filled.Delete, S(R.string.delete)) }
                         }
                         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton({ vm.libPush("netdir:" + NetworkProvider.docId(src.id, "/")) }) { Text(S(R.string.net_browse)) }
+                            UOutlinedButton({ vm.libPush("netdir:" + NetworkProvider.docId(src.id, "/")) }) { Text(S(R.string.net_browse)) }
                             if (inLib) {
-                                OutlinedButton({ vm.removeLibraryFolder(root) }) { Text(S(R.string.net_remove_library)) }
+                                UOutlinedButton({ vm.removeLibraryFolder(root) }) { Text(S(R.string.net_remove_library)) }
                             }
                         }
                         if (inLib) {
@@ -186,7 +186,7 @@ private fun NetEditDialog(init: NetSource, onDismiss: () -> Unit, onSave: (NetSo
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(S(R.string.net_name)) })
                 Box {
-                    OutlinedButton({ menu = true }, Modifier.fillMaxWidth()) { Text(proto.label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    UOutlinedButton({ menu = true }, Modifier.fillMaxWidth()) { Text(proto.label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     DropdownMenu(menu, { menu = false }) {
                         NetProtocol.values().forEach { p ->
                             DropdownMenuItem(text = { Text(p.label) }, onClick = { proto = p; menu = false })
@@ -216,7 +216,7 @@ private fun NetEditDialog(init: NetSource, onDismiss: () -> Unit, onSave: (NetSo
                     supportingText = { Text(S(if (proto == NetProtocol.SMB) R.string.net_path_hint_smb else R.string.net_path_hint)) },
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(
+                    UOutlinedButton(
                         {
                             testing = true; result = S(R.string.net_testing)
                             val src = build()
@@ -289,9 +289,9 @@ internal fun NetworkBrowsePage(vm: MainViewModel, docId: String) {
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, if (path == "/") (src?.name?.ifEmpty { src.host } ?: S(R.string.network)) else path.substringAfterLast('/'), path)
         Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (files.isNotEmpty()) FilledTonalButton({ play(0) }) { Text(S(R.string.net_play_folder)) }
+            if (files.isNotEmpty()) UTonalButton({ play(0) }) { Text(S(R.string.net_play_folder)) }
             val inLib = here in s.libraryFolders
-            if (inLib) OutlinedButton({ vm.removeLibraryFolder(here) }) { Text(S(R.string.net_remove_library)) }
+            if (inLib) UOutlinedButton({ vm.removeLibraryFolder(here) }) { Text(S(R.string.net_remove_library)) }
 
         }
         val list = items

@@ -155,7 +155,7 @@ fun MbSubmitSheet(vm: MainViewModel) {
                         )
                     }
                 }
-                androidx.compose.material3.LinearProgressIndicator({ (step + 1) / 3f }, Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+                UProgress({ (step + 1) / 3f }, Modifier.fillMaxWidth().padding(horizontal = 16.dp))
                 Column(
                     Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -254,7 +254,7 @@ fun MbSubmitSheet(vm: MainViewModel) {
                         Text(if (step == 0) S(R.string.cancel) else S(R.string.back))
                     }
                     val canNext = when (step) { 0 -> title.isNotBlank() && artist.isNotBlank(); 1 -> titles.none { it.isBlank() }; else -> !missing }
-                    Button({ if (step < 2) step++ else submit() }, Modifier.weight(2f), enabled = canNext) {
+                    UButton({ if (step < 2) step++ else submit() }, Modifier.weight(2f), enabled = canNext) {
                         Text(if (step < 2) S(R.string.next) else S(R.string.mb_open_submit))
                     }
                 }

@@ -73,7 +73,7 @@ fun CastSheet(onDismiss: () -> Unit) {
             }
             if (!allowed) {
                 Text(S(R.string.cast_needs_local_network), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp))
-                androidx.compose.material3.Button({ ask.launch(CastManager.LOCAL_NETWORK) }, Modifier.padding(horizontal = 16.dp)) {
+                UButton({ ask.launch(CastManager.LOCAL_NETWORK) }, Modifier.padding(horizontal = 16.dp)) {
                     Text(S(R.string.allow))
                 }
             } else if (CastManager.devices.isEmpty()) {

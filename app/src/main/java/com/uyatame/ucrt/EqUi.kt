@@ -201,7 +201,7 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
                     S(R.string.bands, bands.size, ParamEq.MAX_BANDS),
                     style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f),
                 )
-                OutlinedButton(
+                UOutlinedButton(
                     {
                         bands.add(EqBand(EqType.Peak, freeFreq(bands), 0f, 1.41f))
                         sel = bands.lastIndex
@@ -343,7 +343,7 @@ private fun BandEditor(
     onDelete: () -> Unit,
 ) {
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(themedCorner(12.dp))).background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -416,7 +416,7 @@ private fun EqCurve(
     val moveEndNow by rememberUpdatedState(onMoveEnd)
     val addNow by rememberUpdatedState(onAdd)
     Canvas(
-        Modifier.fillMaxWidth().height(curveH).clip(RoundedCornerShape(12.dp)).background(cs.surfaceVariant)
+        Modifier.fillMaxWidth().height(curveH).clip(RoundedCornerShape(themedCorner(12.dp))).background(cs.surfaceVariant)
             .pointerInput(enabled) {
                 var lastTap = 0L
                 var lastPos = Offset.Zero

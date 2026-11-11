@@ -63,6 +63,14 @@ data class UiTheme(
     val headlineWeight: Int = 400,
     /** 画面の背景: plain / tint(上の方をテーマの色で薄く染める) */
     val background: String = "plain",
+    /** 画面の見出し: plain(標準) / large(大きく太く、下に差し色の短い線) / caps(字間を空け、下に細い線) */
+    val header: String = "plain",
+    /** ボタンの形: round(丸い端) / soft(角丸) / square(小さな角) */
+    val button: String = "round",
+    /** アイコンの台(ライブラリのカテゴリー・設定の項目・頭文字の丸など): default(画面ごとの標準) / circle / soft / square */
+    val tile: String = "default",
+    /** 進み具合のバー(取り込み・変換・ミニプレーヤー): default / thick(太く丸い) / blocks(区切った四角) */
+    val progress: String = "default",
 )
 
 object UiThemes {
@@ -80,6 +88,10 @@ object UiThemes {
     private val LIST_ROW = setOf("plain", "tinted", "divided")
     private val BARS = setOf("bar", "floating", "line")
     private val BACKGROUND = setOf("plain", "tint")
+    private val HEADER = setOf("plain", "large", "caps")
+    private val BUTTON = setOf("round", "soft", "square")
+    private val TILE = setOf("default", "circle", "soft", "square")
+    private val PROGRESS = setOf("default", "thick", "blocks")
 
     /** 読み込み・削除のたびに増える(画面がテーマを読み直す合図) */
     var revision by mutableIntStateOf(0)
@@ -94,19 +106,19 @@ object UiThemes {
             "sumi", "Sumi", builtin = true, accent = 0xFFF3D58C.toInt(), corner = 16, tabs = "pill",
             artCorner = 18, info = "filled", controls = "solid", seek = "thin", titleWeight = 900,
             nav = "pill", card = "filled", sectionTitle = "bold", listRow = "plain", coverCorner = 10, bars = "floating",
-            headlineWeight = 800,
+            headlineWeight = 800, header = "large", button = "round", tile = "circle", progress = "thick",
         ),
         UiTheme(
             "stage", "Stage", builtin = true, accent = 0xFFBFE6FF.toInt(), corner = 20, tabs = "underline",
             artCorner = 24, artGlow = true, info = "dark", controls = "capsule", seek = "thin", titleWeight = 900, blurLevel = 7,
             nav = "floating", card = "filled", sectionTitle = "accent", listRow = "tinted", coverCorner = 16, bars = "floating",
-            headlineWeight = 900, background = "tint",
+            headlineWeight = 900, background = "tint", header = "large", button = "round", tile = "soft", progress = "thick",
         ),
         UiTheme(
             "instrument", "Instrument", builtin = true, accent = 0xFFFFC46B.toInt(), corner = 6, tabs = "segmented",
             artCorner = 2, artFrame = true, info = "panel", controls = "square", seek = "ticks", titleWeight = 700,
             nav = "line", card = "panel", sectionTitle = "caps", listRow = "divided", coverCorner = 2, bars = "line",
-            headlineWeight = 700,
+            headlineWeight = 700, header = "caps", button = "square", tile = "square", progress = "blocks",
         ),
     )
 
@@ -207,6 +219,10 @@ object UiThemes {
             bars = pick(a, "bars", BARS, d.bars),
             headlineWeight = (a.optInt("headlineWeight", d.headlineWeight) / 100 * 100).coerceIn(400, 900),
             background = pick(a, "background", BACKGROUND, d.background),
+            header = pick(a, "header", HEADER, d.header),
+            button = pick(a, "button", BUTTON, d.button),
+            tile = pick(a, "tile", TILE, d.tile),
+            progress = pick(a, "progress", PROGRESS, d.progress),
         )
     }
 
@@ -240,6 +256,10 @@ object UiThemes {
             put("bars", t.bars)
             put("headlineWeight", t.headlineWeight)
             put("background", t.background)
+            put("header", t.header)
+            put("button", t.button)
+            put("tile", t.tile)
+            put("progress", t.progress)
         })
     }
 
@@ -273,6 +293,10 @@ object UiThemes {
             put("app.bars", "bar | floating | line  (mini player, ripping bar / ミニプレーヤーなどの帯)")
             put("app.headlineWeight", "400..900  (screen titles / 画面の見出し)")
             put("app.background", "plain | tint")
+            put("app.header", "plain | large | caps  (screen titles / 画面の見出し)")
+            put("app.button", "round | soft | square  (button shape / ボタンの形)")
+            put("app.tile", "default | circle | soft | square  (icon tiles, avatars / アイコンの台)")
+            put("app.progress", "default | thick | blocks  (progress bars / 進み具合のバー)")
         })
         return o.toString(2)
     }

@@ -27,6 +27,10 @@
     "coverCorner": 18,
     "bars": "floating",
     "headlineWeight": 800,
-    "background": "tint"
+    "background": "tint",
+    "header": "large",
+    "button": "soft",
+    "tile": "circle",
+    "progress": "thick"
   }
 }

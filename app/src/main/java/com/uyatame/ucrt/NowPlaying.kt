@@ -768,50 +768,11 @@ private fun PlayerPage(
             // ボタンの並びは設定で変えられる(R: リピート、P: 前、X: 再生、N: 次、S: シャッフル)
             // テーマ: outline(丸い枠)/ solid(前・次は枠なし、再生は塗り)/ capsule(前・再生・次を 1 本の帯に)/ square(角丸の四角)
             val ctl = ut.controls
-            val onAccent = if (col.accent.luminance() > 0.5f) Color(0xFF101418) else Color.White
-            val onContent = if (col.content.luminance() > 0.5f) Color(0xFF0B1E3A) else Color.White
-            val squareShape = RoundedCornerShape(12.dp)
             val skipButton: @Composable (Boolean) -> Unit = { prev ->
-                val click: () -> Unit = { if (prev) p.prev() else p.next() }
-                val m = Modifier.size(skipSize).lockHotspot(if (prev) "prev" else "next")
-                val icon: @Composable () -> Unit = {
-                    Icon(
-                        if (prev) AppIcons.SkipPrevious else AppIcons.SkipNext,
-                        if (prev) S(R.string.previous_track) else S(R.string.next_track),
-                        Modifier.size(skipSize * (if (ctl == "solid" || ctl == "capsule") 0.55f else 0.47f)), tint = col.content,
-                    )
-                }
-                when (ctl) {
-                    "solid", "capsule" -> IconButton(click, m) { icon() }
-                    "square" -> OutlinedIconButton(
-                        click, m, shape = squareShape, border = BorderStroke(1.dp, col.content.copy(alpha = 0.45f)),
-                        colors = androidx.compose.material3.IconButtonDefaults.outlinedIconButtonColors(
-                            containerColor = if (col.ambient) Color.Black.copy(alpha = 0.25f) else col.panel,
-                        ),
-                    ) { icon() }
-                    else -> OutlinedIconButton(click, m, border = BorderStroke(2.dp, col.content)) { icon() }
-                }
+                TransportSkip(prev, true, skipSize, col, ctl, Modifier.lockHotspot(if (prev) "prev" else "next")) { if (prev) p.prev() else p.next() }
             }
             val playButton: @Composable () -> Unit = {
-                val m = Modifier.size(playSize).lockHotspot("play")
-                val fg = when (ctl) { "solid" -> onContent; "capsule", "square" -> onAccent; else -> col.content }
-                val icon: @Composable () -> Unit = {
-                    Icon(
-                        if (p.isPlaying) AppIcons.Pause else Icons.Filled.PlayArrow,
-                        if (p.isPlaying) S(R.string.pause) else S(R.string.play),
-                        Modifier.size(playSize * 0.52f), tint = fg,
-                    )
-                }
-                when (ctl) {
-                    "solid", "capsule", "square" -> androidx.compose.material3.FilledIconButton(
-                        { p.toggle() }, if (ctl == "capsule") Modifier.size(playSize * 0.86f).lockHotspot("play") else m,
-                        shape = if (ctl == "square") RoundedCornerShape(16.dp) else CircleShape,
-                        colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (ctl == "solid") col.content else col.accent, contentColor = fg,
-                        ),
-                    ) { icon() }
-                    else -> OutlinedIconButton({ p.toggle() }, m, shape = CircleShape, border = BorderStroke(2.5.dp, col.content)) { icon() }
-                }
+                TransportPlay(p.isPlaying, playSize, col, ctl, Modifier.lockHotspot("play")) { p.toggle() }
             }
             val button: @Composable (Char) -> Unit = { c ->
                 when (c) {
@@ -923,6 +884,66 @@ private fun PlayerPage(
             }
         }
     }
+}
+
+/** 前・次のボタン(形はテーマで変わる: outline 丸い枠 / solid・capsule 枠なし / square 角丸の四角) */
+@Composable
+private fun TransportSkip(prev: Boolean, enabled: Boolean, size: Dp, col: PlayerColors, ctl: String, modifier: Modifier, onClick: () -> Unit) {
+    val tint = if (enabled) col.content else col.sub.copy(alpha = 0.3f)
+    val m = modifier.size(size)
+    val icon: @Composable () -> Unit = {
+        Icon(
+            if (prev) AppIcons.SkipPrevious else AppIcons.SkipNext,
+            if (prev) S(R.string.previous_track) else S(R.string.next_track),
+            Modifier.size(size * (if (ctl == "solid" || ctl == "capsule") 0.55f else 0.47f)), tint = tint,
+        )
+    }
+    when (ctl) {
+        "solid", "capsule" -> IconButton(onClick, m, enabled = enabled) { icon() }
+        "square" -> OutlinedIconButton(
+            onClick, m, enabled = enabled, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, tint.copy(alpha = 0.45f)),
+            colors = androidx.compose.material3.IconButtonDefaults.outlinedIconButtonColors(
+                containerColor = if (col.ambient) Color.Black.copy(alpha = 0.25f) else col.panel,
+            ),
+        ) { icon() }
+        else -> OutlinedIconButton(onClick, m, enabled = enabled, border = BorderStroke(2.dp, tint)) { icon() }
+    }
+}
+
+/** 再生・一時停止のボタン(outline 丸い枠 / solid 文字の色で塗る / capsule・square 差し色で塗る) */
+@Composable
+private fun TransportPlay(playing: Boolean, size: Dp, col: PlayerColors, ctl: String, modifier: Modifier, onClick: () -> Unit) {
+    val onAccent = if (col.accent.luminance() > 0.5f) Color(0xFF101418) else Color.White
+    val onContent = if (col.content.luminance() > 0.5f) Color(0xFF0B1E3A) else Color.White
+    val fg = when (ctl) { "solid" -> onContent; "capsule", "square" -> onAccent; else -> col.content }
+    val icon: @Composable () -> Unit = {
+        Icon(
+            if (playing) AppIcons.Pause else Icons.Filled.PlayArrow,
+            if (playing) S(R.string.pause) else S(R.string.play),
+            Modifier.size(size * 0.52f), tint = fg,
+        )
+    }
+    when (ctl) {
+        "solid", "capsule", "square" -> androidx.compose.material3.FilledIconButton(
+            onClick, modifier.size(if (ctl == "capsule") size * 0.86f else size),
+            shape = if (ctl == "square") RoundedCornerShape(16.dp) else CircleShape,
+            colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
+                containerColor = if (ctl == "solid") col.content else col.accent, contentColor = fg,
+            ),
+        ) { icon() }
+        else -> OutlinedIconButton(onClick, modifier.size(size), shape = CircleShape, border = BorderStroke(2.5.dp, col.content)) { icon() }
+    }
+}
+
+/** 前・再生・次をまとめる帯(テーマが capsule のときだけ面を付ける) */
+@Composable
+private fun TransportGroup(col: PlayerColors, ctl: String, content: @Composable () -> Unit) {
+    if (ctl != "capsule") { content(); return }
+    Row(
+        Modifier.clip(CircleShape).background(if (col.ambient) Color.Black.copy(alpha = 0.32f) else col.panel).padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) { content() }
 }
 
 /**
@@ -1592,7 +1613,8 @@ fun ExternalPlayerScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit)
     if (showVolume) VolumeSheet(vm, { showVolume = false }, system = true)
     BackHandler(onBack = onClose)
     PlayerStatusBar(ambient, inPane = false)
-    val col = playerColors(ambient)
+    val ut = rememberUiTheme(s.uiTheme)
+    val col = playerColors(ambient, ut.accent)
     // 再生位置は自分で進める(アプリからの知らせは、再生・一時停止・移動のときにしか来ない)
     var pos by remember { androidx.compose.runtime.mutableLongStateOf(n.positionNow()) }
     LaunchedEffect(n) {
@@ -1607,7 +1629,7 @@ fun ExternalPlayerScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit)
     val dur = n.durationMs.coerceAtLeast(1)
 
     Box(Modifier.fillMaxSize().playerBackdrop(ambient).pointerInput(Unit) {}) {
-        PlayerBackground(ambient, s.ambientBlur, s.ambientBlurLevel, art, tint, dim)
+        PlayerBackground(ambient, s.ambientBlur, if (ut.blurLevel > 0) ut.blurLevel else s.ambientBlurLevel, art, tint, dim)
         CompositionLocalProvider(LocalContentColor provides col.content) {
             val bars = if (isLandscape()) Modifier.windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
             else Modifier.systemBarsPadding()
@@ -1657,6 +1679,7 @@ fun ExternalPlayerScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit)
                                 art, compact,
                                 overlay = seeking?.let { fmtMs((it * dur).toLong()) },
                                 onPrev = { if (n.canPrev) ext.previous() }, onNext = { if (n.canNext) ext.next() }, onTap = {},
+                                corner = ut.artCorner.dp, frame = ut.artFrame, glow = if (ut.artGlow) col.accent else null,
                             )
                         }
                     }
@@ -1721,24 +1744,11 @@ fun ExternalPlayerScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit)
                         // ---- 再生操作 ----
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                             IconButton({ showVolume = true }) { Icon(AppIcons.Volume, S(R.string.volume), tint = col.sub) }
-                            OutlinedIconButton(
-                                { ext.previous() }, Modifier.size(skipSize), enabled = n.canPrev,
-                                border = BorderStroke(2.dp, if (n.canPrev) col.content else col.sub.copy(alpha = 0.3f)),
-                            ) {
-                                Icon(AppIcons.SkipPrevious, S(R.string.previous_track), Modifier.size(skipSize * 0.47f), tint = if (n.canPrev) col.content else col.sub.copy(alpha = 0.3f))
-                            }
-                            OutlinedIconButton({ ext.playPause() }, Modifier.size(playSize), shape = CircleShape, border = BorderStroke(2.5.dp, col.content)) {
-                                Icon(
-                                    if (n.playing) AppIcons.Pause else Icons.Filled.PlayArrow,
-                                    if (n.playing) S(R.string.pause) else S(R.string.play),
-                                    Modifier.size(playSize * 0.52f), tint = col.content,
-                                )
-                            }
-                            OutlinedIconButton(
-                                { ext.next() }, Modifier.size(skipSize), enabled = n.canNext,
-                                border = BorderStroke(2.dp, if (n.canNext) col.content else col.sub.copy(alpha = 0.3f)),
-                            ) {
-                                Icon(AppIcons.SkipNext, S(R.string.next_track), Modifier.size(skipSize * 0.47f), tint = if (n.canNext) col.content else col.sub.copy(alpha = 0.3f))
+                            // 前・再生・次の形はテーマで変わる(UCRT の曲の再生画面と同じ)
+                            TransportGroup(col, ut.controls) {
+                                TransportSkip(true, n.canPrev, skipSize, col, ut.controls, Modifier) { ext.previous() }
+                                TransportPlay(n.playing, playSize, col, ut.controls, Modifier) { ext.playPause() }
+                                TransportSkip(false, n.canNext, skipSize, col, ut.controls, Modifier) { ext.next() }
                             }
                             IconButton({ ext.openApp(ctx) }) {
                                 Icon(Icons.AutoMirrored.Filled.ExitToApp, S(R.string.open_app, n.appName), tint = col.sub)

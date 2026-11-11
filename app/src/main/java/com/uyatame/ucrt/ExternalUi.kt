@@ -36,7 +36,7 @@ fun ExternalNowPlayingCard(vm: MainViewModel, modifier: Modifier = Modifier, onO
     val n = ExternalMedia.now ?: return
     Surface(
         onClick = { if (onOpen != null) onOpen() else vm.externalPlayerOpen = true },
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(themedCorner(16.dp)),
         color = MaterialTheme.colorScheme.secondaryContainer,
         modifier = modifier.fillMaxWidth(),
     ) {
@@ -68,7 +68,7 @@ fun ExternalNowPlayingCard(vm: MainViewModel, modifier: Modifier = Modifier, onO
 @Composable
 private fun ExternalArt(n: ExternalMedia.NowPlaying, modifier: Modifier) {
     Box(
-        modifier.clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+        modifier.clip(RoundedCornerShape(themedCorner(10.dp))).background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         val art = n.art

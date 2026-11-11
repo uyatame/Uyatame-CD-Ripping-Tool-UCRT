@@ -199,7 +199,7 @@ private fun SpHeader(onBack: () -> Unit, actions: @Composable androidx.compose.f
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, S(R.string.back)) }
-        Text("Spotify", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f).padding(start = 4.dp))
+        ScreenTitle("Spotify", Modifier.weight(1f).padding(start = 4.dp))
         actions()
     }
 }
@@ -236,7 +236,7 @@ private fun SpotifySetup(sp: SpotifyViewModel, onBack: () -> Unit) {
                 S(R.string.spotify_setup_step1_note),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedButton({ openUri(ctx, "https://developer.spotify.com/dashboard") }) {
+            UOutlinedButton({ openUri(ctx, "https://developer.spotify.com/dashboard") }) {
                 Text(S(R.string.spotify_open_dashboard))
             }
         }
@@ -256,7 +256,7 @@ private fun SpotifySetup(sp: SpotifyViewModel, onBack: () -> Unit) {
             if (id.isNotEmpty() && !valid) {
                 Text(S(R.string.spotify_client_id_looks_wrong), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
-            Button(
+            UButton(
                 {
                     sp.saveClientId(id)
                     login()
@@ -325,7 +325,7 @@ private fun SpotifyHome(sp: SpotifyViewModel, play: SpPlay, onBack: () -> Unit) 
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { focus.clearFocus(); sp.runSearch() }),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                shape = RoundedCornerShape(28.dp),
+                shape = themedButtonShape(),
             )
         }
         if (sp.needsReauth) {
@@ -333,7 +333,7 @@ private fun SpotifyHome(sp: SpotifyViewModel, play: SpPlay, onBack: () -> Unit) 
                 UCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(S(R.string.spotify_please_allow_again), style = MaterialTheme.typography.bodyMedium)
-                        Button(login) { Text(S(R.string.spotify_log_in_again)) }
+                        UButton(login) { Text(S(R.string.spotify_log_in_again)) }
                     }
                 }
             }
@@ -399,7 +399,7 @@ private fun HomeLink(icon: ImageVector, title: String, onClick: () -> Unit) {
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(48.dp)) {
+        Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(themedCorner(8.dp)), modifier = Modifier.size(48.dp)) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(icon, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
             }
@@ -515,7 +515,7 @@ private fun Loading() {
 private fun ErrorRow(text: String, onRetry: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(text, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-        FilledTonalButton(onRetry) { Text(S(R.string.spotify_retry)) }
+        UTonalButton(onRetry) { Text(S(R.string.spotify_retry)) }
     }
 }
 
@@ -539,7 +539,7 @@ private fun PlayButtons(sp: SpotifyViewModel, play: SpPlay, contextUri: String?,
     val ctx = LocalContext.current
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (contextUri != null) {
-            Button({ play.context(contextUri, -1, null) }) {
+            UButton({ play.context(contextUri, -1, null) }) {
                 Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(S(R.string.play))
@@ -789,7 +789,7 @@ fun SpotifyBar(sp: SpotifyViewModel, onOpen: () -> Unit) {
     }
     BarSurface(onOpen) {
         Column {
-            LinearProgressIndicator(
+            UProgress(
                 progress = { if (sp.durationMs > 0) (pos.toFloat() / sp.durationMs).coerceIn(0f, 1f) else 0f },
                 modifier = Modifier.fillMaxWidth().height(2.dp),
             )

@@ -275,7 +275,7 @@ fun LyricsEditorPage(vm: MainViewModel, item: PlayItem, onClose: () -> Unit) {
                 }
             }
             Box {
-                Button({ saveMenu = true }, enabled = loaded && busy == null, modifier = Modifier.padding(end = 8.dp)) { Text(S(R.string.save)) }
+                UButton({ saveMenu = true }, enabled = loaded && busy == null, modifier = Modifier.padding(end = 8.dp)) { Text(S(R.string.save)) }
                 DropdownMenu(saveMenu, { saveMenu = false }) {
                     DropdownMenuItem(text = { Text(S(R.string.lyrics_save_lrc)) }, onClick = {
                         saveMenu = false
@@ -297,7 +297,7 @@ fun LyricsEditorPage(vm: MainViewModel, item: PlayItem, onClose: () -> Unit) {
             }
         }
         busy?.let {
-            if (busyProgress != null) LinearProgressIndicator({ busyProgress ?: 0f }, Modifier.fillMaxWidth()) else LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (busyProgress != null) UProgress({ busyProgress ?: 0f }, Modifier.fillMaxWidth()) else LinearProgressIndicator(Modifier.fillMaxWidth())
             Text(it, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 16.dp))
         }
         if (!playingThis) {
@@ -330,7 +330,7 @@ fun LyricsEditorPage(vm: MainViewModel, item: PlayItem, onClose: () -> Unit) {
             }
             TextButton({ seek(pos + 5000) }, enabled = playingThis) { Text("+5s") }
             Spacer(Modifier.weight(1f))
-            FilledTonalButton({ stampSelected() }, enabled = playingThis && lines.isNotEmpty()) { Text(S(R.string.lyrics_tag)) }
+            UTonalButton({ stampSelected() }, enabled = playingThis && lines.isNotEmpty()) { Text(S(R.string.lyrics_tag)) }
         }
         Text(
             S(R.string.lyrics_tag_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,

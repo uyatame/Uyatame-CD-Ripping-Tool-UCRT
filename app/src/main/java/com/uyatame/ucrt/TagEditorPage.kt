@@ -125,7 +125,7 @@ fun TagEditorPage(
         Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onCancel) { Icon(Icons.AutoMirrored.Filled.ArrowBack, S(R.string.cancel)) }
             Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Button(onSave, enabled = !loading, modifier = Modifier.padding(end = 8.dp)) { Text(S(R.string.save)) }
+            UButton(onSave, enabled = !loading, modifier = Modifier.padding(end = 8.dp)) { Text(S(R.string.save)) }
         }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         LazyColumn(
@@ -290,7 +290,7 @@ private fun BulkRow(
             keyboardOptions = if (number) androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
             else androidx.compose.foundation.text.KeyboardOptions.Default,
         )
-        androidx.compose.material3.FilledTonalButton(apply, enabled = enabled) { Text(S(R.string.tag_apply_all)) }
+        UTonalButton(apply, enabled = enabled) { Text(S(R.string.tag_apply_all)) }
     }
 }
 

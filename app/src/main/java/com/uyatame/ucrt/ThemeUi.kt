@@ -260,3 +260,111 @@ fun ThemedBar(onClick: () -> Unit, color: Color?, content: @Composable () -> Uni
         ) { content() }
     }
 }
+
+/** 画面の見出し(ライブラリ・ディスク・ストリーミング・アップサンプル・設定など、タブの一番上) */
+@Composable
+fun ScreenTitle(title: String, modifier: Modifier = Modifier) {
+    val ut = LocalUiTheme.current
+    val sch = MaterialTheme.colorScheme
+    when (ut.header) {
+        // 大きく太い文字と、下に差し色の短い線
+        "large" -> Column(modifier) {
+            Text(title, style = MaterialTheme.typography.headlineLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Box(Modifier.padding(top = 4.dp).size(width = 32.dp, height = 4.dp).clip(CircleShape).background(sch.primary))
+        }
+        // 字間を空けた文字と、下に端までの細い線
+        "caps" -> {
+            val line = sch.outline
+            Text(
+                title, style = MaterialTheme.typography.headlineSmall, letterSpacing = 2.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = modifier.drawBehind { drawLine(line, Offset(0f, size.height + 4.dp.toPx()), Offset(size.width, size.height + 4.dp.toPx()), 1.dp.toPx()) }
+                    .padding(bottom = 2.dp),
+            )
+        }
+        else -> Text(title, style = MaterialTheme.typography.headlineMedium, modifier = modifier)
+    }
+}
+
+/** ボタンの形(丸い端・角丸・小さな角) */
+@Composable
+fun themedButtonShape(): androidx.compose.ui.graphics.Shape = when (LocalUiTheme.current.button) {
+    "soft" -> RoundedCornerShape(12.dp)
+    "square" -> RoundedCornerShape(4.dp)
+    else -> CircleShape
+}
+
+/** アイコンの台の形(ライブラリのカテゴリー・設定の項目・頭文字の丸など)。default は、その場所の今までの形 */
+@Composable
+fun themedTileShape(default: androidx.compose.ui.graphics.Shape): androidx.compose.ui.graphics.Shape = when (LocalUiTheme.current.tile) {
+    "circle" -> CircleShape
+    "soft" -> RoundedCornerShape(30)
+    "square" -> RoundedCornerShape(4.dp)
+    else -> default
+}
+
+/** ボタン(形だけテーマに合わせる。ほかは Material 3 のボタンと同じ) */
+@Composable
+fun UButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    colors: androidx.compose.material3.ButtonColors = androidx.compose.material3.ButtonDefaults.buttonColors(),
+    contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.material3.ButtonDefaults.ContentPadding,
+    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+) = androidx.compose.material3.Button(
+    onClick, modifier, enabled, shape = themedButtonShape(), colors = colors, contentPadding = contentPadding, content = content,
+)
+
+@Composable
+fun UTonalButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    colors: androidx.compose.material3.ButtonColors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(),
+    contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.material3.ButtonDefaults.ContentPadding,
+    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+) = androidx.compose.material3.FilledTonalButton(
+    onClick, modifier, enabled, shape = themedButtonShape(), colors = colors, contentPadding = contentPadding, content = content,
+)
+
+@Composable
+fun UOutlinedButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    colors: androidx.compose.material3.ButtonColors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(),
+    contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.material3.ButtonDefaults.ContentPadding,
+    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+) = androidx.compose.material3.OutlinedButton(
+    onClick, modifier, enabled, shape = themedButtonShape(), colors = colors, contentPadding = contentPadding, content = content,
+)
+
+/** 進み具合のバー(値が決まっているもの)。default は Material 3 のまま、thick は太く丸いバー、blocks は区切った四角 */
+@Composable
+fun UProgress(progress: () -> Float, modifier: Modifier = Modifier) {
+    val ut = LocalUiTheme.current
+    if (ut.progress == "default") {
+        androidx.compose.material3.LinearProgressIndicator(progress, modifier)
+        return
+    }
+    val on = MaterialTheme.colorScheme.primary
+    val off = MaterialTheme.colorScheme.surfaceContainerHighest
+    val blocks = ut.progress == "blocks"
+    // (高さ・幅は、呼ぶ側が決めていればそちらが勝つ)
+    androidx.compose.foundation.Canvas(modifier.width(240.dp).height(if (blocks) 8.dp else 6.dp)) {
+        val p = progress().coerceIn(0f, 1f)
+        if (blocks) {
+            val n = (size.width / 10.dp.toPx()).toInt().coerceIn(4, 40)
+            val gap = 2.dp.toPx()
+            val w = (size.width - gap * (n - 1)) / n
+            val lit = (p * n + 0.5f).toInt()
+            for (i in 0 until n) {
+                drawRect(if (i < lit) on else off, Offset(i * (w + gap), 0f), androidx.compose.ui.geometry.Size(w, size.height))
+            }
+        } else {
+            val r = androidx.compose.ui.geometry.CornerRadius(size.height / 2)
+            drawRoundRect(off, cornerRadius = r)
+            if (p > 0f) drawRoundRect(on, size = androidx.compose.ui.geometry.Size((size.width * p).coerceAtLeast(size.height), size.height), cornerRadius = r)
+        }
+    }
+}

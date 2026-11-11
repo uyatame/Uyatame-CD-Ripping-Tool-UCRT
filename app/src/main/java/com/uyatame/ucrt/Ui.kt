@@ -3,6 +3,7 @@
 package com.uyatame.ucrt
 
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.basicMarquee
@@ -335,15 +336,31 @@ fun App(vm: MainViewModel) {
                 contentAlignment = Alignment.Center,
             ) { GlassRail(tabs, tab, onTab) }
         } else if (land) {
+            // 左のレールの色は、テーマの下のタブに合わせる(floating は暗い面、line は平らな面と右の線)
+            val rs = MaterialTheme.colorScheme
+            val railLine = rs.outline
+            val railColors = when (ut.nav) {
+                "floating" -> androidx.compose.material3.NavigationRailItemDefaults.colors(
+                    selectedIconColor = rs.inverseSurface, selectedTextColor = rs.inverseOnSurface, indicatorColor = rs.inversePrimary,
+                    unselectedIconColor = rs.inverseOnSurface.copy(alpha = 0.75f), unselectedTextColor = rs.inverseOnSurface.copy(alpha = 0.75f),
+                )
+                "line" -> androidx.compose.material3.NavigationRailItemDefaults.colors(
+                    selectedIconColor = rs.primary, selectedTextColor = rs.onBackground, indicatorColor = Color.Transparent,
+                )
+                else -> androidx.compose.material3.NavigationRailItemDefaults.colors()
+            }
             NavigationRail(
-                Modifier.fillMaxHeight(),
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                Modifier.fillMaxHeight().then(
+                    if (ut.nav == "line") Modifier.railLine(railLine)
+                    else Modifier,
+                ),
+                containerColor = when (ut.nav) { "floating" -> rs.inverseSurface; "line" -> rs.background; else -> rs.surfaceContainer },
                 windowInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
                     .only(WindowInsetsSides.Vertical + WindowInsetsSides.Start),
             ) {
                 Spacer(Modifier.weight(1f))
                 tabs.forEach { (icon, label, i) ->
-                    NavigationRailItem(tab == i, { onTab(i) }, { Icon(icon, null) }, label = { Text(label) })
+                    NavigationRailItem(tab == i, { onTab(i) }, { Icon(icon, null) }, label = { Text(label) }, colors = railColors)
                 }
                 Spacer(Modifier.weight(1f))
             }
@@ -550,7 +567,8 @@ fun ScreenHeader(title: String, actions: @Composable RowScope.() -> Unit = {}) {
         Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+        // 見出しの書き方はテーマで変わる
+        ScreenTitle(title, Modifier.weight(1f))
         actions()
     }
 }
@@ -687,7 +705,7 @@ fun EmptyState(icon: ImageVector, title: String, body: String, action: String? =
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(
-            Modifier.size(104.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
+            Modifier.size(104.dp).clip(themedTileShape(CircleShape)).background(MaterialTheme.colorScheme.secondaryContainer),
             contentAlignment = Alignment.Center,
         ) {
             Icon(icon, null, Modifier.size(52.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
@@ -699,7 +717,7 @@ fun EmptyState(icon: ImageVector, title: String, body: String, action: String? =
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (action != null && onAction != null) FilledTonalButton(onAction) { Text(action) }
+        if (action != null && onAction != null) UTonalButton(onAction) { Text(action) }
     }
 }
 
@@ -823,7 +841,7 @@ fun RipBar(vm: MainViewModel, onOpen: () -> Unit) {
                 }
                 TextButton({ confirmCancel = true }) { Text(S(R.string.stop)) }
             }
-            LinearProgressIndicator({ p }, Modifier.fillMaxWidth().padding(top = 4.dp, end = 12.dp))
+            UProgress({ p }, Modifier.fillMaxWidth().padding(top = 4.dp, end = 12.dp))
         }
     }
 }
@@ -838,7 +856,7 @@ fun MiniPlayer(vm: MainViewModel, onOpen: () -> Unit) {
     val limit = with(density) { 72.dp.toPx() }
     BarSurface(onOpen) {
         Column {
-            LinearProgressIndicator(
+            UProgress(
                 progress = { if (p.durationMs > 0) (p.positionMs.toFloat() / p.durationMs).coerceIn(0f, 1f) else 0f },
                 modifier = Modifier.fillMaxWidth().height(2.dp),
             )
@@ -890,4 +908,9 @@ fun MiniPlayer(vm: MainViewModel, onOpen: () -> Unit) {
             }
         }
     }
+}
+
+/** レールの右の端に細い線を引く(テーマの下のタブが line のとき) */
+private fun Modifier.railLine(color: Color): Modifier = drawBehind {
+    drawLine(color, androidx.compose.ui.geometry.Offset(size.width, 0f), androidx.compose.ui.geometry.Offset(size.width, size.height), 1.dp.toPx())
 }

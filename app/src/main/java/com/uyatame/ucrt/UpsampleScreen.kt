@@ -139,9 +139,9 @@ fun UpsampleScreen(vm: MainViewModel, s: AppSettings) {
             // ---- 始める・やめる ----
             val waiting = UpsampleJobs.items.count { it.state != UpsampleJobs.State.DONE }
             if (running) {
-                OutlinedButton({ UpsampleJobs.stop() }, Modifier.fillMaxWidth()) { Text(S(R.string.up_stop)) }
+                UOutlinedButton({ UpsampleJobs.stop() }, Modifier.fillMaxWidth()) { Text(S(R.string.up_stop)) }
             } else {
-                Button(
+                UButton(
                     {
                         val out = s.upOutUri
                         if (out == null) folder.launch(null) else UpsampleJobs.start(ctx, spec, Uri.parse(out))
@@ -173,7 +173,7 @@ private fun QueueCard(running: Boolean, onAdd: () -> Unit) {
                 if (items.any { it.state == UpsampleJobs.State.DONE || it.state == UpsampleJobs.State.FAILED || it.state == UpsampleJobs.State.CANCELLED } && !running) {
                     TextButton({ UpsampleJobs.clearFinished() }) { Text(S(R.string.up_clear_done)) }
                 }
-                FilledTonalButton(onAdd) { Text(S(R.string.up_add)) }
+                UTonalButton(onAdd) { Text(S(R.string.up_add)) }
             }
             if (items.isEmpty()) {
                 Text(
@@ -192,7 +192,7 @@ private fun QueueCard(running: Boolean, onAdd: () -> Unit) {
                             maxLines = 2, overflow = TextOverflow.Ellipsis,
                         )
                         if (it.state == UpsampleJobs.State.ANALYZING || it.state == UpsampleJobs.State.CONVERTING) {
-                            LinearProgressIndicator({ it.progress }, Modifier.fillMaxWidth().padding(top = 4.dp, end = 12.dp))
+                            UProgress({ it.progress }, Modifier.fillMaxWidth().padding(top = 4.dp, end = 12.dp))
                         }
                     }
                     if (!running || (it.state != UpsampleJobs.State.CONVERTING && it.state != UpsampleJobs.State.ANALYZING)) {

@@ -170,7 +170,7 @@ fun CdScreen(vm: MainViewModel, s: AppSettings, onOpenSettings: () -> Unit) {
                             Column {
                                 Text(vm.trackArtist(t), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 if (vm.busy && pr > 0f && pr < 1f) {
-                                    LinearProgressIndicator({ pr }, Modifier.fillMaxWidth().padding(top = 6.dp))
+                                    UProgress({ pr }, Modifier.fillMaxWidth().padding(top = 6.dp))
                                 } else if (st.isNotEmpty()) {
                                     Text(st, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 }
@@ -280,12 +280,12 @@ private fun AlbumHeader(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onRip, Modifier.weight(1f), enabled = !vm.busy && !vm.discBusy) {
+                UButton(onRip, Modifier.weight(1f), enabled = !vm.busy && !vm.discBusy) {
                     Icon(AppIcons.Download, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(S(R.string.rip))
                 }
-                FilledTonalButton({ vm.playCd() }, Modifier.weight(1f), enabled = !vm.busy) {
+                UTonalButton({ vm.playCd() }, Modifier.weight(1f), enabled = !vm.busy) {
                     Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(S(R.string.play))
@@ -450,7 +450,7 @@ private fun MetaChooserDialog(vm: MainViewModel) {
                 }
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        FilledTonalButton(
+                        UTonalButton(
                             { vm.searchByName(album, artist) },
                             enabled = !vm.searchBusy && !busy && (album.isNotBlank() || artist.isNotBlank()),
                         ) {

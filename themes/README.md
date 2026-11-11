@@ -50,7 +50,11 @@ UCRT の見た目の仕上げ(色・角の丸み・ボタンや情報の表示�
     "coverCorner": 10,
     "bars": "floating",
     "headlineWeight": 800,
-    "background": "plain"
+    "background": "plain",
+    "header": "large",
+    "button": "round",
+    "tile": "circle",
+    "progress": "thick"
   }
 }
 ```
@@ -81,6 +85,10 @@ UCRT の見た目の仕上げ(色・角の丸み・ボタンや情報の表示�
 | `app.bars` | `bar` / `floating` / `line` | ミニプレーヤー・取り込み中・Spotify の帯 |
 | `app.headlineWeight` | 400〜900 | 画面の見出しの太さ |
 | `app.background` | `plain` / `tint` | `tint` は画面の上の方をテーマの色で薄く染める |
+| `app.header` | `plain` / `large` / `caps` | 画面の見出し。`large` は大きく太い文字と差し色の短い線、`caps` は字間を空けた文字と細い線 |
+| `app.button` | `round` / `soft` / `square` | ボタンと検索の枠の形 |
+| `app.tile` | `default` / `circle` / `soft` / `square` | アイコンの台の形(ライブラリのカテゴリー・設定の項目・頭文字の丸など) |
+| `app.progress` | `default` / `thick` / `blocks` | 進み具合のバー(取り込み・変換・ミニプレーヤー)。`blocks` は区切った四角 |
 
 知らない値や範囲の外の値は、標準の値に置き換えて読み込みます。`_help` など、ほかの項目は読み飛ばします。
 

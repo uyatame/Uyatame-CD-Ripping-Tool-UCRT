@@ -285,7 +285,7 @@ fun GroupRow(
 @Composable
 fun RoundIcon(icon: ImageVector, size: Int = 48) {
     Box(
-        Modifier.size(size.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
+        Modifier.size(size.dp).clip(themedTileShape(CircleShape)).background(MaterialTheme.colorScheme.secondaryContainer),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, null, Modifier.size((size * 0.5f).dp), tint = MaterialTheme.colorScheme.onSecondaryContainer) }
 }
@@ -294,7 +294,7 @@ fun RoundIcon(icon: ImageVector, size: Int = 48) {
 @Composable
 fun InitialAvatar(name: String, size: Int = 48) {
     Box(
-        Modifier.size(size.dp).clip(CircleShape).background(MaterialTheme.colorScheme.tertiaryContainer),
+        Modifier.size(size.dp).clip(themedTileShape(CircleShape)).background(MaterialTheme.colorScheme.tertiaryContainer),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -722,12 +722,12 @@ fun MainViewModel.libTrackOf(item: PlayItem?): LibTrack? = item?.uri?.toString()
 @Composable
 fun PlayShuffleButtons(onPlay: () -> Unit, onShuffle: () -> Unit, modifier: Modifier = Modifier) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        androidx.compose.material3.Button(onPlay) {
+        UButton(onPlay) {
             Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text(S(R.string.play))
         }
-        androidx.compose.material3.FilledTonalButton(onShuffle) {
+        UTonalButton(onShuffle) {
             Icon(AppIcons.Shuffle, null, Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text(S(R.string.shuffle_2))

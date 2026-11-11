@@ -262,7 +262,7 @@ internal fun SelectionBar(vm: MainViewModel, modifier: Modifier) {
             Box(Modifier.padding(horizontal = 6.dp)) { inner() }
         } else Surface(
             modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(themedCorner(20.dp)),
             color = MaterialTheme.colorScheme.secondaryContainer,
             shadowElevation = 6.dp,
         ) { inner() }
@@ -280,7 +280,7 @@ internal fun SelectionBar(vm: MainViewModel, modifier: Modifier) {
                     Text(if (allPicked) S(R.string.deselect_all) else S(R.string.select_all))
                 }
             }
-            FilledTonalButton({ vm.addSelectedToPlaylist() }, enabled = vm.selectedSongs.isNotEmpty()) {
+            UTonalButton({ vm.addSelectedToPlaylist() }, enabled = vm.selectedSongs.isNotEmpty()) {
                 Icon(AppIcons.PlaylistAdd, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(S(R.string.add_to_playlist))
@@ -411,7 +411,7 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
     ) {
         item(key = "head", span = full) {
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(S(R.string.library), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f).padding(start = 4.dp))
+                ScreenTitle(S(R.string.library), Modifier.weight(1f).padding(start = 4.dp))
                 IconButton({ editTiles = true }) { Icon(Icons.Filled.Edit, S(R.string.reorder_categories)) }
                 // 手動の更新: すべての曲を読み直す(普段は新しく入った曲だけを自動で読み込む)
                 IconButton({ vm.refreshLibrary(fresh = true) }, enabled = !vm.libScanning && hasFolders) {
@@ -446,7 +446,8 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
         item(key = "search", span = full) {
             Surface(
                 onClick = { vm.libPush("search") },
-                shape = RoundedCornerShape(28.dp),
+                // 検索の枠の形は、テーマのボタンの形に合わせる
+                shape = if (LocalGlass.current) RoundedCornerShape(28.dp) else themedButtonShape(),
                 color = if (LocalGlass.current) MaterialTheme.colorScheme.surface.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceContainerHigh,
                 border = if (LocalGlass.current) androidx.compose.foundation.BorderStroke(1.dp, glassRim(MaterialTheme.colorScheme.surface.luminance() < 0.5f)) else null,
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -468,7 +469,7 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
                     style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f).padding(start = 4.dp),
                 )
-                FilledTonalButton({ vm.shuffleAll() }) {
+                UTonalButton({ vm.shuffleAll() }) {
                     Icon(AppIcons.Shuffle, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(S(R.string.shuffle_all))
@@ -515,7 +516,7 @@ private fun CategoryTile(icon: ImageVector, label: String, count: String, onClic
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
-            Modifier.size(56.dp).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+            Modifier.size(56.dp).clip(themedTileShape(RoundedCornerShape(18.dp))).background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center,
         ) { Icon(icon, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer) }
         Spacer(Modifier.height(6.dp))
@@ -1531,10 +1532,10 @@ private fun PlaylistPage(vm: MainViewModel, id: String) {
             ) {
                 Text(S(R.string.playlist_picked, sel.size), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 8.dp))
                 val on = sel.isNotEmpty()
-                FilledTonalButton({ picked = vm.store.movePlaylistItems(id, sel, -2) }, enabled = on) { Text(S(R.string.move_top)) }
-                FilledTonalButton({ picked = vm.store.movePlaylistItems(id, sel, -1) }, enabled = on) { Text(S(R.string.move_up)) }
-                FilledTonalButton({ picked = vm.store.movePlaylistItems(id, sel, 1) }, enabled = on) { Text(S(R.string.move_down)) }
-                FilledTonalButton({ picked = vm.store.movePlaylistItems(id, sel, 2) }, enabled = on) { Text(S(R.string.move_bottom)) }
+                UTonalButton({ picked = vm.store.movePlaylistItems(id, sel, -2) }, enabled = on) { Text(S(R.string.move_top)) }
+                UTonalButton({ picked = vm.store.movePlaylistItems(id, sel, -1) }, enabled = on) { Text(S(R.string.move_up)) }
+                UTonalButton({ picked = vm.store.movePlaylistItems(id, sel, 1) }, enabled = on) { Text(S(R.string.move_down)) }
+                UTonalButton({ picked = vm.store.movePlaylistItems(id, sel, 2) }, enabled = on) { Text(S(R.string.move_bottom)) }
                 TextButton({ vm.store.removePlaylistItems(id, sel); picked = emptySet() }, enabled = on) { Text(S(R.string.remove_from_playlist_short)) }
                 TextButton({ picked = null }) { Text(S(R.string.done)) }
             }
@@ -1613,7 +1614,7 @@ private fun SearchPage(vm: MainViewModel) {
                 leadingIcon = { Icon(Icons.Filled.Search, null) },
                 trailingIcon = { if (q.isNotEmpty()) IconButton({ q = "" }) { Icon(Icons.Filled.Clear, S(R.string.clear)) } },
                 singleLine = true,
-                shape = RoundedCornerShape(28.dp),
+                shape = themedButtonShape(),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { }),
             )
@@ -1820,7 +1821,7 @@ internal fun EditTagsPage(vm: MainViewModel, a: LibAlbum, onDone: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(72.dp), 8.dp, 72.dp)
             Spacer(Modifier.width(12.dp))
-            FilledTonalButton({
+            UTonalButton({
                 pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }) { Text(if (cover == null) S(R.string.change_cover) else S(R.string.new_image_selected)) }
         }
@@ -1869,7 +1870,7 @@ private fun LookupSheet(vm: MainViewModel, a: LibAlbum, onDismiss: () -> Unit) {
             }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(search, enabled = !vm.libSearching && (album.isNotBlank() || artist.isNotBlank())) {
+                    UTonalButton(search, enabled = !vm.libSearching && (album.isNotBlank() || artist.isNotBlank())) {
                         Icon(Icons.Filled.Search, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(S(R.string.search_by_name))

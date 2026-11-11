@@ -127,7 +127,9 @@ fun SpotifyNowPlaying(sp: SpotifyViewModel, s: AppSettings, onClose: () -> Unit,
     }
     val content = if (ambient) Color.White else MaterialTheme.colorScheme.onSurface
     val sub = if (ambient) Color.White.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onSurfaceVariant
-    val accent = if (ambient) Color(0xFFF3D58C) else MaterialTheme.colorScheme.tertiary
+    // テーマの差し色・ぼかし・ジャケットの角(UCRT の曲の再生画面と同じ)
+    val ut = rememberUiTheme(s.uiTheme)
+    val accent = if (ambient) (if (ut.accent != 0) Color(ut.accent) else Color(0xFFF3D58C)) else MaterialTheme.colorScheme.tertiary
 
     // 再生位置は、再生中は 0.5 秒ごとに進める
     var pos by remember { mutableLongStateOf(sp.positionMs()) }
@@ -185,7 +187,7 @@ fun SpotifyNowPlaying(sp: SpotifyViewModel, s: AppSettings, onClose: () -> Unit,
         if (ambient) {
             if (art != null) {
                 Image(
-                    art, null, if (s.ambientBlur) Modifier.fillMaxSize().blur((s.ambientBlurLevel * 14).dp) else Modifier.fillMaxSize(),
+                    art, null, if (s.ambientBlur) Modifier.fillMaxSize().blur(((if (ut.blurLevel > 0) ut.blurLevel else s.ambientBlurLevel) * 14).dp) else Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop, alpha = 0.85f,
                 )
             }
@@ -243,7 +245,7 @@ fun SpotifyNowPlaying(sp: SpotifyViewModel, s: AppSettings, onClose: () -> Unit,
                     }
                 }
 
-                val cover: @Composable (Modifier) -> Unit = { m -> CoverBox(art, m.aspectRatio(1f), 12.dp) }
+                val cover: @Composable (Modifier) -> Unit = { m -> CoverBox(art, m.aspectRatio(1f), ut.artCorner.dp, themed = false) }
                 val controls: @Composable ColumnScope.() -> Unit = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -481,7 +483,7 @@ private fun SpotifyDeviceSheet(sp: SpotifyViewModel, onDismiss: () -> Unit) {
             if (!sp.devicesLoading && sp.devices.isEmpty()) {
                 Text(S(R.string.spotify_no_devices), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            androidx.compose.material3.OutlinedButton({ sp.playOnThisPhone(ctx) }, Modifier.padding(top = 8.dp)) {
+            UOutlinedButton({ sp.playOnThisPhone(ctx) }, Modifier.padding(top = 8.dp)) {
                 Text(S(R.string.spotify_play_on_this_phone))
             }
             Text(

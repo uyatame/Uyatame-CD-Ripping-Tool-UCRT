@@ -63,12 +63,12 @@ fun BitPerfectPanel(vm: MainViewModel, s: AppSettings) {
         ) { vm.setOutputMode(if (it) 2 else 0) }
         if (mode == 2) {
             // 使用の許可をもう一度求める(許可の画面が出なかった・断ってしまったとき)
-            androidx.compose.material3.OutlinedButton({ vm.requestUsbPermission() }) { Text(S(R.string.usb_request_permission)) }
+            UOutlinedButton({ vm.requestUsbPermission() }) { Text(S(R.string.usb_request_permission)) }
             Text(S(R.string.usb_request_permission_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         // 抜き差ししたときに近い動作で、DAC の接続を解除する(Android に返して、USB でリセットする)
         if (vm.usbDacPresent) {
-            androidx.compose.material3.OutlinedButton({ vm.disconnectUsbDac() }) { Text(S(R.string.disconnect_usb_dac)) }
+            UOutlinedButton({ vm.disconnectUsbDac() }) { Text(S(R.string.disconnect_usb_dac)) }
             Text(S(R.string.disconnect_usb_dac_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         val st = AudioEngine.outputStatus
@@ -256,16 +256,16 @@ private fun ReplayGainAnalysisPanel(vm: MainViewModel) {
         val total = remember(vm.albums) { vm.albums.sumOf { it.tracks.size } }
         Text(S(R.string.rg_analyzed_count, RgCount.n, total), style = MaterialTheme.typography.bodyMedium)
         if (vm.rgAnalyzing) {
-            androidx.compose.material3.LinearProgressIndicator(progress = { vm.rgProgress }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+            UProgress(progress = { vm.rgProgress }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
             Text(
                 "${(vm.rgProgress * 100).roundToInt()}%" + S(R.string.separator) + vm.rgStatus,
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
             )
-            androidx.compose.material3.OutlinedButton({ vm.cancelReplayGainAnalysis() }) { Text(S(R.string.cancel)) }
+            UOutlinedButton({ vm.cancelReplayGainAnalysis() }) { Text(S(R.string.cancel)) }
         } else {
-            androidx.compose.material3.Button({ vm.analyzeReplayGain(false) }, Modifier.fillMaxWidth()) { Text(S(R.string.rg_analyze_new)) }
+            UButton({ vm.analyzeReplayGain(false) }, Modifier.fillMaxWidth()) { Text(S(R.string.rg_analyze_new)) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                androidx.compose.material3.OutlinedButton({ vm.analyzeReplayGain(true) }) { Text(S(R.string.rg_analyze_all)) }
+                UOutlinedButton({ vm.analyzeReplayGain(true) }) { Text(S(R.string.rg_analyze_all)) }
                 TextButton({ vm.clearAnalyzedReplayGain() }, enabled = RgCount.n > 0) { Text(S(R.string.rg_clear_analyzed)) }
             }
         }
@@ -375,7 +375,7 @@ fun OutputDeviceSheet(vm: MainViewModel, s: AppSettings, onDismiss: () -> Unit) 
                 Text(S(R.string.current_output), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 androidx.compose.material3.Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(themedCorner(16.dp)),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {

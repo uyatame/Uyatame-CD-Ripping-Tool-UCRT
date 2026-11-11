@@ -2,7 +2,10 @@ package com.uyatame.ucrt
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -100,6 +103,20 @@ fun ThemeSection(vm: MainViewModel, s: AppSettings) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 RadioButton(selected = t.id == current.id, onClick = { vm.set(Keys.uiTheme, t.id) })
+                // 見本: テーマの差し色と、ジャケットの角・ボタンの形
+                val sw = if (t.accent != 0) androidx.compose.ui.graphics.Color(t.accent) else MaterialTheme.colorScheme.primary
+                androidx.compose.foundation.layout.Box(
+                    Modifier.padding(end = 12.dp).size(36.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape((t.artCorner * 0.6f).dp))
+                        .background(MaterialTheme.colorScheme.inverseSurface),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    androidx.compose.foundation.layout.Box(
+                        Modifier.size(16.dp).clip(
+                            when (t.controls) { "square" -> androidx.compose.foundation.shape.RoundedCornerShape(4.dp); else -> androidx.compose.foundation.shape.CircleShape },
+                        ).background(sw),
+                    )
+                }
                 Column(Modifier.weight(1f)) {
                     Text(nameOf(t), style = MaterialTheme.typography.bodyLarge)
                     val d = descOf(t)
@@ -113,10 +130,10 @@ fun ThemeSection(vm: MainViewModel, s: AppSettings) {
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton({ importer.launch(arrayOf("application/json", "application/octet-stream", "text/plain", "*/*")) }) {
+            UOutlinedButton({ importer.launch(arrayOf("application/json", "application/octet-stream", "text/plain", "*/*")) }) {
                 Text(S(R.string.theme_import))
             }
-            OutlinedButton({ exporter.launch(current.id + ".ucrttheme.json") }) { Text(S(R.string.theme_export)) }
+            UOutlinedButton({ exporter.launch(current.id + ".ucrttheme.json") }) { Text(S(R.string.theme_export)) }
         }
         Text(S(R.string.theme_export_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }

@@ -66,7 +66,7 @@ fun BurnDialog(vm: MainViewModel) {
                         if (vm.busyKind == 4) S(R.string.erasing) else S(R.string.writing, (vm.ripOverall * 100).toInt()),
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    androidx.compose.material3.LinearProgressIndicator({ vm.ripOverall }, Modifier.fillMaxWidth())
+                    UProgress({ vm.ripOverall }, Modifier.fillMaxWidth())
                     Text(
                         S(R.string.dont_disconnect_drive_or_let),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,

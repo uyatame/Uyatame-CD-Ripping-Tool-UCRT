@@ -113,7 +113,7 @@ fun GraphicEq(
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Canvas(
-                Modifier.weight(1f).height(230.dp).clip(RoundedCornerShape(12.dp)).background(cs.surfaceContainerHighest)
+                Modifier.weight(1f).height(230.dp).clip(RoundedCornerShape(themedCorner(12.dp))).background(cs.surfaceContainerHighest)
                     .pointerInput(enabled) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
@@ -217,7 +217,7 @@ fun GraphicEq(
             }
         }
         Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton({ onChange(FloatArray(n)); onDone() }, enabled = enabled) { Text(S(R.string.flat)) }
+            UOutlinedButton({ onChange(FloatArray(n)); onDone() }, enabled = enabled) { Text(S(R.string.flat)) }
         }
     }
 }

@@ -141,7 +141,7 @@ private fun CategoryRow(icon: ImageVector, title: String, summary: String, onCli
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         leadingContent = {
             Box(
-                Modifier.size(40.dp).clip(RoundedCornerShape(themedCorner(20.dp))).background(MaterialTheme.colorScheme.secondaryContainer),
+                Modifier.size(40.dp).clip(themedTileShape(CircleShape)).background(MaterialTheme.colorScheme.secondaryContainer),
                 contentAlignment = Alignment.Center,
             ) { Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer) }
         },
@@ -273,15 +273,21 @@ private fun FileTagsPage(vm: MainViewModel, onBack: () -> Unit) {
                 }
             }
         }
-        FilledTonalButton({ pick.launch(arrayOf("audio/*")) }) { Text(S(R.string.tag_edit_choose_files)) }
+        UTonalButton({ pick.launch(arrayOf("audio/*")) }) { Text(S(R.string.tag_edit_choose_files)) }
     }
 }
 
 /** 設定のトップの、カテゴリーのまとまりの見出し */
 @Composable
 private fun GroupLabel(text: String) {
+    // 区切りの見出しの書き方はテーマで変わる
+    val st = LocalUiTheme.current.sectionTitle
     Text(
-        text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+        if (st == "caps") text.uppercase() else text,
+        style = if (st == "bold") MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleSmall,
+        fontWeight = if (st == "accent") null else androidx.compose.ui.text.font.FontWeight.Bold,
+        letterSpacing = if (st == "caps") 1.5.sp else androidx.compose.ui.unit.TextUnit.Unspecified,
+        color = if (st == "caps") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 8.dp, top = 8.dp),
     )
 }
@@ -300,7 +306,7 @@ private fun RipPage(vm: MainViewModel, s: AppSettings) {
     Section(S(R.string.save_folder)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(folderLabel(s.outputUri), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-            FilledTonalButton({ picker.launch(null) }) { Text(if (s.outputUri == null) S(R.string.choose) else S(R.string.change)) }
+            UTonalButton({ picker.launch(null) }) { Text(if (s.outputUri == null) S(R.string.choose) else S(R.string.change)) }
         }
         SubHeader(S(R.string.folders_file_names))
         ChoiceList(
@@ -404,7 +410,7 @@ private fun DrivePage(vm: MainViewModel, s: AppSettings) {
         ) { vm.set(Keys.cdPlaySpeed, it) }
     }
     var confirmReset by remember { mutableStateOf(false) }
-    OutlinedButton({ confirmReset = true }, Modifier.fillMaxWidth()) { Text(S(R.string.reset_cd_drive_settings)) }
+    UOutlinedButton({ confirmReset = true }, Modifier.fillMaxWidth()) { Text(S(R.string.reset_cd_drive_settings)) }
     if (confirmReset) {
         AlertDialog(
             onDismissRequest = { confirmReset = false },
@@ -459,8 +465,8 @@ private fun LibraryFoldersPage(vm: MainViewModel, s: AppSettings) {
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilledTonalButton({ addPicker.launch(null) }) { Text(S(R.string.add_folder)) }
-            OutlinedButton({ vm.refreshLibrary(fresh = true) }, enabled = !vm.libScanning) { Text(S(R.string.rescan)) }
+            UTonalButton({ addPicker.launch(null) }) { Text(S(R.string.add_folder)) }
+            UOutlinedButton({ vm.refreshLibrary(fresh = true) }, enabled = !vm.libScanning) { Text(S(R.string.rescan)) }
         }
         Text(
             S(R.string.new_songs_are_added_automatically),
@@ -501,7 +507,7 @@ private fun AllFilesSection(vm: MainViewModel) {
             style = MaterialTheme.typography.bodyLarge,
             color = if (granted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        FilledTonalButton({
+        UTonalButton({
             val sa = com.uyatame.ucrt.library.StorageAccess
             runCatching { ctx.startActivity(sa.requestIntent(ctx)) }
                 .onFailure { runCatching { ctx.startActivity(sa.fallbackIntent()) } }
@@ -573,7 +579,7 @@ private fun LockScreenSection(vm: MainViewModel, s: AppSettings) {
                 Text(S(R.string.lock_screen_overlay_ok), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
             } else {
                 Text(S(R.string.lock_screen_overlay_need), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                androidx.compose.material3.OutlinedButton({ LockScreen.openOverlaySettings(ctx) }) { Text(S(R.string.lock_screen_overlay_allow)) }
+                UOutlinedButton({ LockScreen.openOverlaySettings(ctx) }) { Text(S(R.string.lock_screen_overlay_allow)) }
             }
             // 許可が無いときは、画面を点けたときにフルスクリーン通知で出す(通知とフルスクリーン通知の許可が要る)
             if (overlay) {
@@ -583,7 +589,7 @@ private fun LockScreenSection(vm: MainViewModel, s: AppSettings) {
                     S(if (!notif) R.string.lock_screen_need_notifications else R.string.lock_screen_need_full_screen),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
                 )
-                androidx.compose.material3.OutlinedButton({ LockScreen.openPermissionSettings(ctx) }) { Text(S(R.string.lock_screen_allow)) }
+                UOutlinedButton({ LockScreen.openPermissionSettings(ctx) }) { Text(S(R.string.lock_screen_allow)) }
             } else {
                 Text(S(R.string.lock_screen_ready), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
             }
@@ -595,7 +601,7 @@ private fun LockScreenSection(vm: MainViewModel, s: AppSettings) {
                 )
             }
             // ロックしなくても、見た目と解除のスワイプを確かめられる
-            androidx.compose.material3.OutlinedButton({ LockScreen.preview(ctx) }, enabled = vm.player.current != null) {
+            UOutlinedButton({ LockScreen.preview(ctx) }, enabled = vm.player.current != null) {
                 Text(S(R.string.lock_screen_preview))
             }
             if (vm.player.current == null) {
@@ -619,7 +625,7 @@ private fun HomeSection(vm: MainViewModel) {
             color = if (isHome) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(S(R.string.home_screen_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        androidx.compose.material3.OutlinedButton({ HomeApps.openHomeSettings(ctx) }) { Text(S(R.string.home_screen_choose)) }
+        UOutlinedButton({ HomeApps.openHomeSettings(ctx) }) { Text(S(R.string.home_screen_choose)) }
     }
     SilentSection(vm)
 }
@@ -922,7 +928,7 @@ private fun LogPage(vm: MainViewModel, s: AppSettings, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SwitchRow(S(R.string.verbose_log), S(R.string.also_records_scsi_command_errors), s.verboseLog) { vm.set(Keys.verboseLog, it) }
-            FilledTonalButton({
+            UTonalButton({
                 val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cm.setPrimaryClip(ClipData.newPlainText("log", vm.logText))
             }) { Text(S(R.string.copy_log)) }
@@ -1104,7 +1110,7 @@ private fun LicensePage(vm: MainViewModel, s: AppSettings, onBack: () -> Unit) {
                     s.updateCheck,
                 ) { vm.set(Keys.updateCheck, it) }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton({ vm.checkUpdate(manual = true) }, enabled = !vm.updateChecking) {
+                    UTonalButton({ vm.checkUpdate(manual = true) }, enabled = !vm.updateChecking) {
                         Text(if (vm.updateChecking) S(R.string.checking) else S(R.string.check_now))
                     }
                     TextButton({ browse(com.uyatame.ucrt.meta.UpdateCheck.RELEASES_PAGE) }) { Text(S(R.string.releases_page)) }
@@ -1269,7 +1275,7 @@ internal fun ExternalMediaSection(vm: MainViewModel, s: AppSettings) {
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (ext.permitted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            FilledTonalButton({ ext.openPermissionSettings(ctx) }) {
+            UTonalButton({ ext.openPermissionSettings(ctx) }) {
                 Text(if (ext.permitted) S(R.string.open_settings_to_revoke) else S(R.string.allow))
             }
             // Android 13 以降、GitHub などから入れたアプリは「制限付き設定」を許可するまで、通知へのアクセスをオンにできない
@@ -1369,7 +1375,7 @@ private fun ProfilesPage(vm: MainViewModel) {
                 Text(p.name, style = MaterialTheme.typography.bodyLarge)
                 if (p.savedAt > 0) Text(fmt.format(java.util.Date(p.savedAt)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    androidx.compose.material3.FilledTonalButton({
+                    UTonalButton({
                         confirm = S(R.string.profiles_apply_confirm, p.name) to {
                             scope.launch { toast(if (com.uyatame.ucrt.data.SettingsProfiles.load(ctx, p.id)) R.string.profiles_applied else R.string.profiles_failed) }
                         }
@@ -1385,13 +1391,13 @@ private fun ProfilesPage(vm: MainViewModel) {
                 }
             }
         }
-        androidx.compose.material3.OutlinedButton({ naming = true }) { Text(S(R.string.profiles_save_current)) }
+        UOutlinedButton({ naming = true }) { Text(S(R.string.profiles_save_current)) }
     }
     Section(S(R.string.profiles_file)) {
         Text(S(R.string.profiles_file_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            androidx.compose.material3.OutlinedButton({ exporter.launch("UCRT_settings.json") }) { Text(S(R.string.profiles_export)) }
-            androidx.compose.material3.OutlinedButton({
+            UOutlinedButton({ exporter.launch("UCRT_settings.json") }) { Text(S(R.string.profiles_export)) }
+            UOutlinedButton({
                 confirm = S(R.string.profiles_import_confirm) to { importer.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }
             }) { Text(S(R.string.profiles_import)) }
         }
@@ -1431,7 +1437,7 @@ private fun SilentSection(vm: MainViewModel) {
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (!access) {
-            androidx.compose.material3.OutlinedButton({
+            UOutlinedButton({
                 runCatching { ctx.startActivity(silent.policyAccessIntent().addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
             }) { Text(S(R.string.silent_mode_dnd_allow)) }
         }
