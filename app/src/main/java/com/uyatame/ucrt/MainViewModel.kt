@@ -125,8 +125,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val libStack = androidx.compose.runtime.mutableStateListOf<String>()
 
     fun libPush(route: String) {
+        // アルバムを一覧から開いたとき(openAlbum)以外で開くときは、前の一覧の並びを引き継がない
+        if (route.startsWith("album:") && !pushingFromList) openedOrder = null
         if (libStack.lastOrNull() != route) libStack.add(route)
     }
+
+    private var pushingFromList = false
 
     fun libPop() {
         if (libStack.isNotEmpty()) libStack.removeAt(libStack.lastIndex)
@@ -139,17 +143,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     class AlbumOrder(val from: String, val keys: List<String>)
 
-    /** 一覧から開いたアルバムごとの、そのとき見えていた並び(アルバムのキー → 並び)。開いた直後の 1 件だけ覚える */
+    /** 一覧から開いた行き先(アルバムのキーか、アーティストの名前)の、そのとき見えていた並び。開いた直後の 1 件だけ覚える */
     private var openedOrder: Pair<String, AlbumOrder>? = null
 
     /** アルバムの詳細を開く(order: 開いた一覧の並び)。並びが無ければ、今までどおりの順で進む */
     fun openAlbum(a: LibAlbum, order: AlbumOrder? = null) {
         openedOrder = if (order == null) null else a.key to order
-        libPush("album:" + a.key)
+        pushingFromList = true
+        try { libPush("album:" + a.key) } finally { pushingFromList = false }
     }
 
     /** アルバムを開いたときの並び(そのアルバムを開いたときのものだけ。それ以外は null) */
     fun orderFor(albumKey: String): AlbumOrder? = openedOrder?.takeIf { it.first == albumKey }?.second
+
+    /** アーティストを一覧から開く(order: 開いた一覧のアーティストの並び)。最後まで再生したら、その並びの次のアーティストへ進む */
+    fun openArtist(name: String, order: AlbumOrder? = null) {
+        artistOrder = if (order == null) null else name to order
+        libPush("artist:$name")
+    }
+
+    private var artistOrder: Pair<String, AlbumOrder>? = null
+
+    /** アーティストを開いたときの並び(そのアーティストを開いたときのものだけ) */
+    fun artistOrderFor(name: String): AlbumOrder? = artistOrder?.takeIf { it.first == name }?.second
 
     fun libReplaceTop(route: String) {
         if (libStack.isEmpty()) libStack.add(route) else libStack[libStack.lastIndex] = route
@@ -2881,10 +2897,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 return Triple(PlaySource(src.kind, nextKey.key, src.order), nextKey.title, nextKey.tracks)
             }
             PlaySource.ARTIST -> {
-                val names = albums.map { it.artist }.distinct().sortedBy { it.lowercase() }
-                for (n in after(names, src.key)) {
+                // 一覧で見えていた並び(お気に入りのアーティストだけ・お気に入りの追加順など)があれば、その並びで進む。
+                // ライブラリにいないアーティストは飛ばす。並びが無いときは、名前順
+                val all = albums.map { it.artist }.distinct()
+                val keys = src.order?.filter { it in all }?.takeIf { it.isNotEmpty() } ?: all.sortedBy { it.lowercase() }
+                for (n in after(keys, src.key)) {
                     val t = artistTracks(n)
-                    if (t.isNotEmpty()) return Triple(PlaySource(src.kind, n), n, t)
+                    if (t.isNotEmpty()) return Triple(PlaySource(src.kind, n, src.order), n, t)
                 }
             }
             PlaySource.GENRE -> {

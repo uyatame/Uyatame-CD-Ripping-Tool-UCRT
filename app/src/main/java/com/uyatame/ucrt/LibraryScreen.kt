@@ -355,48 +355,96 @@ private fun stripOn(setting: String, id: String): Boolean =
 private val ART_IDS = TILE_IDS.filter { it != "network" }
 
 /**
- * トップに、そのカテゴリーのジャケットの列を出すか。設定の文字列に「art:favorites」のように書く(書いていなければ出さない。
- * 今までのトップは変わらない)。最近追加・最近再生は、今までの「-strip:」が先(書いていなければ出す)
+ * トップに、そのカテゴリーのジャケットの列を出すか(カテゴリーの表示とは別に、列だけの設定)。
+ * 最近追加・最近再生は今までの「-strip:recent」(書いていなければ出す。今までのトップは変わらない)。
+ * ほかは「art:favorites」のように書く(書いていなければ出さない)
  */
 private fun artOn(setting: String, id: String): Boolean =
     if (id == "recent" || id == "history") stripOn(setting, id) else setting.split(',').any { it.trim() == "art:$id" }
+
+/** 列の設定の書き出し(artOn の逆。最近追加・最近再生は「-strip:」、ほかは「art:」) */
+private fun artToken(id: String, on: Boolean): String =
+    if (id == "recent" || id == "history") (if (on) "" else ",-strip:$id") else (if (on) ",art:$id" else "")
 
 /** そのカテゴリーのアイコンを消すか(設定に「noicon:favorites」と書く。列だけで開けるようにするとき) */
 private fun iconOff(setting: String, id: String): Boolean =
     setting.split(',').any { it.trim() == "noicon:$id" }
 
-/** ジャケットの列の中身: カテゴリーごとに、見える並びのアルバム(最大 15 枚) */
+/** ジャケットの列の中身の最大の数 */
 private const val ART_ROW_MAX = 15
 
+/** ライブラリ(アルバムの一覧)だけで決まる列。再生履歴やお気に入りが変わっても作り直さない */
+private val LIBRARY_ROWS = setOf("albums", "songs", "recent", "hires", "artists", "genres", "years", "folders")
+
+/** グループの列の 1 件(アーティスト・ジャンル・年・フォルダ・プレイリスト): 名前・件数・開く行き先・ジャケット(代表のアルバム) */
+private class GroupArt(val name: String, val sub: String, val route: String, val cover: LibAlbum?)
+
+/** ジャケットの列の中身: アルバムの列(押すとそのアルバム)か、グループの列(押すとそのグループのページ) */
+private class ArtRow(val albums: List<LibAlbum> = emptyList(), val groups: List<GroupArt> = emptyList()) {
+    val isEmpty get() = albums.isEmpty() && groups.isEmpty()
+}
+
 /**
- * ジャケットの列に並べるアルバム(カテゴリーごと。アルバム単位・重複なし・最大 ART_ROW_MAX 枚)。
- * その列のジャケットを押すと、見えているこの並びのまま、最後まで再生したら次のアルバムへ進む
+ * ジャケットの列に並べるもの(カテゴリーごと。最大 ART_ROW_MAX 件)。
+ * アルバムの列は、押したジャケットの並びのまま、最後まで再生したら次のアルバムへ進む。
+ * グループの列(アーティスト・ジャンル・年・フォルダ・プレイリスト)は、ジャケットに名前を添え、押すとそのグループのページを開く
  */
-private fun artRowAlbums(vm: MainViewModel, id: String, albums: List<LibAlbum>, albumByKey: Map<String, LibAlbum>): List<LibAlbum> {
+private fun artRow(vm: MainViewModel, id: String, albums: List<LibAlbum>, albumByKey: Map<String, LibAlbum>): ArtRow {
     val store = vm.store
     fun fromTracks(uris: Sequence<String>) =
         uris.mapNotNull { vm.albumKeyOf(it) }.distinct().mapNotNull { albumByKey[it] }.take(ART_ROW_MAX).toList()
+    fun albumsOf(l: List<LibAlbum>) = ArtRow(albums = l)
     return when (id) {
-        "albums" -> albums.sortedWith(compareBy({ it.artist.lowercase() }, { it.title.lowercase() })).take(ART_ROW_MAX)
-        "recent", "songs" -> albums.sortedByDescending { it.added }.take(ART_ROW_MAX)
-        "history" -> fromTracks(store.history.asSequence().map { it.uri })
-        "favorites" -> (store.favAlbums.mapNotNull { albumByKey[it] } + fromTracks(store.favTracks.asSequence())).distinctBy { it.key }.take(ART_ROW_MAX)
-        "check" -> fromTracks(store.checkTracks.asSequence())
-        "top" -> fromTracks(store.counts.entries.asSequence().filter { it.value > 0 }.sortedByDescending { it.value }.map { it.key })
-        "hires" -> albums.filter { Quality.classOf(it) == QualityClass.HiRes }.sortedByDescending { it.added }.take(ART_ROW_MAX)
-        "playlists" -> fromTracks(store.playlists.asSequence().mapNotNull { p -> p.uris.firstOrNull() })
-        // アーティストは、アルバムの多い順に、その代表のアルバム(新しい順の先頭)
-        "artists" -> albums.groupBy { it.artist }.entries.sortedByDescending { it.value.size }
-            .map { (_, l) -> l.maxByOrNull { it.year }!! }.take(ART_ROW_MAX)
-        // ジャンル・年は、それぞれの代表のアルバム(新しい順の先頭)
-        "genres" -> albums.groupBy { a -> a.first.genre }.filterKeys { it.isNotEmpty() }.entries.sortedByDescending { it.value.size }
-            .map { (_, l) -> l.maxByOrNull { it.added }!! }.take(ART_ROW_MAX)
-        "years" -> albums.filter { it.year.isNotEmpty() }.groupBy { it.year }.entries.sortedByDescending { it.key }
-            .map { (_, l) -> l.maxByOrNull { it.added }!! }.take(ART_ROW_MAX)
-        // フォルダは、フォルダごとの代表のアルバム
-        "folders" -> albums.groupBy { a -> folderPath(a) }.entries.sortedBy { it.key.lowercase() }
-            .map { (_, l) -> l.maxByOrNull { it.added }!! }.take(ART_ROW_MAX)
-        else -> emptyList()
+        "albums" -> albumsOf(albums.sortedWith(compareBy({ it.artist.lowercase() }, { it.title.lowercase() })).take(ART_ROW_MAX))
+        "recent", "songs" -> albumsOf(albums.sortedByDescending { it.added }.take(ART_ROW_MAX))
+        "history" -> albumsOf(fromTracks(store.history.asSequence().map { it.uri }))
+        "favorites" -> albumsOf((store.favAlbums.mapNotNull { albumByKey[it] } + fromTracks(store.favTracks.asSequence())).distinctBy { it.key }.take(ART_ROW_MAX))
+        "check" -> albumsOf(fromTracks(store.checkTracks.asSequence()))
+        "top" -> albumsOf(fromTracks(store.counts.entries.asSequence().filter { it.value > 0 }.sortedByDescending { it.value }.map { it.key }))
+        "hires" -> albumsOf(albums.filter { Quality.classOf(it) == QualityClass.HiRes }.sortedByDescending { it.added }.take(ART_ROW_MAX))
+        // アーティスト: アルバムの多い順。ジャケットは新しいアルバム
+        "artists" -> ArtRow(groups = albums.groupBy { it.artist }.entries.sortedByDescending { it.value.size }.take(ART_ROW_MAX)
+            .map { (n, l) -> GroupArt(n, S(R.string.albums_3, l.size), "artist:$n", l.maxByOrNull { it.year }) })
+        // ジャンル: 曲のあるジャンルを、アルバムの多い順に
+        "genres" -> ArtRow(groups = albums.groupBy { a -> a.first.genre }.filterKeys { it.isNotEmpty() }.entries
+            .sortedByDescending { it.value.size }.take(ART_ROW_MAX)
+            .map { (g, l) -> GroupArt(g, S(R.string.albums_3, l.size), "genre:$g", l.maxByOrNull { it.added }) })
+        // 年: 新しい年から
+        "years" -> ArtRow(groups = albums.filter { it.year.isNotEmpty() }.groupBy { it.year }.entries.sortedByDescending { it.key }.take(ART_ROW_MAX)
+            .map { (y, l) -> GroupArt(y, S(R.string.albums_3, l.size), "year:$y", l.maxByOrNull { it.added }) })
+        // フォルダ: 名前順(アルバムが直接入っているフォルダ)
+        "folders" -> ArtRow(groups = albums.groupBy { a -> folderPath(a) }.entries.sortedBy { it.key.lowercase() }.take(ART_ROW_MAX)
+            .map { (f, l) -> GroupArt(f.substringAfterLast('/').ifEmpty { "/" }, S(R.string.albums_3, l.size), "dir:$f", l.maxByOrNull { it.added }) })
+        // プレイリスト: 名前順に。ジャケットは 1 曲目(ライブラリに無ければ無し)
+        "playlists" -> ArtRow(groups = store.playlists.take(ART_ROW_MAX).map { p ->
+            val cover = p.uris.firstNotNullOfOrNull { vm.albumKeyOf(it) }?.let { albumByKey[it] }
+            GroupArt(p.name, S(R.string.tracks, p.uris.size), "playlist:" + p.id, cover)
+        })
+        else -> ArtRow()
+    }
+}
+
+/** グループの列(ジャケットに名前を添える)。押すと、そのグループのページを開く */
+@Composable
+private fun GroupStrip(vm: MainViewModel, list: List<GroupArt>) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
+        items(list, key = { it.route }) { g ->
+            Column(
+                Modifier.width(132.dp).clip(RoundedCornerShape(themedCorner(12.dp))).clickable { vm.libPush(g.route) },
+            ) {
+                val c = g.cover
+                if (c != null) ArtImage(c.key, c.first.uri, c.first.coverUri, Modifier.fillMaxWidth().aspectRatio(1f), 12.dp)
+                else CoverBox(null, Modifier.fillMaxWidth().aspectRatio(1f), 12.dp)
+                Text(
+                    g.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 4.dp, top = 8.dp),
+                )
+                Text(
+                    g.sub, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+                )
+            }
+        }
     }
 }
 
@@ -442,17 +490,25 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
     // ジャケットの列を出すカテゴリー(列の並びも、カテゴリーの並びに従う)。
     // 最近追加・最近再生は今までどおり(カテゴリーがオンで、列もオフにしていないとき)。ほかは、列をオンにしたとき。
     // カテゴリーがオフでも、列をオンにしていれば出す(アイコンを出さずに、ジャケットだけから開ける)
+    // どのカテゴリーも同じ規則: アイコン = 表示オン かつ アイコンを消していない / 列 = 列がオン(カテゴリーの表示がオフでも、列がオンなら出す)
     val rowIds = remember(order, s.libTiles) {
-        order.map { it.first }.filter { id ->
-            if (id == "recent" || id == "history") order.first { it.first == id }.second && stripOn(s.libTiles, id)
-            else id in ART_IDS && artOn(s.libTiles, id)
-        }
+        order.filter { (id, on) ->
+            if (id == "recent" || id == "history") {
+                // 今までの設定を守る: カテゴリーがオフなら、列も出さない(「-recent」と書いてあるトップは変わらない)。
+                // 新しく「アイコンだけ消して列を出す」ときは、カテゴリーはオンのまま noicon: を書く
+                on && stripOn(s.libTiles, id)
+            } else id in ART_IDS && artOn(s.libTiles, id)
+        }.map { it.first }
     }
     // 曲が変わるたびに作り直すので、アルバムはキーの表で引く(列は最大 ART_ROW_MAX 枚)
     val albumByKey = remember(albums) { albums.associateBy { it.key } }
-    // 列の中身は、ライブラリ・お気に入り・再生履歴などが変わったときだけ作り直す
-    val rowAlbums = remember(rowIds, albums, albumByKey, vm.trackMap, store.history, store.favAlbums, store.favTracks, store.checkTracks, store.counts, store.playlists) {
-        rowIds.associateWith { artRowAlbums(vm, it, albums, albumByKey) }
+    // 列の中身: ライブラリだけで決まる列(アルバム・年・フォルダなど)は、ライブラリが変わったときだけ作り直す。
+    // 再生履歴・お気に入りなどで変わる列は、その持ち主(store)が変わったときだけ作り直す(曲が変わるたびに全部を作り直さない)
+    val libRows = remember(rowIds, albums, albumByKey) {
+        rowIds.filter { it in LIBRARY_ROWS }.associateWith { artRow(vm, it, albums, albumByKey) }
+    }
+    val storeRows = remember(rowIds, albums, albumByKey, vm.trackMap, store.history, store.favAlbums, store.favTracks, store.checkTracks, store.counts, store.playlists) {
+        rowIds.filter { it !in LIBRARY_ROWS }.associateWith { artRow(vm, it, albums, albumByKey) }
     }
     val full: androidx.compose.foundation.lazy.grid.LazyGridItemSpanScope.() -> GridItemSpan = { GridItemSpan(maxLineSpan) }
 
@@ -538,17 +594,19 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
         }
         // ジャケットの列(カテゴリーごと。見出しを押すと、そのカテゴリーのページへ)
         for (id in rowIds) {
-            val list = rowAlbums[id].orEmpty()
-            if (list.isEmpty()) continue
+            val row = libRows[id] ?: storeRows[id] ?: continue
+            // 中身が空でも、見出しは出す(アイコンを消したカテゴリーでも、入口がなくならないように)。見出しを押すと、そのカテゴリーが開く
             item(key = "rowHead:$id", span = full) {
-                ListHeading(
-                    if (id == "recent") S(R.string.recently_added_2) else if (id == "history") S(R.string.recently_played_2) else tileLabel(id),
-                    Modifier.padding(start = 4.dp),
-                ) {
+                val title = if (id == "recent") S(R.string.recently_added_2) else if (id == "history") S(R.string.recently_played_2) else tileLabel(id)
+                ListHeading(title, Modifier.clip(RoundedCornerShape(8.dp)).clickable { vm.libPush("cat:$id") }.padding(start = 4.dp)) {
                     TextButton({ vm.libPush("cat:$id") }) { Text(if (id == "history") S(R.string.history) else S(R.string.all)) }
                 }
             }
-            item(key = "row:$id", span = full) { AlbumStrip(vm, list, "strip:$id") }
+            if (!row.isEmpty) {
+                item(key = "row:$id", span = full) {
+                    if (row.groups.isNotEmpty()) GroupStrip(vm, row.groups) else AlbumStrip(vm, row.albums, "strip:$id")
+                }
+            }
         }
     }
     ScrollTopButton(remember(homeState) { derivedStateOf { homeState.firstVisibleItemIndex > 6 } }.value) { homeState.scrollToItem(0) }
@@ -594,12 +652,19 @@ private fun CategoryTile(icon: ImageVector, label: String, count: String, onClic
 @Composable
 private fun TileEditDialog(vm: MainViewModel, s: AppSettings, onDismiss: () -> Unit) {
     val list = remember { mutableStateListOf<Pair<String, Boolean>>().apply { addAll(tileOrder(s.libTiles)) } }
-    // 列の表示(ジャケット)とアイコンの消去は、カテゴリーごとに持つ
-    val art = remember {
-        mutableStateMapOf<String, Boolean>().apply { ART_IDS.forEach { put(it, artOn(s.libTiles, it)) } }
+    // カテゴリーごとに、アイコンと列(ジャケット)を別々に選ぶ。
+    // icon: アイコンを出すか / art: ジャケットの列を出すか。どちらもオフなら、カテゴリーごと隠す(list の表示がオフ)
+    val icon = remember {
+        mutableStateMapOf<String, Boolean>().apply { list.forEach { (id, on) -> put(id, on && !iconOff(s.libTiles, id)) } }
     }
-    val noIcon = remember {
-        mutableStateMapOf<String, Boolean>().apply { ART_IDS.forEach { put(it, iconOff(s.libTiles, it)) } }
+    val art = remember {
+        mutableStateMapOf<String, Boolean>().apply {
+            ART_IDS.forEach { id ->
+                // 最近追加・最近再生は、今までの設定(カテゴリーがオンで、列もオフにしていない)と同じ意味で読む
+                val on = list.first { it.first == id }.second
+                put(id, if (id == "recent" || id == "history") on && stripOn(s.libTiles, id) else artOn(s.libTiles, id))
+            }
+        }
     }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -608,22 +673,14 @@ private fun TileEditDialog(vm: MainViewModel, s: AppSettings, onDismiss: () -> U
             Column {
                 Text(S(R.string.home_layout_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 LazyColumn(Modifier.heightIn(max = 460.dp).padding(top = 8.dp)) {
-                    itemsIndexed(list, key = { _, it -> it.first }) { i, (id, on) ->
+                    itemsIndexed(list, key = { _, it -> it.first }) { i, (id, _) ->
                         val hasArt = id in ART_IDS
-                        val isStripCat = id == "recent" || id == "history"
-                        val artChecked = art[id] == true
-                        // アイコンのチェック: 表示がオンで、アイコンを消していない(最近追加・最近再生は、表示そのもの)
-                        val iconChecked = on && (isStripCat || noIcon[id] != true)
                         Column(Modifier.padding(vertical = 2.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                // 最近追加・最近再生: チェックはカテゴリーそのもの(アイコンと列)。ほかは、アイコンのチェック
-                                Checkbox(iconChecked, { checked ->
-                                    if (isStripCat || !hasArt) list[i] = id to checked
-                                    else {
-                                        // アイコンだけを消せる(ジャケットが出ているとき。ジャケットも出ていなければ、カテゴリーごと隠す)
-                                        noIcon[id] = !checked
-                                        list[i] = id to (checked || artChecked)
-                                    }
+                                // アイコンのチェック
+                                Checkbox(icon[id] == true, { checked ->
+                                    icon[id] = checked
+                                    list[i] = id to (checked || art[id] == true)
                                 })
                                 Icon(tileIcon(id), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(Modifier.width(10.dp))
@@ -635,18 +692,16 @@ private fun TileEditDialog(vm: MainViewModel, s: AppSettings, onDismiss: () -> U
                                     Icon(Icons.Filled.KeyboardArrowDown, S(R.string.down))
                                 }
                             }
-                            if (hasArt && !isStripCat) {
+                            if (hasArt) {
                                 Row(Modifier.padding(start = 40.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(artChecked, { checked ->
+                                    Checkbox(art[id] == true, { checked ->
                                         art[id] = checked
-                                        // ジャケットを出すカテゴリーは、表示をオンにする(アイコンを消しているなら、ジャケットだけ出る)。
-                                        // ジャケットを外して、アイコンも消えているなら、カテゴリーごと隠す
-                                        list[i] = id to (checked || noIcon[id] != true)
+                                        // 列だけをオンにしても、アイコンのチェックは変えない(アイコンを消したままジャケットだけ出せる)
+                                        list[i] = id to (checked || icon[id] == true)
                                     })
                                     Text(S(R.string.home_show_artwork_row), style = MaterialTheme.typography.bodyMedium)
                                 }
-                            }
-                            if (!hasArt) {
+                            } else {
                                 Text(
                                     S(R.string.home_no_artwork), Modifier.padding(start = 48.dp),
                                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -659,12 +714,13 @@ private fun TileEditDialog(vm: MainViewModel, s: AppSettings, onDismiss: () -> U
         },
         confirmButton = {
             TextButton({
-                val rows = list.filter { it.first == "recent" || it.first == "history" }
-                val strips = rows.filter { !it.second }.joinToString("") { ",-strip:" + it.first }
-                val extra = ART_IDS.filter { it != "recent" && it != "history" }.joinToString("") { id ->
-                    (if (art[id] == true) ",art:$id" else "") + (if (noIcon[id] == true) ",noicon:$id" else "")
+                // 書き出し: カテゴリーの並びと表示(アイコンか列のどちらかが出ていれば表示オン)、列(最近追加・最近再生は -strip:、ほかは art:)、
+                // アイコンを消すカテゴリー(列だけ出すもの)は noicon:。最近追加・最近再生で「アイコンだけ消して列を出す」ときも noicon: を使う
+                val shown = list.map { (id, _) -> id to (icon[id] == true || art[id] == true) }
+                val tokens = ART_IDS.joinToString("") { id ->
+                    artToken(id, art[id] == true) + (if (icon[id] != true && art[id] == true) ",noicon:$id" else "")
                 }
-                vm.set(Keys.libTiles, encodeTiles(list) + strips + extra)
+                vm.set(Keys.libTiles, encodeTiles(shown) + tokens)
                 onDismiss()
             }) { Text(S(R.string.save)) }
         },
@@ -848,6 +904,8 @@ private fun ArtistsPage(vm: MainViewModel) {
     }
     val artists = remember(all, favOnly, vm.store.favArtistSet) { if (favOnly) all.filter { vm.store.isFavArtist(it.name) } else all }
     val labels = remember(artists) { artists.map { initialOf(it.name) } }
+    // 見えているアーティストの並び(お気に入りだけの絞り込み後)
+    val artistOrder = remember(artists, favOnly) { MainViewModel.AlbumOrder(if (favOnly) "artists:fav" else "artists", artists.map { it.name }) }
     Column(Modifier.fillMaxSize()) {
         PageTop(vm, tileLabel("artists"), S(R.string.artists_2, artists.size)) {
             FilterChip(favOnly, { favOnly = !favOnly }, label = { Text(S(R.string.fav_artists_only)) }, modifier = Modifier.padding(end = 8.dp))
@@ -867,7 +925,7 @@ private fun ArtistsPage(vm: MainViewModel) {
                     val a = e.albums.first()
                     GroupRow(
                         e.name, S(R.string.albums_songs, e.albums.size, e.tracks),
-                        { vm.libPush("artist:" + e.name) },
+                        { vm.openArtist(e.name, artistOrder) },
                     ) { ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(48.dp), 24.dp, 48.dp) }
                 }
             }
@@ -914,7 +972,7 @@ private fun ArtistPage(vm: MainViewModel, name: String) {
                             S(R.string.albums_4, main.size + guest.size) + countText(tracks),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        val src = MainViewModel.PlaySource(MainViewModel.PlaySource.ARTIST, name)
+                        val src = MainViewModel.PlaySource(MainViewModel.PlaySource.ARTIST, name, vm.artistOrderFor(name)?.keys)
                         PlayShuffleButtons(
                             { vm.playTracks(tracks, 0, source = src) }, { vm.playTracks(tracks, 0, shuffle = true, source = src) },
                             Modifier.padding(top = 8.dp),
@@ -1310,6 +1368,8 @@ private fun FavoritesPage(vm: MainViewModel) {
         val by = vm.albums.groupBy { it.artist }
         vm.store.favArtists.mapNotNull { n -> by[n]?.let { l -> ArtistEntry(n, l, l.sumOf { it.tracks.size }) } }
     }
+    // 見えているアーティストの並び(お気に入りに追加した順)
+    val favArtistOrder = remember(favArtists) { MainViewModel.AlbumOrder("favorites", favArtists.map { it.name }) }
     var sortMenu by remember { mutableStateOf(false) }
     val sortNames = listOf(
         S(R.string.fav_sort_added), S(R.string.fav_sort_title), S(R.string.fav_sort_artist),
@@ -1384,7 +1444,7 @@ private fun FavoritesPage(vm: MainViewModel) {
                     val a = e.albums.first()
                     GroupRow(
                         e.name, S(R.string.albums_songs, e.albums.size, e.tracks),
-                        { vm.libPush("artist:" + e.name) },
+                        { vm.openArtist(e.name, favArtistOrder) },
                     ) { ArtImage(a.key, a.first.uri, a.first.coverUri, Modifier.size(48.dp), 24.dp, 48.dp) }
                 }
             }
