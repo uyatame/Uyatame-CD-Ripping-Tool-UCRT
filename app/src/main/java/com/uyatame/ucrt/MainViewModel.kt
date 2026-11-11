@@ -125,8 +125,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val libStack = androidx.compose.runtime.mutableStateListOf<String>()
 
     fun libPush(route: String) {
-        // アルバムを一覧から開いたとき(openAlbum)以外で開くときは、前の一覧の並びを引き継がない
-        if (route.startsWith("album:") && !pushingFromList) openedOrder = null
+        // アルバム・アーティストを、一覧から開く(openAlbum・openArtist)以外で開くときは、前の一覧の並びを引き継がない
+        // (検索・アルバムのページ・再生画面から開いたときに、前に別の一覧から開いたときの並びが残らないように)
+        if (!pushingFromList && (route.startsWith("album:") || route.startsWith("artist:"))) {
+            synchronized(openedOrders) { openedOrders.remove(route) }
+        }
         if (libStack.lastOrNull() != route) libStack.add(route)
     }
 
@@ -143,29 +146,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     class AlbumOrder(val from: String, val keys: List<String>)
 
-    /** 一覧から開いた行き先(アルバムのキーか、アーティストの名前)の、そのとき見えていた並び。開いた直後の 1 件だけ覚える */
-    private var openedOrder: Pair<String, AlbumOrder>? = null
+    /**
+     * 一覧から開いた行き先("album:キー"・"artist:名前")ごとの、そのとき見えていた並び。新しいものから 16 件まで覚える
+     * (アルバムを開いてから別のアーティストやアルバムへ移って戻ったときも、元のアルバムの並びが残る)。
+     * Android Auto など別のスレッドからも読むので、触るときは synchronized する
+     */
+    private val openedOrders = object : LinkedHashMap<String, AlbumOrder>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, AlbumOrder>?) = size > 16
+    }
+
+    /** 一覧から開く(order があれば覚え、無ければ前の並びを捨てる) */
+    private fun pushFromList(route: String, order: AlbumOrder?) {
+        synchronized(openedOrders) { if (order != null) openedOrders[route] = order else openedOrders.remove(route) }
+        pushingFromList = true
+        try { libPush(route) } finally { pushingFromList = false }
+    }
 
     /** アルバムの詳細を開く(order: 開いた一覧の並び)。並びが無ければ、今までどおりの順で進む */
-    fun openAlbum(a: LibAlbum, order: AlbumOrder? = null) {
-        openedOrder = if (order == null) null else a.key to order
-        pushingFromList = true
-        try { libPush("album:" + a.key) } finally { pushingFromList = false }
-    }
+    fun openAlbum(a: LibAlbum, order: AlbumOrder? = null) = pushFromList("album:" + a.key, order)
 
-    /** アルバムを開いたときの並び(そのアルバムを開いたときのものだけ。それ以外は null) */
-    fun orderFor(albumKey: String): AlbumOrder? = openedOrder?.takeIf { it.first == albumKey }?.second
+    /** アルバムを開いたときの並び(そのアルバムを一覧から開いたときのものだけ。それ以外は null) */
+    fun orderFor(albumKey: String): AlbumOrder? = synchronized(openedOrders) { openedOrders["album:$albumKey"] }
 
     /** アーティストを一覧から開く(order: 開いた一覧のアーティストの並び)。最後まで再生したら、その並びの次のアーティストへ進む */
-    fun openArtist(name: String, order: AlbumOrder? = null) {
-        artistOrder = if (order == null) null else name to order
-        libPush("artist:$name")
-    }
+    fun openArtist(name: String, order: AlbumOrder? = null) = pushFromList("artist:$name", order)
 
-    private var artistOrder: Pair<String, AlbumOrder>? = null
-
-    /** アーティストを開いたときの並び(そのアーティストを開いたときのものだけ) */
-    fun artistOrderFor(name: String): AlbumOrder? = artistOrder?.takeIf { it.first == name }?.second
+    /** アーティストを開いたときの並び(そのアーティストを一覧から開いたときのものだけ) */
+    fun artistOrderFor(name: String): AlbumOrder? = synchronized(openedOrders) { openedOrders["artist:$name"] }
 
     fun libReplaceTop(route: String) {
         if (libStack.isEmpty()) libStack.add(route) else libStack[libStack.lastIndex] = route
@@ -363,19 +370,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val albumOf: Map<String, String>,
         val albums: Map<String, LibAlbum>,
     )
-    private var indexFor: List<LibAlbum>? = null
-    private var indexCache = LibIndex(emptyMap(), emptyMap(), emptyMap())
+    /** 索引とその元のアルバムの一覧を、1 つの入れ物にまとめる(別のスレッド(Android Auto・歌詞の保存など)から読んでも、食い違わないように) */
+    private class IndexHolder(val source: List<LibAlbum>?, val index: LibIndex)
+    @Volatile private var indexHolder = IndexHolder(null, LibIndex(emptyMap(), emptyMap(), emptyMap()))
 
     private fun libIndex(): LibIndex {
         val a = albums
-        if (a !== indexFor) {
-            val t = HashMap<String, com.uyatame.ucrt.library.LibTrack>()
-            val k = HashMap<String, String>()
-            for (al in a) for (tr in al.tracks) { t[tr.uri] = tr; k[tr.uri] = al.key }
-            indexCache = LibIndex(t, k, a.associateBy { it.key })
-            indexFor = a
-        }
-        return indexCache
+        val h = indexHolder
+        if (h.source === a) return h.index
+        val t = HashMap<String, com.uyatame.ucrt.library.LibTrack>()
+        val k = HashMap<String, String>()
+        for (al in a) for (tr in al.tracks) { t[tr.uri] = tr; k[tr.uri] = al.key }
+        val built = LibIndex(t, k, a.associateBy { it.key })
+        indexHolder = IndexHolder(a, built)
+        return built
     }
 
     /** URI から曲を引く */
@@ -2900,7 +2908,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // 一覧で見えていた並び(お気に入りのアーティストだけ・お気に入りの追加順など)があれば、その並びで進む。
                 // ライブラリにいないアーティストは飛ばす。並びが無いときは、名前順
                 val all = albums.map { it.artist }.distinct()
-                val keys = src.order?.filter { it in all }?.takeIf { it.isNotEmpty() } ?: all.sortedBy { it.lowercase() }
+                val known = all.toHashSet()
+                val keys = src.order?.filter { it in known }?.takeIf { it.isNotEmpty() } ?: all.sortedBy { it.lowercase() }
                 for (n in after(keys, src.key)) {
                     val t = artistTracks(n)
                     if (t.isNotEmpty()) return Triple(PlaySource(src.kind, n, src.order), n, t)

@@ -267,12 +267,12 @@ internal fun NetworkBrowsePage(vm: MainViewModel, docId: String) {
                         if (dir || name.substringAfterLast('.', "").lowercase() in com.uyatame.ucrt.library.LIB_AUDIO_EXT) out.add(NetItem(c.getString(0), name, dir))
                     }
                 }
-                // フォルダを先に、あとは名前順(曲は、名前の数字の順)
-                out.sortedWith(compareBy({ !it.isDir }, { it.name.lowercase() })) as List<NetItem>
+                // フォルダを先に、あとは名前順(曲は、名前の数字の順。「2」は「10」より前)
+                out.sortedWith(compareBy<NetItem> { !it.isDir }.thenBy(com.uyatame.ucrt.network.NaturalOrder) { it.name }) as List<NetItem>
             }.getOrElse { browseError = it.message ?: it.javaClass.simpleName; emptyList() }
         }
     }
-    val files = items?.filter { !it.isDir }.orEmpty()
+    val files = remember(items) { items?.filter { !it.isDir }.orEmpty() }
     /** このフォルダの音楽ファイルを、from 番目から再生する(ライブラリには入れない) */
     fun play(from: Int) {
         val album = path.substringAfterLast('/').ifEmpty { src?.name ?: "" }

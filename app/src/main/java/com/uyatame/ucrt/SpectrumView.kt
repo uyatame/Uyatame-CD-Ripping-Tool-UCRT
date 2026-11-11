@@ -76,6 +76,16 @@ private class SpectrumMotion {
     val wave = FloatArray(128)
     private var last = 0L
 
+    // 帯域の番号だけで決まる値は、1 度だけ計算する(毎フレーム、帯域の数だけ pow と ln を呼ばない)
+    /** 声の帯域を強めるときの重み(帯域ごと) */
+    private val vocalW = FloatArray(bands.size) { i ->
+        val hz = 35.0 * Math.pow(20000.0 / 35.0, (i + 0.5) / bands.size)
+        vocalWeight(hz.toFloat())
+    }
+    /** 円の見せ方で、帯域ごとの向き(cos・sin) */
+    val cosT = FloatArray(bands.size) { i -> cos(i.toDouble() / bands.size * PI * 2 - PI / 2).toFloat() }
+    val sinT = FloatArray(bands.size) { i -> sin(i.toDouble() / bands.size * PI * 2 - PI / 2).toFloat() }
+
     /** 1 フレーム分動かす。いちばん大きく動いた量を返す(止まっていれば描き直さなくてよい) */
     fun step(a: SpectrumAnalyzer, vocal: Boolean, now: Long): Float {
         var moved = 0f
@@ -87,10 +97,7 @@ private class SpectrumMotion {
         val n = bands.size
         for (i in 0 until n) {
             var t = a.bands[i]
-            if (vocal) {
-                val hz = 35.0 * Math.pow(20000.0 / 35.0, (i + 0.5) / n)
-                t = (t * vocalWeight(hz.toFloat())).coerceIn(0f, 1f)
-            }
+            if (vocal) t = (t * vocalW[i]).coerceIn(0f, 1f)
             // 床を少し切って、真ん中あたりの動きを見やすくする
             t = ((t - 0.06f) / 0.94f).coerceIn(0f, 1f)
             val d = (t - bands[i]) * (if (t > bands[i]) up else down)
@@ -105,6 +112,29 @@ private class SpectrumMotion {
             moved = max(moved, kotlin.math.abs(d))
         }
         return moved
+    }
+}
+
+/**
+ * 描くたびに作り直さなくてよいもの(線の Path・グラデーション)。色が変わったときだけ作り直す。
+ * グラデーションは、作り直すたびに描画側でシェーダーも作り直しになるので、同じ物を使い回す(VU メーターと同じ考え方)
+ */
+private class SpectrumPaint(val color: Color, val hi: Color) {
+    val path = Path()
+    val fill = Path()
+    val lineFill: Brush = Brush.verticalGradient(listOf(color.copy(alpha = 0.35f), color.copy(alpha = 0f)))
+    val lineStroke: Brush = Brush.horizontalGradient(listOf(color, hi, color))
+    val waveStroke: Brush = Brush.horizontalGradient(listOf(color.copy(alpha = 0.5f), hi, color))
+    private var barsH = Float.NaN
+    private var barsBrush: Brush = lineStroke
+
+    /** 棒の見せ方のグラデーション(高さが変わったときだけ作り直す) */
+    fun bars(h: Float): Brush {
+        if (h != barsH) {
+            barsH = h
+            barsBrush = Brush.verticalGradient(listOf(hi, color.copy(alpha = 0.85f)), 0f, h)
+        }
+        return barsBrush
     }
 }
 
@@ -161,6 +191,7 @@ fun SpectrumView(
         red = color.red + (1f - color.red) * 0.55f, green = color.green + (1f - color.green) * 0.55f,
         blue = color.blue + (1f - color.blue) * 0.55f, alpha = 1f,
     )
+    val paints = remember(color) { SpectrumPaint(color, hi) }
     Canvas(
         modifier.fillMaxWidth().height(height)
             .clickable(remember { MutableInteractionSource() }, null) { onStyle((style + 1) % SpectrumStyle.COUNT) },
@@ -180,22 +211,21 @@ fun SpectrumView(
                 }
             }
             SpectrumStyle.LINE -> {
-                val path = smoothPath(b, { i -> w * i / (n - 1) }, { v -> h * (1 - v) })
-                val fill = Path().apply { addPath(path); lineTo(w, h); lineTo(0f, h); close() }
-                drawPath(fill, Brush.verticalGradient(listOf(color.copy(alpha = 0.35f), color.copy(alpha = 0f))))
-                drawPath(path, Brush.horizontalGradient(listOf(color, hi, color)), style = Stroke(2.5f * density, cap = StrokeCap.Round))
+                val path = smoothPath(paints.path, b, { i -> w * i / (n - 1) }, { v -> h * (1 - v) })
+                val fill = paints.fill.apply { rewind(); addPath(path); lineTo(w, h); lineTo(0f, h); close() }
+                drawPath(fill, paints.lineFill)
+                drawPath(path, paints.lineStroke, style = Stroke(2.5f * density, cap = StrokeCap.Round))
             }
             SpectrumStyle.WAVE -> {
                 val wv = motion.wave
-                val path = smoothPath(wv, { i -> w * i / (wv.size - 1) }, { v -> h / 2 - v * h * 0.45f })
-                drawPath(path, Brush.horizontalGradient(listOf(color.copy(alpha = 0.5f), hi, color)), style = Stroke(2f * density, cap = StrokeCap.Round))
+                val path = smoothPath(paints.path, wv, { i -> w * i / (wv.size - 1) }, { v -> h / 2 - v * h * 0.45f })
+                drawPath(path, paints.waveStroke, style = Stroke(2f * density, cap = StrokeCap.Round))
             }
             SpectrumStyle.CIRCLE -> {
                 val cx = w / 2; val cy = h / 2
                 val r = min(w, h) * 0.26f
                 for (i in 0 until n) {
-                    val a = i.toDouble() / n * PI * 2 - PI / 2
-                    val c = cos(a).toFloat(); val s = sin(a).toFloat()
+                    val c = motion.cosT[i]; val s = motion.sinT[i]
                     val o = r + h * 0.22f * b[i]
                     drawLine(color.copy(alpha = 0.9f), Offset(cx + c * r, cy + s * r), Offset(cx + c * o, cy + s * o), 2f * density, StrokeCap.Round)
                 }
@@ -203,7 +233,7 @@ fun SpectrumView(
             }
             else -> {
                 val slot = w / n; val bw = slot * 0.62f
-                val brush = Brush.verticalGradient(listOf(hi, color.copy(alpha = 0.85f)), 0f, h)
+                val brush = paints.bars(h)
                 for (i in 0 until n) {
                     val x = i * slot + (slot - bw) / 2
                     val bh = max(2f, h * b[i])
@@ -216,8 +246,9 @@ fun SpectrumView(
     }
 }
 
-private fun smoothPath(v: FloatArray, x: (Int) -> Float, y: (Float) -> Float): Path {
-    val p = Path()
+/** 線をなめらかにつないだ Path。渡された Path を空にして使い回す(毎フレーム作り直さない) */
+private fun smoothPath(p: Path, v: FloatArray, x: (Int) -> Float, y: (Float) -> Float): Path {
+    p.rewind()
     if (v.isEmpty()) return p
     p.moveTo(x(0), y(v[0]))
     for (i in 1 until v.size) {

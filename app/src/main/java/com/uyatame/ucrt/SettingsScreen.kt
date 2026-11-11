@@ -1334,7 +1334,7 @@ private fun ProfilesPage(vm: MainViewModel) {
         if (u != null) scope.launch {
             val ok = runCatching {
                 val text = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    ctx.contentResolver.openInputStream(u)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: error("open")
+                    ctx.contentResolver.openInputStream(u)?.use { readAtMost(it, 4 * 1024 * 1024) }?.toString(Charsets.UTF_8) ?: error("open")
                 }
                 com.uyatame.ucrt.data.SettingsProfiles.apply(ctx, org.json.JSONObject(text))
             }.getOrDefault(false)

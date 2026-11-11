@@ -128,7 +128,7 @@ fun SpotifyNowPlaying(sp: SpotifyViewModel, s: AppSettings, onClose: () -> Unit,
     val content = if (ambient) Color.White else MaterialTheme.colorScheme.onSurface
     val sub = if (ambient) Color.White.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onSurfaceVariant
     // テーマの差し色・ぼかし・ジャケットの角(UCRT の曲の再生画面と同じ)
-    val ut = rememberUiTheme(s.uiTheme)
+    val ut = LocalUiTheme.current
     val accent = if (ambient) (if (ut.accent != 0) Color(ut.accent) else Color(0xFFF3D58C)) else MaterialTheme.colorScheme.tertiary
 
     // 再生位置は、再生中は 0.5 秒ごとに進める

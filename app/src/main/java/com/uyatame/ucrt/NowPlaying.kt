@@ -355,7 +355,7 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
     BackHandler(enabled = pager.currentPage != 1) { scope.launch { pager.animateScrollToPage(1) } }
 
     PlayerStatusBar(ambient, inPane)
-    val ut = rememberUiTheme(s.uiTheme)
+    val ut = LocalUiTheme.current
     val col = playerColors(ambient, ut.accent)
 
     // 下にある画面へタッチが抜けないよう、空の pointerInput で受け止める
@@ -558,7 +558,7 @@ private fun PlayerPage(
     onQueue: () -> Unit,
 ) {
     val p = vm.player
-    val ut = rememberUiTheme(s.uiTheme)
+    val ut = LocalUiTheme.current
     val lockMode = LocalLockMode.current
     val closeNow by rememberUpdatedState(onClose)
     val soundNow by rememberUpdatedState(onSound)
@@ -1613,7 +1613,7 @@ fun ExternalPlayerScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit)
     if (showVolume) VolumeSheet(vm, { showVolume = false }, system = true)
     BackHandler(onBack = onClose)
     PlayerStatusBar(ambient, inPane = false)
-    val ut = rememberUiTheme(s.uiTheme)
+    val ut = LocalUiTheme.current
     val col = playerColors(ambient, ut.accent)
     // 再生位置は自分で進める(アプリからの知らせは、再生・一時停止・移動のときにしか来ない)
     var pos by remember { androidx.compose.runtime.mutableLongStateOf(n.positionNow()) }

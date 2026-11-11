@@ -169,6 +169,8 @@ dependencies {
 
     // 単体テスト(PC 上で動かす。内蔵デコーダーや文言のリソースなどを確かめる)
     testImplementation("junit:junit:4.13.2")
+    // 単体テストで本物の org.json を使う(Android の単体テストでは、何もしない代用品になるため)
+    testImplementation("org.json:json:20240303")
 }
 
 // ---------------------------------------------------------------

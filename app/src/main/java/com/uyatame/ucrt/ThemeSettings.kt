@@ -58,7 +58,9 @@ fun ThemeSection(vm: MainViewModel, s: AppSettings) {
         if (u != null) scope.launch {
             val t = runCatching {
                 withContext(Dispatchers.IO) {
-                    val text = ctx.contentResolver.openInputStream(u)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: error("open")
+                    // 大きすぎるファイルは読まない(テーマの書式は小さい。巨大なファイルを選んでも、メモリを使い切らない)
+                    val text = ctx.contentResolver.openInputStream(u)?.use { readAtMost(it, UiThemeFormat.MAX_BYTES) }
+                        ?.toString(Charsets.UTF_8) ?: error("open")
                     UiThemes.importTheme(app, text)
                 }
             }.getOrNull()
@@ -137,4 +139,19 @@ fun ThemeSection(vm: MainViewModel, s: AppSettings) {
         }
         Text(S(R.string.theme_export_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+/** 上限(max バイト)までを読む。上限を超えるなら null(巨大なファイルで、メモリを使い切らないため) */
+internal fun readAtMost(input: java.io.InputStream, max: Int): ByteArray? {
+    val out = java.io.ByteArrayOutputStream()
+    val buf = ByteArray(8192)
+    var total = 0
+    while (true) {
+        val n = input.read(buf)
+        if (n < 0) break
+        total += n
+        if (total > max) return null
+        out.write(buf, 0, n)
+    }
+    return out.toByteArray()
 }
