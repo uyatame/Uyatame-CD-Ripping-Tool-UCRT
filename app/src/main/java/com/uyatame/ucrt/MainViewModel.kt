@@ -419,7 +419,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val albumArtist: String get() = meta?.artist ?: UNKNOWN_ARTIST
 
     fun trackTitle(t: TocTrack): String =
-        meta?.tracks?.getOrNull(audioTracks.indexOf(t))?.title?.takeIf { it.isNotBlank() } ?: S(R.string.track_2).format(t.number)
+        meta?.tracks?.getOrNull(audioTracks.indexOf(t))?.title?.takeIf { it.isNotBlank() } ?: S(R.string.track_2).format(java.util.Locale.ROOT, t.number)
 
     fun trackArtist(t: TocTrack): String =
         meta?.tracks?.getOrNull(audioTracks.indexOf(t))?.artist?.takeIf { it.isNotBlank() } ?: albumArtist
@@ -1423,7 +1423,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun fitMeta(m: AlbumMeta): AlbumMeta {
         val n = audioTracks.size
         return m.copy(tracks = (0 until n).map { i ->
-            m.tracks.getOrNull(i) ?: TrackMeta(S(R.string.track_2).format(audioTracks[i].number), m.artist)
+            m.tracks.getOrNull(i) ?: TrackMeta(S(R.string.track_2).format(java.util.Locale.ROOT, audioTracks[i].number), m.artist)
         })
     }
 
@@ -1515,7 +1515,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val placeholder = m.title.isBlank() || m.artist.isBlank() || m.title == UNKNOWN_ALBUM || m.artist == UNKNOWN_ARTIST ||
             m.tracks.size < toc.audioCount ||
             m.tracks.take(toc.audioCount).withIndex().any { (i, t) ->
-                t.title.isBlank() || audio.getOrNull(i)?.let { t.title == S(R.string.track_2).format(it.number) } == true
+                t.title.isBlank() || audio.getOrNull(i)?.let { t.title == S(R.string.track_2).format(java.util.Locale.ROOT, it.number) } == true
             }
         if (placeholder) {
             snack = S(R.string.mb_upload_fill_in)
@@ -1913,9 +1913,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 取り込む曲のファイル名 */
     private fun fileName(t: TocTrack, s: AppSettings, m: AlbumMeta): String {
         val ai = audioTracks.indexOf(t)
-        val title = m.tracks.getOrNull(ai)?.title?.takeIf { it.isNotBlank() } ?: S(R.string.track_2).format(t.number)
+        val title = m.tracks.getOrNull(ai)?.title?.takeIf { it.isNotBlank() } ?: S(R.string.track_2).format(java.util.Locale.ROOT, t.number)
         val artist = m.tracks.getOrNull(ai)?.artist?.takeIf { it.isNotBlank() } ?: m.artist
-        val n = "%02d".format(t.number)
+        // ファイルの名前に入る番号は、端末の言語によらず英数字の数字にする(ペルシャ語などの端末で「٠١」にならないように)
+        val n = "%02d".format(java.util.Locale.ROOT, t.number)
         val dp = if (m.discTotal > 1) "${m.discNo}-" else ""
         val base = when (s.fileNameMode) {
             0 -> "$dp$n ${safe(title)}"
@@ -2309,7 +2310,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         check: () -> Unit,
     ): Int {
         val ai = audioTracks.indexOf(t)
-        val title = m.tracks.getOrNull(ai)?.title?.takeIf { it.isNotBlank() } ?: S(R.string.track_2).format(t.number)
+        val title = m.tracks.getOrNull(ai)?.title?.takeIf { it.isNotBlank() } ?: S(R.string.track_2).format(java.util.Locale.ROOT, t.number)
         val artist = m.tracks.getOrNull(ai)?.artist?.takeIf { it.isNotBlank() } ?: m.artist
         val total = audioTracks.size
         trackStatus[t.number] = S(R.string.ripping)
@@ -2875,12 +2876,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun genreTracks(g: String): List<com.uyatame.ucrt.library.LibTrack> =
         albums.flatMap { a -> a.tracks.filter { it.genre == g } }.groupBy { albumKeyOf(it.uri) ?: it.album }.values.flatten()
 
-    /** フォルダの曲(子フォルダも含め、フォルダ・曲順に並べる) */
-    fun folderTracksOf(path: String): List<com.uyatame.ucrt.library.LibTrack> =
-        albums.asSequence().flatMap { it.tracks }
-            .filter { val p = folderOf(it); p == path || path.isEmpty() || p.startsWith("$path/") }
-            .sortedWith(compareBy({ folderOf(it).lowercase() }, { it.disc }, { it.track }, { Uri.decode(it.uri).lowercase() }))
-            .toList()
+    /**
+     * フォルダの曲(子フォルダも含め、フォルダ・曲順に並べる)。
+     * 並べ替えの鍵(フォルダ名・ファイル名)は曲ごとに 1 度だけ作り、フォルダの名前も同じフォルダでは 1 度だけ作る
+     * (比べるたびに Uri.decode と lowercase を呼ぶと、曲の多いフォルダで数百万回になる)。並びは今までと同じ
+     */
+    fun folderTracksOf(path: String): List<com.uyatame.ucrt.library.LibTrack> {
+        class Row(val t: com.uyatame.ucrt.library.LibTrack, val folder: String, val file: String)
+        val pathOf = HashMap<String, String>()
+        val rows = ArrayList<Row>()
+        for (al in albums) for (t in al.tracks) {
+            val p = pathOf.getOrPut(t.folderId) { Uri.decode(t.folderId).substringAfter(':', "") }
+            if (p == path || path.isEmpty() || p.startsWith("$path/")) rows.add(Row(t, p.lowercase(), Uri.decode(t.uri).lowercase()))
+        }
+        rows.sortWith(compareBy<Row>({ it.folder }, { it.t.disc }, { it.t.track }, { it.file }))
+        return rows.map { it.t }
+    }
 
     /**
      * 今のリストの次のリスト(ライブラリの画面の並び順で次。最後なら最初へ戻る。曲の無いリストは飛ばす)。

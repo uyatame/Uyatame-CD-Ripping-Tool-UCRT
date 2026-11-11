@@ -471,7 +471,7 @@ class DffWriter(private val out: SeekOut, private val rate: Int, private val ch:
             2 -> listOf("SLFT", "SRGT")
             5 -> listOf("MLFT", "MRGT", "C   ", "LS  ", "RS  ")
             6 -> listOf("MLFT", "MRGT", "C   ", "LFE ", "LS  ", "RS  ")
-            else -> List(ch) { "C%03d".format(it) }
+            else -> List(ch) { "C%03d".format(java.util.Locale.ROOT, it) }
         }
         val prop = ByteArrayOutputStream()
         fun chunk(o: ByteArrayOutputStream, id: String, body: ByteArray) {

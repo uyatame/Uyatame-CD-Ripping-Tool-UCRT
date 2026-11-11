@@ -185,7 +185,8 @@ object LyricsIO {
 
 private fun timeText(ms: Long): String {
     val cs = (ms.coerceAtLeast(0) + 5) / 10
-    return "%d:%02d.%02d".format(cs / 6000, (cs / 100) % 60, cs % 100)
+    // LRC の時刻は、端末の言語によらず英数字の数字にする(読み戻すときは、英数字の数字しか読めない)
+    return "%d:%02d.%02d".format(java.util.Locale.ROOT, cs / 6000, (cs / 100) % 60, cs % 100)
 }
 
 /** 歌詞の編集の画面(画面いっぱい)。item は今の曲 */

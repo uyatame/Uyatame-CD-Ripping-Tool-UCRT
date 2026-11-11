@@ -469,9 +469,10 @@ private fun LibraryHome(vm: MainViewModel, s: AppSettings) {
             "artists" to "${albums.map { it.artist }.distinct().size}",
             "songs" to "$tracks",
             "hires" to S(R.string.hi_res_2, albums.count { Quality.classOf(it) == QualityClass.HiRes }),
-            "genres" to "${albums.flatMap { a -> a.tracks.map { it.genre } }.filter { it.isNotEmpty() }.distinct().size}",
+            "genres" to "${HashSet<String>().also { g -> for (a in albums) for (t in a.tracks) if (t.genre.isNotEmpty()) g.add(t.genre) }.size}",
             "years" to "${albums.map { it.year }.filter { it.isNotEmpty() }.distinct().size}",
-            "folders" to "${albums.flatMap { a -> a.tracks.map { trackFolder(it) } }.distinct().size}",
+            // フォルダの名前は、同じフォルダでは 1 度だけ作る(曲ごとに Uri.decode しない)
+            "folders" to "${HashSet<String>().also { f -> val seen = HashSet<String>(); for (a in albums) for (t in a.tracks) if (seen.add(t.folderId)) f.add(trackFolder(t)) }.size}",
         )
     }
     val counts = remember(libCounts, netCount, vm.trackMap, store.favTracks, store.favAlbums, store.favArtists, store.checkTracks, store.playlists, store.history) {
@@ -989,16 +990,23 @@ private fun ArtistPage(vm: MainViewModel, name: String) {
     }
 }
 
+/** 曲の並べ替えの鍵(小文字にした文字を 2 つまで) */
+private class SortRow(val t: LibTrack, val a: String, val b: String)
+
 @Composable
 private fun SongsPage(vm: MainViewModel) {
     var sort by rememberSaveable { mutableIntStateOf(0) }
     val all = remember(vm.albums, sort) {
         val t = vm.albums.flatMap { it.tracks }
+        // 小文字にした鍵は、曲ごとに 1 度だけ作る(比べるたびに lowercase を呼ぶと、曲の多いライブラリで何十万回にもなる)。
+        // 同じ鍵の曲は元の順のまま(並べ替えは安定)
         when (sort) {
-            1 -> t.sortedWith(compareBy({ it.artist.lowercase() }, { it.album.lowercase() }, { it.disc }, { it.track }))
-            2 -> t.sortedWith(compareBy({ it.album.lowercase() }, { it.disc }, { it.track }))
+            1 -> t.map { SortRow(it, it.artist.lowercase(), it.album.lowercase()) }
+                .sortedWith(compareBy<SortRow>({ it.a }, { it.b }, { it.t.disc }, { it.t.track })).map { it.t }
+            2 -> t.map { SortRow(it, it.album.lowercase(), "") }
+                .sortedWith(compareBy<SortRow>({ it.a }, { it.t.disc }, { it.t.track })).map { it.t }
             3 -> t.sortedByDescending { it.modified }
-            else -> t.sortedBy { it.title.lowercase() }
+            else -> t.map { SortRow(it, it.title.lowercase(), "") }.sortedBy { it.a }.map { it.t }
         }
     }
     val labels = remember(all, sort) {
@@ -1150,11 +1158,7 @@ private class FolderNode(val path: String, val name: String) {
 private fun trackFolder(t: LibTrack): String = Uri.decode(t.folderId).substringAfter(':', "")
 
 /** フォルダ(子フォルダも含む)の曲を、フォルダ・ディスク・曲順に並べる(フォルダ単位の再生) */
-private fun folderTracks(vm: MainViewModel, path: String): List<LibTrack> =
-    vm.albums.asSequence().flatMap { it.tracks }
-        .filter { val p = trackFolder(it); p == path || path.isEmpty() || p.startsWith("$path/") }
-        .sortedWith(compareBy({ trackFolder(it).lowercase() }, { it.disc }, { it.track }, { Uri.decode(it.uri).lowercase() }))
-        .toList()
+private fun folderTracks(vm: MainViewModel, path: String): List<LibTrack> = vm.folderTracksOf(path)
 
 /**
  * 曲の入っているフォルダから、実際のフォルダの階層どおりの木を作る。

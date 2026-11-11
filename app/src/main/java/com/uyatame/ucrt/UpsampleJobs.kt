@@ -111,11 +111,11 @@ object UpsampleJobs {
         val tried = HashSet<Item>()
         try {
             while (!cancel) {
-                val idx = items.indexOfFirst { it.state == State.WAITING && it !in tried }
-                if (idx < 0) break
-                val it = items[idx]
+                // 曲そのものを 1 度の走査で取り出す(番号を求めてから items[idx] で取り出すと、そのあいだに待機中の曲を
+                // 消されたとき、範囲の外になって変換のスレッドが落ちる)。表示する番号は、画面のスレッドで求める
+                val it = items.firstOrNull { x -> x.state == State.WAITING && x !in tried } ?: break
                 tried.add(it)
-                main.post { current = idx }
+                main.post { current = items.indexOf(it) }
                 convertOne(svc, conv, it, s, tree)
                 svc.notifyProgress()
             }

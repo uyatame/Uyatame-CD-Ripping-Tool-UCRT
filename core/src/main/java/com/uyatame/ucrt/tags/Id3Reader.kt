@@ -142,7 +142,7 @@ object Id3Reader {
             val ms = ((body[p].toLong() and 0xFF) shl 24) or ((body[p + 1].toLong() and 0xFF) shl 16) or
                 ((body[p + 2].toLong() and 0xFF) shl 8) or (body[p + 3].toLong() and 0xFF)
             p += 4
-            sb.append("[%02d:%02d.%02d]".format(ms / 60000, ms / 1000 % 60, ms / 10 % 100)).append(t).append('\n')
+            sb.append("[%02d:%02d.%02d]".format(java.util.Locale.ROOT, ms / 60000, ms / 1000 % 60, ms / 10 % 100)).append(t).append('\n')
         }
         return sb.toString().takeIf { it.isNotBlank() }
     }
