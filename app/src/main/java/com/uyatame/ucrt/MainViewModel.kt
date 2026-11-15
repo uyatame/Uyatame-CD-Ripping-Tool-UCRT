@@ -549,6 +549,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // 以前の版で保存した連絡先メールアドレスは不要になったので消す
         viewModelScope.launch { repo.set(com.uyatame.ucrt.data.Keys.contactEmail, "") }
         player.onNotice = { snack = it }
+        com.uyatame.ucrt.aging.Aging.onChanged = { updateService() }
         player.onQueueEnd = { playNextList() }
         player.onQueueStart = { playPrevList() }
         // Android Auto(試験的)から、この再生を使えるようにする
@@ -772,6 +773,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         saveModes()
         writeResume()
         resumeReady = false
+        // エージングは止める(続きは保存したまま。次に開いたとき、続きから始められる)
+        com.uyatame.ucrt.aging.Aging.shutdown(ctx)
+        com.uyatame.ucrt.aging.Aging.onChanged = null
         player.onStateChanged = null
         player.onQueueEnd = null
         AutoBridge.unregister(this)
@@ -812,6 +816,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // 書き終えるまで少しだけ待つ(画面のスレッドなので長くは待たない。リピート・シャッフルは別にすぐ保存してある)
         store.flush(500)
         resumeReady = false
+        // エージングは止める(続きは保存したまま。次に開いたとき、続きから始められる)
+        com.uyatame.ucrt.aging.Aging.shutdown(ctx)
+        com.uyatame.ucrt.aging.Aging.onChanged = null
         player.onStateChanged = null
         player.onQueueEnd = null
         AutoBridge.unregister(this)
@@ -929,7 +936,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun updateService() {
         val cur = player.current
+        val aging = com.uyatame.ucrt.aging.Aging
         val info = when {
+            aging.active -> {
+                val pct = (aging.progress * 100).toInt().coerceIn(0, 100)
+                NotifInfo(
+                    false, S(R.string.aging_notif, pct),
+                    S(R.string.aging_remaining, agingTime(aging.remainingWallMs)) +
+                        if (aging.resting) S(R.string.separator) + S(R.string.aging_resting) else "",
+                    progress = pct, type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
+                )
+            }
             busy -> {
                 val pct = (ripOverall * 100).toInt().coerceIn(0, 100)
                 NotifInfo(
@@ -997,6 +1014,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var resumeReady = false
 
     private fun recordHistory() {
+        // エージングで流している曲は、再生履歴・再生回数に残さない
+        if (com.uyatame.ucrt.aging.Aging.usesPlayer) return
         val cur = player.current ?: return
         if (!player.isPlaying || cur.id == lastRecordedId) return
         lastRecordedId = cur.id
@@ -1013,7 +1032,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * 前回の値を戻し終える前は保存しない(初めの値で上書きしないように)
      */
     private fun saveModes() {
-        if (!resumeReady) return
+        if (!resumeReady || com.uyatame.ucrt.aging.Aging.usesPlayer) return
         val m = player.repeatMode to player.shuffle
         if (m == savedModes) return
         savedModes = m
@@ -1022,7 +1041,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 続きの保存(並べ替えなどで続けて呼ばれるので、少し待ってまとめて書く) */
     private fun saveResume() {
-        if (!resumeReady) return
+        // エージングで流している間は、続きとして残さない(終わったら元の再生リストに戻す)
+        if (!resumeReady || com.uyatame.ucrt.aging.Aging.usesPlayer) return
         saveJob?.cancel()
         saveJob = viewModelScope.launch {
             delay(400)
@@ -1031,7 +1051,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun writeResume() {
-        if (!resumeReady) return
+        if (!resumeReady || com.uyatame.ucrt.aging.Aging.usesPlayer) return
         val q = player.queue
         when {
             q.isEmpty() -> store.saveResume(null)
@@ -2813,6 +2833,47 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         } else ArtRef(album ?: t.uri, t.uri, t.coverUri, null)
     }
 
+    // ================= エージング =================
+
+    /**
+     * エージングで流す曲を、ライブラリから自動で選ぶ。周波数 × ビット数の高い曲を優先し(DSD は除く)、
+     * 同じアルバムに偏らないよう、アルバムを順に回って 1 曲ずつ取る(最大 200 曲)。並びは混ぜる
+     */
+    fun agingAutoItems(): List<PlayItem> {
+        val tracks = trackMap.values.filter { !it.hidden && it.bits > 1 && it.durationMs >= 60_000 }
+        if (tracks.isEmpty()) return emptyList()
+        val best = tracks.sortedByDescending { it.rate.toLong() * it.bits }.take(600)
+        val byAlbum = best.groupBy { it.album + "\u0000" + it.albumArtist }.values.map { it.toMutableList() }.toMutableList()
+        val picked = ArrayList<com.uyatame.ucrt.library.LibTrack>()
+        while (picked.size < 200 && byAlbum.isNotEmpty()) {
+            val it = byAlbum.iterator()
+            while (it.hasNext() && picked.size < 200) {
+                val l = it.next()
+                picked += l.removeAt(0)
+                if (l.isEmpty()) it.remove()
+            }
+        }
+        return picked.shuffled().map { itemOf(it) }
+    }
+
+    /** エージングで選べる曲のまとまり(今の再生リストと、プレイリスト)。名前と曲 */
+    fun agingPickChoices(): List<Pair<String, List<PlayItem>>> {
+        val list = ArrayList<Pair<String, List<PlayItem>>>()
+        val q = player.queue.filter { it.uri != null }
+        if (q.isNotEmpty()) list += S(R.string.aging_pick_queue) to q.map { it.copy(id = PlayItem.nextId()) }
+        for (pl in store.playlists) {
+            val items = playlistTracks(pl).map { itemOf(it) }
+            if (items.isNotEmpty()) list += pl.name to items
+        }
+        return list
+    }
+
+    /** 保存した URI から、エージングで流す曲を戻す(ライブラリに見つからない曲は除く) */
+    fun agingItemsOf(uris: List<String>): List<PlayItem> {
+        val map = trackMap
+        return uris.mapNotNull { map[it] }.map { itemOf(it) }
+    }
+
     /** ライブラリの曲を、再生用の項目にする */
     fun itemOf(t: com.uyatame.ucrt.library.LibTrack): PlayItem {
         val r = artRef(t)
@@ -3120,4 +3181,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val start = if (t == null) 0 else audio.indexOf(t).coerceAtLeast(0)
         player.playCd(d, leadOut, items, start, settings.value.cdPlaySpeed)
     }
+}
+
+/** エージングの時間の表示(時:分:秒) */
+fun agingTime(ms: Long): String {
+    val t = (ms / 1000).coerceAtLeast(0)
+    return String.format(java.util.Locale.ROOT, "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60)
 }

@@ -660,6 +660,38 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         }
     }
 
+    /** ほかの機能が出力を使っているか(エージングの音など)。true の間は鳴らさない */
+    @Volatile var externalBusy: (() -> Boolean)? = null
+    /** 鳴らせなかったときに出す文言 */
+    @Volatile var externalBusyNotice: (() -> String)? = null
+
+    /**
+     * ほかの機能(エージングの音など)が鳴らす前に、出力を譲る。再生リストと位置は残すので、あとで再生ボタンを押せば続きから鳴る。
+     * releaseOutput と違い、USB DAC は Android に返さない(譲った先が、そのまま USB DAC で鳴らすため)
+     */
+    fun yieldOutput() {
+        if (casting) CastManager.pause()
+        syncSwitches()
+        halt()
+        isPlaying = false
+        changed()
+    }
+
+    /** 手放した出力のスレッドが終わるのを待つ(呼んだスレッドで待つ。長くても 2 秒) */
+    fun awaitOutputReleased() = awaitRetired()
+
+    /** リピート・シャッフルをこの値にする(ほかの機能から) */
+    fun setModes(repeat: Int, shuffleOn: Boolean) {
+        if (shuffle != shuffleOn) toggleShuffle()
+        if (repeatMode != repeat) {
+            syncSwitches()
+            repeatMode = repeat.coerceIn(0, 2)
+            snapshot()
+            publish()
+            rejoinIfStale()
+        }
+    }
+
     /** スリープタイマー(分。0 で解除) */
     fun setSleep(minutes: Int) {
         sleepAtMs = if (minutes > 0) android.os.SystemClock.elapsedRealtime() + minutes * 60_000L else 0L
@@ -776,6 +808,16 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
 
     private fun startCurrent(fromMs: Long, play: Boolean) {
         val item = current ?: return
+        // ほかの機能(エージングの音)が出力を使っている間は、鳴らさない(出力を取り合わないように)
+        if (play && externalBusy?.invoke() == true) {
+            halt()
+            isPlaying = false
+            positionMs = fromMs
+            durationMs = item.durationMs
+            externalBusyNotice?.let { onNotice?.invoke(it()) }
+            changed()
+            return
+        }
         halt()
         if (casting) {
             // Chromecast で再生中: 曲を読み込ませるだけ(この端末からは音を出さない)

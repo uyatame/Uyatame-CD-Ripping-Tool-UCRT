@@ -107,6 +107,7 @@ fun SettingsScreen(vm: MainViewModel, s: AppSettings, page: Int, onPage: (Int) -
         9 -> SettingsPage(S(R.string.player_screen), back) { PlayerScreenPage(vm, s) }
         10 -> FileTagsPage(vm) { vm.closeFileTags(); back() }
         11 -> SettingsPage(S(R.string.profiles), back) { ProfilesPage(vm) }
+        12 -> AgingScreen(vm, back)
         6 -> LogPage(vm, s, back)
         7 -> LicensePage(vm, s, back)
         8 -> SettingsPage(SoundPage.title(SoundPage.MAIN), back) { SoundMain(vm, s) { onPage(80 + it) } }
@@ -218,6 +219,11 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
                     (if (AppLanguage.supported) S(R.string.separator) + languageLabel(AppLanguage.current(ctx)) else ""),
             ) { onPage(5) }
             HorizontalDivider()
+            CategoryRow(
+                Icons.Filled.PlayArrow, S(R.string.aging),
+                if (com.uyatame.ucrt.aging.Aging.active) S(R.string.aging_notif, (com.uyatame.ucrt.aging.Aging.progress * 100).toInt())
+                else S(R.string.aging_desc),
+            ) { onPage(12) }
             CategoryRow(Icons.Filled.Edit, S(R.string.tag_edit_files), S(R.string.tag_edit_files_desc)) { onPage(10) }
             HorizontalDivider()
             CategoryRow(Icons.Filled.Settings, S(R.string.profiles), S(R.string.profiles_desc)) { onPage(11) }
