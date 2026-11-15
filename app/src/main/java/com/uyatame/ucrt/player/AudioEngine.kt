@@ -356,6 +356,8 @@ class AudioOutput(
     dar: Boolean = false,
     /** 最初の曲の ReplayGain の値(ギャップレスで次の曲に移ったら rg を差し替える) */
     rg: RgInfo? = null,
+    /** イコライザーを掛けない(エージングの音など。音量は掛ける) */
+    private val noEq: Boolean = false,
 ) : PcmOut {
     /** 今書き込んでいる曲の ReplayGain の値。掛ける倍率は設定(ReplayGain.mode など)から毎回求める(設定の変更がすぐ効くように) */
     @Volatile var rg: RgInfo? = rg
@@ -435,7 +437,7 @@ class AudioOutput(
             bitPerfect = up == null
             exactOk = up == null
             val softVol = !usbDac.hwVolume && usbDac.volume() < 100
-            val eqOn = !exact && AudioEngine.eqEnabled
+            val eqOn = !exact && !noEq && AudioEngine.eqEnabled
             val perfect = up == null && !softVol && !eqOn && ReplayGain.linear(rg) == 1f
             val title = when {
                 perfect -> S(R.string.bit_perfect)
@@ -715,7 +717,7 @@ class AudioOutput(
         val dch = d.channels
         val up = up
         // イコライザー(ソースダイレクトがオフで、イコライザーを使うとき)。DoP には掛けない
-        val useEq = !exact && AudioEngine.eqEnabled
+        val useEq = !exact && !noEq && AudioEngine.eqEnabled
         if (up == null && !useEq) {
             ensureB(frames * d.frameBytes)
             // 音量を掛けず、チャンネル数と 1 サンプルのバイト数が DAC と同じなら、バイト列はそのまま同じになるので、まとめて写す
@@ -826,7 +828,7 @@ class AudioOutput(
             // 形式ごとの専用ループでまとめて変換する(値は readI32 / 2^31 と同じ)
             toFloat.read(src, srcEnc, frames, channels, channels, fbuf)
         }
-        if (AudioEngine.eqEnabled) {
+        if (AudioEngine.eqEnabled && !noEq) {
             // 版を先に読む(帯域より後に読むと、変更の途中で古い帯域のまま新しい版を覚えてしまう)
             val v = AudioEngine.version
             if (eq.version != v) {

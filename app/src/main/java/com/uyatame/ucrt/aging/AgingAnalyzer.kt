@@ -44,12 +44,23 @@ class AgingAnalyzer(val rate: Int, val bands: Int = 64) {
         filled = min(size, filled + frames)
     }
 
-    /** 帯ごとの強さ(dBFS。音が足りなければ null) */
-    @Synchronized fun bandsDb(): FloatArray? {
-        if (filled < size) return null
-        for (i in 0 until size) {
-            re[i] = (ring[(pos + i) % size] * window[i]).toDouble()
-            im[i] = 0.0
+    private val fftLock = Any()
+
+    /**
+     * 帯ごとの強さ(dBFS。音が足りなければ null)。音を写すところだけロックし、FFT はロックの外で計算する
+     * (音を入れるスレッドを待たせないように)
+     */
+    fun bandsDb(): FloatArray? {
+        synchronized(fftLock) { return compute() }
+    }
+
+    private fun compute(): FloatArray? {
+        synchronized(this) {
+            if (filled < size) return null
+            for (i in 0 until size) {
+                re[i] = (ring[(pos + i) % size] * window[i]).toDouble()
+                im[i] = 0.0
+            }
         }
         fft(re, im)
         // 周波数ごとの強さ(片側。合計すると元の音の平均の強さ ≒ 実効値の 2 乗 になるように)

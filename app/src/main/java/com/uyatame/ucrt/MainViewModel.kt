@@ -2836,11 +2836,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ================= エージング =================
 
     /**
-     * エージングで流す曲を、ライブラリから自動で選ぶ。周波数 × ビット数の高い曲を優先し(DSD は除く)、
+     * エージングで流す曲を、ライブラリから自動で選ぶ。周波数 × ビット数の高い曲を優先し(DSD は除く。ビット数が分からない曲は後回し)、
      * 同じアルバムに偏らないよう、アルバムを順に回って 1 曲ずつ取る(最大 200 曲)。並びは混ぜる
      */
     fun agingAutoItems(): List<PlayItem> {
-        val tracks = trackMap.values.filter { !it.hidden && it.bits > 1 && it.durationMs >= 60_000 }
+        val tracks = trackMap.values.filter { !it.hidden && it.bits != 1 && it.durationMs >= 60_000 }
         if (tracks.isEmpty()) return emptyList()
         val best = tracks.sortedByDescending { it.rate.toLong() * it.bits }.take(600)
         val byAlbum = best.groupBy { it.album + "\u0000" + it.albumArtist }.values.map { it.toMutableList() }.toMutableList()

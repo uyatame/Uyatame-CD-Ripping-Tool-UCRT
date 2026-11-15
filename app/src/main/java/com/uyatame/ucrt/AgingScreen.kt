@@ -52,7 +52,9 @@ import com.uyatame.ucrt.aging.AgingAnalyzer
 import com.uyatame.ucrt.aging.AgingClock
 import com.uyatame.ucrt.aging.AgingSource
 import com.uyatame.ucrt.player.SpectrumTap
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /** 音源の名前 */
 private fun agingSourceName(s: AgingSource): String = when (s) {
@@ -284,7 +286,8 @@ private fun AgingScopes(accent: Color) {
     LaunchedEffect(library) {
         while (true) {
             delay(66)
-            state.update(library)
+            // FFT は画面のスレッドの外で
+            withContext(Dispatchers.Default) { state.update(library) }
             frame++
         }
     }
@@ -370,8 +373,8 @@ private fun AgingScopes(accent: Color) {
 
 /** スペクトラムと波形の値(画面の表示用。ゆっくり下がるようにならす) */
 private class ScopeState {
-    var analyzer: AgingAnalyzer? = null
-    var smooth = FloatArray(0)
+    @Volatile var analyzer: AgingAnalyzer? = null
+    @Volatile var smooth = FloatArray(0)
     val waveL = FloatArray(256)
     val waveR = FloatArray(256)
     private var tapL = FloatArray(0)

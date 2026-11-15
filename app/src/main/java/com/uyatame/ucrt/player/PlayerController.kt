@@ -808,13 +808,14 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
 
     private fun startCurrent(fromMs: Long, play: Boolean) {
         val item = current ?: return
-        // ほかの機能(エージングの音)が出力を使っている間は、鳴らさない(出力を取り合わないように)
-        if (play && externalBusy?.invoke() == true) {
+        // ほかの機能(エージングの音)が出力を使っている間は、出力を作らない(止めたままの開始でも。USB DAC を取り合わないように)。
+        // 鳴らそうとしたときだけ知らせる。終わったあと再生ボタンを押せば、ここから作り直す
+        if (externalBusy?.invoke() == true) {
             halt()
             isPlaying = false
             positionMs = fromMs
             durationMs = item.durationMs
-            externalBusyNotice?.let { onNotice?.invoke(it()) }
+            if (play) externalBusyNotice?.let { onNotice?.invoke(it()) }
             changed()
             return
         }

@@ -453,6 +453,12 @@ object UsbDac {
         return format
     }
 
+    /** 直接出力で、この周波数・チャンネル数の PCM を送れるか(DAC をまだ開いたことがなく、分からなければ null) */
+    fun canPlay(rate: Int, ch: Int): Boolean? {
+        val inf = info ?: return null
+        return inf.alts.any { !it.raw && it.subslot >= 2 && it.channels == ch && supports(it, rate) }
+    }
+
     private fun supports(a: UacAlt, r: Int): Boolean {
         val inf = info ?: return false
         if (!inf.uac2) {

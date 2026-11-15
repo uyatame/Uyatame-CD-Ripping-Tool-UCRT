@@ -95,6 +95,11 @@ object Aging {
     private class SavedQueue(
         val items: List<PlayItem>, val index: Int, val posMs: Long, val shuffle: Boolean, val repeat: Int, val original: List<PlayItem>,
     )
+    /** 始める前のリピート・シャッフル(元の再生リストが無いときも、これは戻す) */
+    private var savedModes: Pair<Int, Boolean>? = null
+    /** 終えたあとも、止め終えるまでは出力を使っているスレッド(その間は再生に出力を作らせない) */
+    @Volatile private var lastGen: GenThread? = null
+    private var noisy: android.content.BroadcastReceiver? = null
 
     private const val PREFS = "aging"
     private const val KEY = "session"
@@ -140,7 +145,8 @@ object Aging {
         rate = 0
         detail = ""
         outputLabel = ""
-        p.externalBusy = { active && source.generated }
+        // 作った音を鳴らしている間と、終えたあと出力を止め終えるまでは、再生に出力を作らせない
+        p.externalBusy = { (active && source.generated) || lastGen?.isAlive == true }
         p.externalBusyNotice = { S(R.string.aging_player_busy) }
         active = true
         saved = null
@@ -152,6 +158,7 @@ object Aging {
         } else {
             val list = items!!
             uris = list.mapNotNull { it.uri?.toString() }
+            savedModes = p.repeatMode to p.shuffle
             // 元の再生リストを覚えておく(CD の曲は戻せないので覚えない)
             val q = p.queue
             restore = if (q.isNotEmpty() && q.none { it.uri == null }) {
@@ -159,6 +166,19 @@ object Aging {
             } else null
             p.playFiles(list, 0)
             p.setModes(1, false)
+        }
+        // イヤホンを抜いたなど(端末のスピーカーに切り替わる): 作った音は一時停止する(ライブラリの曲は、再生のほうで止まる)
+        if (src.generated && noisy == null) {
+            noisy = object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: Context, i: android.content.Intent) {
+                    // USB DAC を直接使っているときは、Android から DAC が消えたように見えるため無視する(再生と同じ)
+                    if (com.uyatame.ucrt.player.usb.UsbDac.active || SystemClock.elapsedRealtime() < com.uyatame.ucrt.player.usb.UsbDac.ignoreNoisyUntil) return
+                    if (active && !paused) togglePause()
+                }
+            }
+            runCatching {
+                app.registerReceiver(noisy, android.content.IntentFilter(android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+            }.onFailure { noisy = null }
         }
         // 休憩中(音が出ていない間)も、時間を進められるように
         runCatching {
@@ -218,7 +238,8 @@ object Aging {
                 }
                 if (g != null && g.rate > 0) {
                     rate = g.rate
-                    outputLabel = AudioEngine.khz(g.rate) + " / 32 bit float" +
+                    // 作った音の周波数と、出力の実際の状態(USB DAC 直接出力なら、DAC に送っている形式)
+                    outputLabel = AudioEngine.khz(g.rate) +
                         (AudioEngine.outputStatus.takeIf { it.isNotEmpty() }?.let { " · $it" } ?: "")
                 }
             } else {
@@ -288,10 +309,7 @@ object Aging {
     fun shutdown(ctx: Context) {
         if (!active) return
         persist(ctx.applicationContext)
-        gen?.let { it.stopFlag = true; it.interrupt() }
-        gen = null
-        analyzer = null
-        player?.externalBusy = null
+        stopGen()
         job?.cancel()
         job = null
         runCatching { wake?.release() }
@@ -306,22 +324,31 @@ object Aging {
     /** 使う人が終える(保存した続きも消す) */
     fun stop(ctx: Context) = finish(ctx.applicationContext, completed = false)
 
-    private fun finish(ctx: Context, completed: Boolean) {
-        if (!active) return
+    private fun stopGen() {
         gen?.let { g ->
             g.stopFlag = true
             g.interrupt()
+            lastGen = g
         }
         gen = null
         analyzer = null
+        noisy?.let { r -> runCatching { appCtx?.unregisterReceiver(r) } }
+        noisy = null
+    }
+
+    private fun finish(ctx: Context, completed: Boolean) {
+        if (!active) return
+        stopGen()
         val p = player
         if (p != null && !source.generated) {
             // 元の再生リストと設定に戻す(鳴らさない)
             p.stop()
-            restore?.let { r -> p.restore(r.items, r.index, r.posMs, r.shuffle, r.repeat, r.original) }
+            val r = restore
+            if (r != null) p.restore(r.items, r.index, r.posMs, r.shuffle, r.repeat, r.original)
+            else savedModes?.let { (rep, sh) -> p.restoreModes(rep, sh) }
         }
         restore = null
-        p?.externalBusy = null
+        savedModes = null
         job?.cancel()
         job = null
         runCatching { wake?.release() }
@@ -356,18 +383,36 @@ object Aging {
         @Volatile var rate = 0
         @Volatile var signal: AgingSignal? = null
 
+        /**
+         * 試す周波数(高い順)。USB DAC 直接出力は、DAC が対応しているものだけ(対応していない周波数を頼むと、
+         * DAC を Android に返して通常の出力になるため)。通常の出力は、出力先が申告している周波数から。
+         * 分からなければ 48 kHz(多くの出力先がそのまま受け付ける)
+         */
+        private fun rates(): List<Int> {
+            val pref = listOf(192000, 176400, 96000, 88200, 48000, 44100)
+            if (AudioEngine.wantUsbDirect) {
+                val ok = pref.filter { com.uyatame.ucrt.player.usb.UsbDac.canPlay(it, 2) == true }
+                return ok.ifEmpty { listOf(48000) }
+            }
+            val dev = com.uyatame.ucrt.player.OutputDevices.route(ctx, AudioEngine.preferredKey)
+            val listed = dev?.rates?.filter { it in 44100..192000 }?.distinct()?.sortedDescending().orEmpty()
+            return (listed + 48000).distinct()
+        }
+
         override fun run() {
-            // 再生の出力が手放されるのを待つ(USB DAC を取り合わないように)
+            // 再生の出力が手放されるのと、前に鳴らしていたスレッドが止まるのを待つ(USB DAC を取り合わないように)
             player.awaitOutputReleased()
+            lastGen?.takeIf { it !== this }?.let { runCatching { it.join(2000) } }
             val attrs = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                 .build()
-            // 出力先が受け付ける、いちばん高い周波数で鳴らす(ハイレゾ帯域まで出せるように)
+            // 出力先が受け付ける、いちばん高い周波数(192 kHz まで)で鳴らす(ハイレゾ帯域まで出せるように)。
+            // イコライザーは掛けない(音量は掛ける)
             var out: PcmOut? = null
-            for (r in intArrayOf(192000, 96000, 48000)) {
+            for (r in rates()) {
                 if (stopFlag) return
-                out = runCatching { AudioOutput(ctx, attrs, r, 2, 32) }.getOrNull()
+                out = runCatching { AudioOutput(ctx, attrs, r, 2, 32, noEq = true) }.getOrNull()
                 if (out != null) { rate = r; break }
             }
             val o = out ?: run { failed = true; return }
