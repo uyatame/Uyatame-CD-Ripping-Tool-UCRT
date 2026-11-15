@@ -31,6 +31,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -634,15 +638,17 @@ private fun HomeSection(vm: MainViewModel) {
 private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
     HomeSection(vm)
     LockScreenSection(vm, s)
-    LauncherIconSection()
+    LauncherIconSection(s)
     ThemeSection(vm, s)
+    // テーマ「Glass」(など glass のテーマ)を選んでいる間は、設定の「見た目」に関わらずリキッドグラス
+    val themeGlass = LocalUiTheme.current.glass
     Section(S(R.string.appearance)) {
-        Segmented(S(R.string.ui_style), listOf(S(R.string.ui_style_standard), S(R.string.ui_style_glass)), s.appearance) { vm.set(Keys.appearance, it) }
+        Segmented(S(R.string.ui_style), listOf(S(R.string.ui_style_standard), S(R.string.ui_style_glass)), if (themeGlass) 1 else s.appearance) { vm.set(Keys.appearance, it) }
         Text(
-            if (s.appearance == 1) S(R.string.ui_style_glass_desc) else S(R.string.ui_style_standard_desc),
+            if (s.appearance == 1 || themeGlass) S(R.string.ui_style_glass_desc) else S(R.string.ui_style_standard_desc),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (s.appearance == 1) {
+        if (s.appearance == 1 || themeGlass) {
             // 透け具合(画面では「透明度」。濃さの逆)
             IntSlider(S(R.string.glass_transparency), 100 - s.glassOpacity, 5..90, { "$it%" }, S(R.string.glass_transparency_desc)) {
                 vm.set(Keys.glassOpacity, 100 - it)
@@ -859,36 +865,73 @@ private fun SpectrumColorPicker(value: Int, onChange: (Int) -> Unit) {
     ) { picking = true }
 }
 
-/** ホーム画面のアイコンを選ぶ(画面を閉じたときに切り替わる) */
+/** ホーム画面のアイコンを選ぶ(プルダウン。今のテーマのおすすめを先頭に出す。どれでも自由に選べる。画面を閉じたときに切り替わる) */
 @Composable
-private fun LauncherIconSection() {
+private fun LauncherIconSection(s: AppSettings) {
     val ctx = LocalContext.current
     var cur by remember { mutableStateOf(LauncherIcons.current(ctx)) }
+    var open by remember { mutableStateOf(false) }
+    val rec = LauncherIcons.recommended(s.uiTheme)
+    val order = listOf(rec) + LauncherIcons.ids.filter { it != rec }
+    @Composable
+    fun nameOf(id: String): String = when (id) {
+        "default" -> S(R.string.theme_name_sumi)
+        "prism" -> S(R.string.theme_name_classic)
+        "halo" -> S(R.string.theme_name_stage)
+        "amber" -> S(R.string.theme_name_instrument)
+        "legacy" -> S(R.string.launcher_icon_legacy)
+        else -> {
+            val base = id.substringBefore('_')
+            val side = if (id.endsWith("_light")) S(R.string.light) else if (id.endsWith("_dark")) S(R.string.dark) else ""
+            val n = if (base.startsWith("rainbow")) S(R.string.launcher_icon_rainbow, if (base == "rainbow_ucrt") 1 else 2)
+            else S(R.string.launcher_icon_alt, base.removePrefix("ucrt").toIntOrNull() ?: 1)
+            if (side.isEmpty()) n else "$n · $side"
+        }
+    }
+    @Composable
+    fun Thumb(id: String, size: androidx.compose.ui.unit.Dp) {
+        val res = LauncherIcons.preview(id)
+        val shape = RoundedCornerShape(size * 0.24f)
+        if (res != null) {
+            Image(painterResource(res), null, Modifier.size(size).clip(shape))
+        } else {
+            // 以前のアイコン(背景の色の上に、前景の絵)
+            Box(Modifier.size(size).clip(shape).background(colorResource(R.color.ic_launcher_background))) {
+                Image(painterResource(R.drawable.ic_launcher_foreground), null, Modifier.fillMaxSize())
+            }
+        }
+    }
     Section(S(R.string.launcher_icon)) {
         Text(S(R.string.launcher_icon_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        LauncherIcons.ids.chunked(5).forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (id in row) {
-                    val sel = id == cur
-                    Box(
-                        Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(14.dp))
-                            .then(if (sel) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(14.dp)) else Modifier)
-                            .clickable { cur = id; LauncherIcons.request(ctx, id) }
-                            .padding(4.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        val res = LauncherIcons.preview(id)
-                        if (res != null) {
-                            Image(painterResource(res), null, Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)))
-                        } else {
-                            // 今までのアイコン(背景の色の上に、前景の絵)
-                            Box(Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(colorResource(R.color.ic_launcher_background))) {
-                                Image(painterResource(R.drawable.ic_launcher_foreground), null, Modifier.fillMaxSize())
-                            }
-                        }
-                    }
+        Box {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
+                    .clickable { open = true }.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Thumb(cur, 44.dp)
+                Column(Modifier.weight(1f)) {
+                    Text(nameOf(cur), style = MaterialTheme.typography.bodyLarge)
+                    if (cur == rec) Text(S(R.string.launcher_icon_recommended), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
-                repeat(5 - row.size) { Spacer(Modifier.weight(1f)) }
+                Icon(Icons.Filled.ArrowDropDown, null)
+            }
+            DropdownMenu(open, { open = false }) {
+                for (id in order) {
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Thumb(id, 36.dp)
+                                Column {
+                                    Text(nameOf(id), fontWeight = if (id == cur) FontWeight.Bold else FontWeight.Normal)
+                                    if (id == rec) Text(S(R.string.launcher_icon_recommended), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        },
+                        onClick = { cur = id; LauncherIcons.request(ctx, id); open = false },
+                    )
+                }
             }
         }
     }

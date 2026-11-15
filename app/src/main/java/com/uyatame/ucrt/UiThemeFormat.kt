@@ -66,6 +66,8 @@ data class UiTheme(
     val tile: String = "default",
     /** 進み具合のバー(取り込み・変換・ミニプレーヤー): default / thick(太く丸い) / blocks(区切った四角) */
     val progress: String = "default",
+    /** リキッドグラス(下のタブ・ミニプレーヤーなどを、中身の上に浮かぶガラスにする)。設定の「見た目」をリキッドグラスにするのと同じ */
+    val glass: Boolean = false,
 )
 
 /** テーマのファイルの書式(読む・書き出す・ひな形)。書式はリポジトリの themes/README.md */
@@ -157,6 +159,7 @@ object UiThemeFormat {
             button = pick(a, "button", BUTTON, d.button),
             tile = pick(a, "tile", TILE, d.tile),
             progress = pick(a, "progress", PROGRESS, d.progress),
+            glass = a.optBoolean("glass", d.glass),
         )
     }
 
@@ -194,6 +197,7 @@ object UiThemeFormat {
             put("button", t.button)
             put("tile", t.tile)
             put("progress", t.progress)
+            put("glass", t.glass)
         })
     }
 
@@ -231,6 +235,7 @@ object UiThemeFormat {
             put("app.button", "round | soft | square  (button shape / ボタンの形)")
             put("app.tile", "default | circle | soft | square  (icon tiles, avatars / アイコンの台)")
             put("app.progress", "default | thick | blocks  (progress bars / 進み具合のバー)")
+            put("app.glass", "true | false  (liquid glass bars / リキッドグラス)")
         })
         return o.toString(2)
     }

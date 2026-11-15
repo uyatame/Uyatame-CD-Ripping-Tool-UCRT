@@ -95,6 +95,58 @@
             </intent-filter>
         </activity-alias>
         <activity-alias
+            android:name=".LauncherAlias_prism"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_icon_prism"
+            android:roundIcon="@mipmap/ic_icon_prism"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_halo"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_icon_halo"
+            android:roundIcon="@mipmap/ic_icon_halo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_amber"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_icon_amber"
+            android:roundIcon="@mipmap/ic_icon_amber"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAlias_legacy"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_launcher_legacy"
+            android:roundIcon="@mipmap/ic_launcher_legacy"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
             android:name=".LauncherAlias_ucrt_light"
             android:enabled="false"
             android:exported="true"

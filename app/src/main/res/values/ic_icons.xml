@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_icon_prism_bg">#EADDFF</color>
+    <color name="ic_icon_halo_bg">#1F5E9C</color>
+    <color name="ic_icon_amber_bg">#15181B</color>
+</resources>

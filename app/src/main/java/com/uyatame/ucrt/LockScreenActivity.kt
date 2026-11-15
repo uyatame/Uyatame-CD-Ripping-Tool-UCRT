@@ -146,7 +146,7 @@ class LockScreenActivity : ComponentActivity() {
                 val s = st
                 val ut = rememberUiTheme(s.uiTheme)
                 AppTheme(
-                    s.themeMode, s.dynamicColor && ut.seed == 0, if (ut.seed != 0) ut.seed else s.themeColor, s.textColor, s.appearance == 1, ut.corner, ut,
+                    s.themeMode, s.dynamicColor && ut.seed == 0, if (ut.seed != 0) ut.seed else s.themeColor, s.textColor, s.appearance == 1 || ut.glass, ut.corner, ut,
                 ) {
                     LockScreenContent(vm, s, onUnlock = { done -> unlock(done) })
                 }

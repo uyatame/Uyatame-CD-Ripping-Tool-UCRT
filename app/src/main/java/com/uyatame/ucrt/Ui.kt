@@ -196,7 +196,7 @@ fun App(vm: MainViewModel) {
     val ut = rememberUiTheme(s.uiTheme)
     // テーマに色があれば、アプリ全体の色もその色にする(ダイナミックカラーより優先)
     AppTheme(
-        s.themeMode, s.dynamicColor && ut.seed == 0, if (ut.seed != 0) ut.seed else s.themeColor, s.textColor, s.appearance == 1, ut.corner, ut,
+        s.themeMode, s.dynamicColor && ut.seed == 0, if (ut.seed != 0) ut.seed else s.themeColor, s.textColor, s.appearance == 1 || ut.glass, ut.corner, ut,
     ) {
         val view = LocalView.current
         val keep = vm.busy && s.keepScreenOn
@@ -314,7 +314,7 @@ fun App(vm: MainViewModel) {
             Triple(Icons.Filled.Settings, S(R.string.settings), 2),
         )
         // リキッドグラス: 下のタブとミニプレーヤーなどを、中身の上に浮かぶガラスにする
-        val glass = s.appearance == 1
+        val glass = s.appearance == 1 || ut.glass
         val backdrop = rememberBackdrop()
         var barsPx by remember { mutableIntStateOf(0) }
         val barsDp = with(LocalDensity.current) { barsPx.toDp() }

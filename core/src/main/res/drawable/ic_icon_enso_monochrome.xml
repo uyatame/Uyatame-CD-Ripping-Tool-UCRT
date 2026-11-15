@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ensō の単色版(テーマアイコン用): 円相・U・中心の点 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M79.6,40.4 A29,29 0 1,1 65.8,27.5" android:strokeColor="#000000" android:strokeWidth="5.2" android:strokeLineCap="round" />
+    <path android:pathData="M43.5,37 V54 A10.5,10.5 0 0,0 64.5,54 V37" android:strokeColor="#000000" android:strokeWidth="6" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M50.8,54 a3.2,3.2 0 1,0 6.4,0 a3.2,3.2 0 1,0 -6.4,0 Z" android:fillColor="#000000" />
+</vector>

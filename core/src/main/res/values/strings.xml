@@ -1208,6 +1208,10 @@
     <string name="dsre_dynamic">"Transient emphasis"</string>
     <string name="dsre_dynamic_desc">"Emphasizes attacks a little. 1.00 keeps the original"</string>
     <string name="launcher_icon">"App icon"</string>
+    <string name="launcher_icon_recommended">"Recommended"</string>
+    <string name="launcher_icon_legacy">"Classic"</string>
+    <string name="launcher_icon_alt">"Alt %1$d"</string>
+    <string name="launcher_icon_rainbow">"Rainbow %1$d"</string>
     <string name="launcher_icon_desc">"Choose the icon shown on the home screen. It changes after you leave the app screen (it may take a moment to appear on the home screen)"</string>
     <string name="ui_style">"Style"</string>
     <string name="ui_style_standard">"Standard"</string>
@@ -1511,6 +1515,7 @@
     <string name="theme_name_sumi">"Ensō"</string>
     <string name="theme_name_stage">"Halo"</string>
     <string name="theme_name_instrument">"Amber"</string>
+    <string name="theme_name_glass">"Glass"</string>
     <string name="theme_by">"by %1$s"</string>
     <string name="theme_import">"Import from file"</string>
     <string name="theme_export">"Export as template"</string>

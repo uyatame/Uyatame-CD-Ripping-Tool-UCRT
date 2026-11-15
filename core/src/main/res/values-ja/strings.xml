@@ -1204,6 +1204,10 @@
     <string name="dsre_dynamic">"立ち上がりの強調"</string>
     <string name="dsre_dynamic_desc">"音の立ち上がりを少し強めます。1.00で元のままです"</string>
     <string name="launcher_icon">"アプリのアイコン"</string>
+    <string name="launcher_icon_recommended">"おすすめ"</string>
+    <string name="launcher_icon_legacy">"以前のアイコン"</string>
+    <string name="launcher_icon_alt">"代替 %1$d"</string>
+    <string name="launcher_icon_rainbow">"Rainbow %1$d"</string>
     <string name="launcher_icon_desc">"ホーム画面に出すアイコンを選びます。アプリの画面を閉じたときに切り替わります（ホーム画面に出るまで少しかかることがあります）"</string>
     <string name="ui_style">"見た目"</string>
     <string name="ui_style_standard">"標準"</string>
@@ -1507,6 +1511,7 @@
     <string name="theme_name_sumi">"Ensō"</string>
     <string name="theme_name_stage">"Halo"</string>
     <string name="theme_name_instrument">"Amber"</string>
+    <string name="theme_name_glass">"Glass"</string>
     <string name="theme_by">"作者: %1$s"</string>
     <string name="theme_import">"ファイルから読み込む"</string>
     <string name="theme_export">"ひな形として書き出す"</string>

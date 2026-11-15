@@ -39,6 +39,12 @@ object UiThemes {
             nav = "line", card = "panel", sectionTitle = "caps", listRow = "divided", coverCorner = 2, bars = "line",
             headlineWeight = 700, header = "caps", button = "square", tile = "square", progress = "blocks",
         ),
+        UiTheme(
+            "glass", "Glass", builtin = true, accent = 0xFFCFE8FF.toInt(), corner = 22, tabs = "pill",
+            artCorner = 22, artGlow = true, info = "filled", controls = "capsule", seek = "thin", titleWeight = 800, blurLevel = 6,
+            nav = "floating", card = "filled", sectionTitle = "bold", listRow = "plain", coverCorner = 14, bars = "floating",
+            headlineWeight = 800, header = "large", button = "round", tile = "soft", progress = "thick", glass = true,
+        ),
     )
 
     fun builtinNameRes(id: String): Int? = when (id) {
@@ -46,6 +52,7 @@ object UiThemes {
         "sumi" -> R.string.theme_name_sumi
         "stage" -> R.string.theme_name_stage
         "instrument" -> R.string.theme_name_instrument
+        "glass" -> R.string.theme_name_glass
         else -> null
     }
 

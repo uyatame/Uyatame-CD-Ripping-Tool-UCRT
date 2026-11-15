@@ -102,4 +102,14 @@ class UiThemeFormatTest {
         for (ok in listOf("a", "classic", "my-theme_2", "0")) assertTrue(ok, UiThemeFormat.validId(ok))
         for (bad in listOf("", "..", "../x", "a/b", "a.b", "A", "a b", "a\u0000b", "x".repeat(49))) assertFalse(bad, UiThemeFormat.validId(bad))
     }
+
+    @Test fun glassFlagReadsWritesAndDefaultsOff() {
+        assertFalse(UiThemeFormat.parse(file()).glass)
+        assertFalse(UiThemeFormat.parse(file(""","app":{"glass":"yes"}""")).glass)
+        val on = UiThemeFormat.parse(file(""","app":{"glass":true}"""))
+        assertTrue(on.glass)
+        // 書き出して読み直しても同じ
+        assertTrue(UiThemeFormat.parse(UiThemeFormat.toJson(on).toString()).glass)
+        assertTrue(UiThemeFormat.template(on, "x").contains("\"glass\""))
+    }
 }

@@ -10,8 +10,8 @@ import android.content.pm.PackageManager
  * 選んだものを覚えておき、画面が裏に回ったとき(MainActivity.onStop)に切り替える
  */
 object LauncherIcons {
-    /** 選べるアイコン(id、明るい背景か)。default は今までのアイコン */
-    val ids: List<String> = listOf("default") +
+    /** 選べるアイコン。default は Ensō(既定)、legacy は以前の既定のアイコン */
+    val ids: List<String> = listOf("default", "prism", "halo", "amber", "legacy") +
         listOf("ucrt", "ucrt2", "ucrt3", "ucrt4", "ucrt5", "ucrt6", "ucrt7").flatMap { listOf("${it}_light", "${it}_dark") } +
         listOf("rainbow_ucrt", "rainbow_unknown")
 
@@ -21,8 +21,20 @@ object LauncherIcons {
 
     private fun alias(ctx: Context, id: String) = ComponentName(ctx.packageName, "com.uyatame.ucrt.LauncherAlias_$id")
 
-    /** 見本の画像(default は null。画面で今のアイコンを描く) */
+    /** テーマごとのおすすめのアイコン(自由に選べる。読み込んだテーマは Ensō) */
+    fun recommended(themeId: String): String = when (themeId) {
+        "classic" -> "prism"
+        "stage", "glass" -> "halo"
+        "instrument" -> "amber"
+        else -> "default"
+    }
+
+    /** 見本の画像(legacy は null。画面で以前のアイコンを描く) */
     fun preview(id: String): Int? = when (id) {
+        "default" -> R.drawable.ic_icon_enso_prev
+        "prism" -> R.drawable.ic_icon_prism_prev
+        "halo" -> R.drawable.ic_icon_halo_prev
+        "amber" -> R.drawable.ic_icon_amber_prev
         "ucrt_light" -> R.drawable.ic_alt_ucrt_light_full
         "ucrt_dark" -> R.drawable.ic_alt_ucrt_dark_full
         "ucrt2_light" -> R.drawable.ic_alt_ucrt2_light_full
