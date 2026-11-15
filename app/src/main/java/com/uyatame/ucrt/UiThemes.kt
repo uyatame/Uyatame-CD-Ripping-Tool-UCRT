@@ -49,14 +49,6 @@ object UiThemes {
         else -> null
     }
 
-    fun builtinDescRes(id: String): Int? = when (id) {
-        "classic" -> R.string.theme_desc_classic
-        "sumi" -> R.string.theme_desc_sumi
-        "stage" -> R.string.theme_desc_stage
-        "instrument" -> R.string.theme_desc_instrument
-        else -> null
-    }
-
     private fun dir(ctx: Context) = File(ctx.filesDir, "themes")
 
     /** 読み込んだテーマ(名前の順) */

@@ -49,10 +49,7 @@ fun ThemeSection(vm: MainViewModel, s: AppSettings) {
     var deleting by remember { mutableStateOf<UiTheme?>(null) }
     fun toast(id: Int) = android.widget.Toast.makeText(ctx, S(id), android.widget.Toast.LENGTH_SHORT).show()
     fun nameOf(t: UiTheme) = UiThemes.builtinNameRes(t.id)?.takeIf { t.builtin }?.let { S(it) } ?: t.name
-    fun descOf(t: UiTheme): String {
-        val d = UiThemes.builtinDescRes(t.id)?.takeIf { t.builtin }?.let { S(it) } ?: t.description
-        return if (t.author.isNotEmpty()) (if (d.isNotEmpty()) "$d · " else "") + S(R.string.theme_by, t.author) else d
-    }
+    fun descOf(t: UiTheme): String = if (t.author.isNotEmpty()) S(R.string.theme_by, t.author) else ""
 
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
         if (u != null) scope.launch {
@@ -98,7 +95,6 @@ fun ThemeSection(vm: MainViewModel, s: AppSettings) {
     }
 
     Section(S(R.string.ui_theme)) {
-        Text(S(R.string.ui_theme_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         for (t in themes) {
             Row(
                 Modifier.fillMaxWidth().clickable { vm.set(Keys.uiTheme, t.id) }.padding(vertical = 2.dp),
