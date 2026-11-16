@@ -142,7 +142,8 @@ class TagExtra(
                     }
                     return TagExtra(
                         map["GENRE"].orEmpty(), map["COMPOSER"].orEmpty(), map["LYRICIST"].orEmpty(),
-                        (map["COMMENT"] ?: map["DESCRIPTION"]).orEmpty(), (map["LYRICS"] ?: map["UNSYNCEDLYRICS"]).orEmpty(),
+                        (map["COMMENT"] ?: map["DESCRIPTION"]).orEmpty(),
+                        (map["LYRICS"] ?: map["UNSYNCEDLYRICS"] ?: map["UNSYNCED LYRICS"] ?: map["SYNCEDLYRICS"]).orEmpty(),
                     )
                 }
                 if ((h[0].toInt() and 0x80) != 0) return TagExtra("", "", "", "", "")
@@ -208,7 +209,9 @@ class TagExtra(
             }
             return TagExtra(
                 map["©gen"].orEmpty(), map["©wrt"].orEmpty(), map["----:LYRICIST"].orEmpty(),
-                map["©cmt"].orEmpty(), map["©lyr"].orEmpty(),
+                // 歌詞は ©lyr。自由形式(----:com.apple.iTunes:LYRICS など)に入れるソフトもある
+                map["©cmt"].orEmpty(),
+                (map["©lyr"] ?: map["----:LYRICS"] ?: map["----:UNSYNCEDLYRICS"] ?: map["----:SYNCEDLYRICS"]).orEmpty(),
             )
         }
     }

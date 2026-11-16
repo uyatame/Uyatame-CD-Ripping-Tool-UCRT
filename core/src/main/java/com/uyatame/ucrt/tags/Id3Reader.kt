@@ -32,6 +32,9 @@ class Id3Data(
 
 /** DSF / DSDIFF に入っている ID3v2 タグを読む(Android 標準の機能では読めないため) */
 object Id3Reader {
+    /** TXXX の説明のうち、歌詞として読むもの */
+    private val LYRICS_KEYS = setOf("LYRICS", "UNSYNCEDLYRICS", "UNSYNCED LYRICS", "SYNCEDLYRICS", "SYNCED LYRICS")
+
     private fun syncsafe(b: ByteArray, o: Int): Int =
         ((b[o].toInt() and 0x7F) shl 21) or ((b[o + 1].toInt() and 0x7F) shl 14) or
             ((b[o + 2].toInt() and 0x7F) shl 7) or (b[o + 3].toInt() and 0x7F)
@@ -128,9 +131,22 @@ object Id3Reader {
             else while (p < body.size && body[p].toInt() != 0) p++
             return p
         }
+        // UTF-16(BOM 付き): BOM を最初の文字列にしか付けないソフトもあるので、見つけた BOM の向きを覚えて、無い文字列にも使う
+        // (BOM が無ければリトルエンディアン。Windows のソフトの多くがそう書く)
+        var bigEndian = false
         fun str(a: Int, b: Int): String {
-            val cs = when (enc) { 1 -> Charsets.UTF_16; 2 -> Charsets.UTF_16BE; 3 -> Charsets.UTF_8; else -> Charsets.ISO_8859_1 }
-            return String(body, a, (b - a).coerceAtLeast(0), cs)
+            val n = (b - a).coerceAtLeast(0)
+            if (enc == 1) {
+                var o = a
+                if (n >= 2) {
+                    val b0 = body[a].toInt() and 0xFF
+                    val b1 = body[a + 1].toInt() and 0xFF
+                    if (b0 == 0xFE && b1 == 0xFF) { bigEndian = true; o += 2 } else if (b0 == 0xFF && b1 == 0xFE) { bigEndian = false; o += 2 }
+                }
+                return String(body, o, (b - o).coerceAtLeast(0), if (bigEndian) Charsets.UTF_16BE else Charsets.UTF_16LE)
+            }
+            val cs = when (enc) { 2 -> Charsets.UTF_16BE; 3 -> Charsets.UTF_8; else -> Charsets.ISO_8859_1 }
+            return String(body, a, n, cs)
         }
         var p = end(6) + (if (wide) 2 else 1)
         val sb = StringBuilder()
@@ -146,6 +162,32 @@ object Id3Reader {
         }
         return sb.toString().takeIf { it.isNotBlank() }
     }
+
+    /** TXXX(自由形式の文字)の説明と値: 文字コード(1) 説明(終端まで) 値。読めなければ null */
+    private fun txxxOf(body: ByteArray): Pair<String, String>? {
+        if (body.size < 2) return null
+        val enc = body[0].toInt()
+        val wide = enc == 1 || enc == 2
+        var p = 1
+        if (wide) { while (p + 1 < body.size && !(body[p].toInt() == 0 && body[p + 1].toInt() == 0)) p += 2 }
+        else while (p < body.size && body[p].toInt() != 0) p++
+        val descBytes = ByteArray(1 + (p - 1).coerceAtLeast(0))
+        descBytes[0] = body[0]
+        System.arraycopy(body, 1, descBytes, 1, descBytes.size - 1)
+        val desc = text(descBytes).orEmpty()
+        p += if (wide) 2 else 1
+        if (p >= body.size) return null
+        val v = ByteArray(1 + body.size - p)
+        v[0] = body[0]
+        System.arraycopy(body, p, v, 1, body.size - p)
+        val value = text(v) ?: return null
+        return desc to value
+    }
+
+    private val LRC_TIME = Regex("\\[\\d{1,3}:\\d{1,2}(?:[.:]\\d{1,3})?]")
+
+    /** 時刻付きの歌詞(LRC)か */
+    private fun timed(s: String) = LRC_TIME.containsMatchIn(s)
 
     /** COMM / USLT の説明(言語の後ろ)が空か(iTunNORM などの説明付きのコメントは、利用者のコメントではない) */
     private fun emptyDesc(body: ByteArray): Boolean {
@@ -238,7 +280,9 @@ object Id3Reader {
                 ver >= 4 && !plain24 -> syncsafe(b, p + 4)
                 else -> be32(b, p + 4)
             }
-            if (fs <= 0 || p.toLong() + hdr + fs > b.size) break
+            // 大きさ 0 のフレーム(規格外だが、書くソフトがある)は飛ばして、続きを読む
+            if (fs == 0) { p += hdr; continue }
+            if (fs < 0 || p.toLong() + hdr + fs > b.size) break
             var body = b.copyOfRange(p + hdr, p + hdr + fs)
             var status = 0
             if (ver >= 4) {
@@ -269,7 +313,9 @@ object Id3Reader {
         var trk: String? = null; var pos: String? = null
         var pic: ByteArray? = null
         var genre: String? = null
-        var lyrics: String? = null
+        // 歌詞の候補(USLT は複数あることがある。ソフトによっては TXXX の LYRICS に入れる)
+        val uslt = ArrayList<String>()
+        val txxxLyrics = ArrayList<String>()
         var synced: String? = null
         var composer: String? = null
         var lyricist: String? = null
@@ -286,7 +332,10 @@ object Id3Reader {
                 "TRCK", "TRK" -> trk = text(body)
                 "TPOS", "TPA" -> pos = text(body)
                 "TCON", "TCO" -> if (genre == null) genre = text(body)
-                "USLT", "ULT" -> if (lyrics == null) lyrics = lyricsOf(body)
+                "USLT", "ULT" -> lyricsOf(body)?.takeIf { it.isNotBlank() }?.let { uslt += it }
+                "TXXX", "TXX" -> txxxOf(body)?.let { (d, v) ->
+                    if (v.isNotBlank() && d.trim().uppercase() in LYRICS_KEYS) txxxLyrics += v
+                }
                 "SYLT", "SLT" -> if (synced == null) synced = runCatching { syltOf(body) }.getOrNull()
                 "TCOM", "TCM" -> if (composer == null) composer = text(body)
                 "TEXT", "TXT" -> if (lyricist == null) lyricist = text(body)
@@ -297,11 +346,14 @@ object Id3Reader {
                 }
             }
         }
+        // 使う歌詞: 時刻付きの文字の歌詞(USLT・TXXX。MusicBee などは時刻付きの歌詞を LRC の文字で入れる) →
+        // SYLT(時刻付きの歌詞のフレーム) → 時刻の無い USLT → 時刻の無い TXXX
+        val texts = uslt + txxxLyrics
+        val lyrics = texts.firstOrNull { timed(it) } ?: synced ?: texts.firstOrNull()
         val (t, tt) = num(trk)
         val (d, dt) = num(pos)
         return Id3Data(
-            // 時刻付きの歌詞(SYLT)があれば、そちらを使う(流れる歌詞になる)
-            title, artist, album, albumArtist, year, t, tt, d, dt, pic, apics, genre = genre, lyrics = synced ?: lyrics,
+            title, artist, album, albumArtist, year, t, tt, d, dt, pic, apics, genre = genre, lyrics = lyrics,
             composer = composer, lyricist = lyricist, comment = comment,
         )
     }

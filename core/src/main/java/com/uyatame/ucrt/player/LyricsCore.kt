@@ -108,16 +108,29 @@ object LyricsCore {
         o += 4 + le(o)
         if (o + 4 > b.size) return null
         val n = le(o); o += 4
+        var found: String? = null
         for (i in 0 until n) {
             if (o + 4 > b.size) break
             val len = le(o); o += 4
             if (len < 0 || o + len > b.size) break
             val kv = String(b, o, len, Charsets.UTF_8)
             o += len
-            val key = kv.substringBefore('=').uppercase()
-            if (key == "LYRICS" || key == "UNSYNCEDLYRICS" || key == "UNSYNCED LYRICS") return kv.substringAfter('=')
+            if ('=' !in kv) continue
+            found = pickLyrics(found, kv.substringBefore('='), kv.substringAfter('='))
         }
-        return null
+        return found
+    }
+
+    /** Vorbis コメントで、歌詞として読む名前 */
+    private val VORBIS_LYRICS = setOf("LYRICS", "UNSYNCEDLYRICS", "UNSYNCED LYRICS", "SYNCEDLYRICS", "SYNCED LYRICS")
+
+    /**
+     * 歌詞の候補を 1 つ見たあとの、使う歌詞。名前が歌詞のものだけ、空でないものだけを取り、時刻付きの方を優先する
+     * (時刻の無い歌詞と時刻付きの歌詞を別の名前で両方入れるソフトがある)
+     */
+    internal fun pickLyrics(cur: String?, key: String, value: String): String? {
+        if (key.trim().uppercase() !in VORBIS_LYRICS || value.isBlank()) return cur
+        return if (cur == null || (!hasTime(cur) && hasTime(value))) value else cur
     }
 
     /** WAV の id3 チャンクから歌詞を読む */
@@ -176,21 +189,20 @@ object LyricsCore {
                         val c = String(arr, Charsets.UTF_8)
                         val eq = c.indexOf('=')
                         if (eq <= 0) continue
-                        val key = c.substring(0, eq).uppercase()
-                        if (key == "LYRICS" || key == "UNSYNCEDLYRICS" || key == "UNSYNCED LYRICS") {
-                            val v = c.substring(eq + 1)
-                            if (v.isNotBlank()) {
-                                // 時刻付きの方を優先する
-                                if (found == null || (!hasTime(found) && hasTime(v))) found = v
-                            }
-                        }
+                        found = pickLyrics(found, c.substring(0, eq), c.substring(eq + 1))
                     }
                     return found
                 } else {
+                    // 画像などのブロックを飛ばす(skip が進まない入力では、読んで捨てる)
                     var left = len.toLong()
+                    val junk = ByteArray(8192)
                     while (left > 0) {
-                        val sk = ins.skip(left)
-                        if (sk <= 0) return null
+                        var sk = ins.skip(left)
+                        if (sk <= 0) {
+                            val r = ins.read(junk, 0, minOf(junk.size.toLong(), left).toInt())
+                            if (r <= 0) return null
+                            sk = r.toLong()
+                        }
                         left -= sk
                     }
                 }
