@@ -173,6 +173,10 @@ data class AppSettings(
     val eqPreamp: Float = 0f,
     val eqAutoPreamp: Boolean = true,
     val libraryList: Boolean = false,
+    /** アルバムの発売年の並び: true = 古い順、false = 新しい順 */
+    val albumYearAsc: Boolean = false,
+    /** 下のメニュー(タブ)に出す画面(NavTabs の書き方。空 = 標準) */
+    val navTabs: String = "",
     val verboseLog: Boolean = false,
     /** ライブラリのトップに並べるカテゴリーの順番(カンマ区切り。先頭の "-" は非表示) */
     val libTiles: String = "",
@@ -344,6 +348,8 @@ object Keys {
     val eqPreamp = androidx.datastore.preferences.core.floatPreferencesKey("eqPreamp")
     val eqAutoPreamp = booleanPreferencesKey("eqAutoPreamp")
     val libraryList = booleanPreferencesKey("libraryList")
+    val albumYearAsc = booleanPreferencesKey("albumYearAsc")
+    val navTabs = stringPreferencesKey("navTabs")
     val verboseLog = booleanPreferencesKey("verboseLog")
     val libTiles = stringPreferencesKey("libTiles")
     val gapless = booleanPreferencesKey("gapless")
@@ -465,6 +471,8 @@ class SettingsRepository(private val context: Context) {
             eqPreamp = p[Keys.eqPreamp] ?: d.eqPreamp,
             eqAutoPreamp = p[Keys.eqAutoPreamp] ?: d.eqAutoPreamp,
             libraryList = p[Keys.libraryList] ?: d.libraryList,
+            albumYearAsc = p[Keys.albumYearAsc] ?: d.albumYearAsc,
+            navTabs = p[Keys.navTabs] ?: d.navTabs,
             verboseLog = p[Keys.verboseLog] ?: d.verboseLog,
             libTiles = p[Keys.libTiles] ?: d.libTiles,
             gapless = p[Keys.gapless] ?: d.gapless,

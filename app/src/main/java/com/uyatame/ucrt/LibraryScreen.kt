@@ -794,12 +794,13 @@ private fun AlbumCollectionPage(
             ).map { it to counts.getValue(it) }
         }
     }
-    val shown = remember(inClass, sort, qd, sortable) {
+    val yearAsc = s.albumYearAsc
+    val shown = remember(inClass, sort, qd, sortable, yearAsc) {
         val f = if (qd.isEmpty()) inClass else inClass.filter { Quality.detail(it) == qd }
         if (!sortable) f else when (sort) {
             1 -> f.sortedBy { it.title.lowercase() }
             2 -> f.sortedByDescending { it.added }
-            3 -> f.sortedWith(compareByDescending<LibAlbum> { it.year }.thenBy { it.artist.lowercase() })
+            3 -> f.sortedWith(com.uyatame.ucrt.library.albumYearOrder(yearAsc).thenBy { it.artist.lowercase() })
             else -> f.sortedWith(compareBy({ it.artist.lowercase() }, { it.title.lowercase() }))
         }
     }
@@ -822,8 +823,15 @@ private fun AlbumCollectionPage(
         Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 8.dp)) {
             if (sortable) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(S(R.string.artist), S(R.string.album), S(R.string.date_added), S(R.string.year))
-                        .forEachIndexed { i, l -> FilterChip(sort == i, { sort = i }, label = { Text(l) }) }
+                    listOf(S(R.string.artist), S(R.string.album), S(R.string.date_added)).forEachIndexed { i, l ->
+                        FilterChip(sort == i, { sort = i }, label = { Text(l) })
+                    }
+                    // 発売年: もう一度押すと、古い順・新しい順を切り替える
+                    FilterChip(
+                        sort == 3,
+                        { if (sort == 3) vm.set(Keys.albumYearAsc, !yearAsc) else sort = 3 },
+                        label = { Text(S(R.string.year) + " " + if (yearAsc) S(R.string.year_old_first) else S(R.string.year_new_first)) },
+                    )
                 }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -937,7 +945,10 @@ private fun ArtistsPage(vm: MainViewModel) {
 
 @Composable
 private fun ArtistPage(vm: MainViewModel, name: String) {
-    val main = remember(vm.albums, name) { vm.albums.filter { it.artist == name }.sortedByDescending { it.year } }
+    val yearAsc = vm.settings.collectAsState().value.albumYearAsc
+    val main = remember(vm.albums, name, yearAsc) {
+        vm.albums.filter { it.artist == name }.sortedWith(com.uyatame.ucrt.library.albumYearOrder(yearAsc))
+    }
     val guest = remember(vm.albums, name) {
         vm.albums.filter { a -> a.artist != name && a.tracks.any { it.artist == name } }
     }
@@ -978,6 +989,14 @@ private fun ArtistPage(vm: MainViewModel, name: String) {
                             { vm.playTracks(tracks, 0, source = src) }, { vm.playTracks(tracks, 0, shuffle = true, source = src) },
                             Modifier.padding(top = 8.dp),
                         )
+                        // アルバムの発売年の並び(押すと、古い順・新しい順を切り替える)
+                        if (main.size > 1) {
+                            FilterChip(
+                                true, { vm.set(Keys.albumYearAsc, !yearAsc) },
+                                label = { Text(S(R.string.year) + " " + if (yearAsc) S(R.string.year_old_first) else S(R.string.year_new_first)) },
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -1356,12 +1375,13 @@ private fun FavoritesPage(vm: MainViewModel) {
             else -> l
         }
     }
-    val albums = remember(vm.store.favAlbums, vm.albums, sort) {
+    val favYearAsc = vm.settings.collectAsState().value.albumYearAsc
+    val albums = remember(vm.store.favAlbums, vm.albums, sort, favYearAsc) {
         val l = vm.store.favAlbums.mapNotNull { k -> vm.albumByKey(k) }
         when (sort) {
             1 -> l.sortedBy { it.title.lowercase() }
             2 -> l.sortedWith(compareBy({ it.artist.lowercase() }, { it.title.lowercase() }))
-            3 -> l.sortedWith(compareByDescending<LibAlbum> { it.year }.thenBy { it.title.lowercase() })
+            3 -> l.sortedWith(com.uyatame.ucrt.library.albumYearOrder(favYearAsc).thenBy { it.title.lowercase() })
             else -> l
         }
     }

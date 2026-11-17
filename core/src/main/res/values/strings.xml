@@ -1582,4 +1582,10 @@
     <string name="aging_analyzer_library">"Up to 20 kHz while playing songs"</string>
     <string name="eq_value_range">"Range %1$s to %2$s %3$s"</string>
     <string name="eq_value_kilo">" (1.2k = 1200 Hz)"</string>
+    <string name="year_new_first">"↓ newest"</string>
+    <string name="year_old_first">"↑ oldest"</string>
+    <string name="nav_menu">"Bottom menu"</string>
+    <string name="nav_menu_desc">"Choose the screens shown in the bottom menu. Settings is always shown, and screens you hide can be opened from the top of Settings."</string>
+    <string name="nav_other_screens">"Other screens"</string>
+    <string name="nav_not_in_menu">"Not in the bottom menu"</string>
 </resources>

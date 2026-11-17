@@ -214,7 +214,16 @@ fun App(vm: MainViewModel) {
         androidx.compose.runtime.SideEffect {
             (view.context as? android.app.Activity)?.window?.decorView?.setBackgroundColor(bg.toArgb())
         }
-        var tab by rememberSaveable { mutableIntStateOf(0) }
+        // 下のメニューに出す画面(設定で選ぶ)。始めは、出している最初の画面
+        val navShown = NavTabs.parse(s.navTabs)
+        val navIds = buildList {
+            if (NavTabs.LIBRARY in navShown) add(0)
+            if (NavTabs.DISC in navShown) add(1)
+            if (NavTabs.STREAMING in navShown) add(TAB_STREAMING)
+            if (NavTabs.UPSAMPLE in navShown) add(TAB_UPSAMPLE)
+            if (NavTabs.AGING in navShown) add(TAB_AGING)
+        }
+        var tab by rememberSaveable { mutableIntStateOf(navIds.firstOrNull() ?: 2) }
         var settingsPage by rememberSaveable { mutableIntStateOf(0) }
         var showPlayer by rememberSaveable { mutableStateOf(false) }
         var showSpotifyPlayer by rememberSaveable { mutableStateOf(false) }
@@ -275,6 +284,8 @@ fun App(vm: MainViewModel) {
             hadCurrent = hasCurrent
         }
         BackHandler(enabled = tab == 2 && settingsPage != 0) { settingsPage = 0 }
+        // 下のメニューに出していない画面(設定から開いたもの)では、戻ると設定へ
+        BackHandler(enabled = tab != 2 && tab != TAB_APPS && tab !in navIds) { tab = 2 }
 
         // 横向きとタブレットモードでは、下のタブの代わりに左のレールで切り替える(ミニプレーヤーなどは中身の下に出す)
         val conf = LocalConfiguration.current
@@ -305,12 +316,16 @@ fun App(vm: MainViewModel) {
         LaunchedEffect(vm.resumeTick) { isHome = HomeApps.isDefaultHome(homeCtx) }
         // ホームをやめたあとも「アプリ」を開いたままにならないよう、ホームでなくなったら、ほかのタブへ戻す
         LaunchedEffect(isHome) { if (!isHome && tab == TAB_APPS) tab = 0 }
-        val tabs = listOf(
-            Triple(AppIcons.Library, S(R.string.library), 0),
-            Triple(AppIcons.Album, S(R.string.disc), 1),
-            Triple(AppIcons.Cloud, S(R.string.streaming), TAB_STREAMING),
-            Triple(AppIcons.Upsample, S(R.string.upsample), TAB_UPSAMPLE),
-        ) + (if (isHome) listOf(Triple(AppIcons.Apps, S(R.string.apps), TAB_APPS)) else emptyList()) + listOf(
+        val tabs = navIds.map { id ->
+            when (id) {
+                0 -> Triple(AppIcons.Library, S(R.string.library), 0)
+                1 -> Triple(AppIcons.Album, S(R.string.disc), 1)
+                TAB_STREAMING -> Triple(AppIcons.Cloud, S(R.string.streaming), TAB_STREAMING)
+                TAB_UPSAMPLE -> Triple(AppIcons.Upsample, S(R.string.upsample), TAB_UPSAMPLE)
+                else -> Triple(AppIcons.Headphones, S(R.string.aging), TAB_AGING)
+            }
+        } + (if (isHome) listOf(Triple(AppIcons.Apps, S(R.string.apps), TAB_APPS)) else emptyList()) + listOf(
+            // 設定は常に出す(メニューに出していない画面は、設定から開く)
             Triple(Icons.Filled.Settings, S(R.string.settings), 2),
         )
         // リキッドグラス: 下のタブとミニプレーヤーなどを、中身の上に浮かぶガラスにする
@@ -405,7 +420,9 @@ fun App(vm: MainViewModel) {
                         TAB_STREAMING -> StreamingScreen(vm, sp, s, spotifyOpen, { spotifyOpen = it }) { showSpotifyPlayer = true }
                         TAB_UPSAMPLE -> UpsampleScreen(vm, s)
                         TAB_APPS -> AppsScreen()
-                        else -> SettingsScreen(vm, s, settingsPage) { settingsPage = it }
+                        // メニューに出しているときは戻るなし。設定から開いたときは、戻ると設定へ
+                        TAB_AGING -> AgingScreen(vm, if (TAB_AGING in navIds) null else ({ tab = 2 }))
+                        else -> SettingsScreen(vm, s, settingsPage, onOpenTab = { tab = it }) { settingsPage = it }
                     }
                 }
             }

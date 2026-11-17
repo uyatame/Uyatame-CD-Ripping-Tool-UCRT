@@ -1578,4 +1578,10 @@
     <string name="aging_analyzer_library">"曲のときは 20 kHz まで表示"</string>
     <string name="eq_value_range">"範囲 %1$s 〜 %2$s %3$s"</string>
     <string name="eq_value_kilo">"(1.2k = 1200 Hz)"</string>
+    <string name="year_new_first">"↓ 新しい順"</string>
+    <string name="year_old_first">"↑ 古い順"</string>
+    <string name="nav_menu">"下のメニュー"</string>
+    <string name="nav_menu_desc">"下のメニューに出す画面を選びます。設定は常に出ます。出していない画面は、設定のいちばん上から開けます。"</string>
+    <string name="nav_other_screens">"ほかの画面"</string>
+    <string name="nav_not_in_menu">"下のメニューに出していない画面"</string>
 </resources>

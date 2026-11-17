@@ -433,3 +433,7 @@ class TagScan(
     private fun cleanGenre(g: String?): String = LibCore.cleanGenre(g)
 
 }
+
+/** 発売年の順(asc = 古い順、false = 新しい順)。年の分からないアルバムは、どちらの向きでも最後 */
+fun albumYearOrder(asc: Boolean): Comparator<LibAlbum> =
+    compareBy<LibAlbum> { it.year.isEmpty() }.then(if (asc) compareBy { it.year } else compareByDescending { it.year })

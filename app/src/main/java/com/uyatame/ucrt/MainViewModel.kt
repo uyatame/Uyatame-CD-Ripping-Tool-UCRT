@@ -2926,9 +2926,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun folderOf(t: com.uyatame.ucrt.library.LibTrack): String = Uri.decode(t.folderId).substringAfter(':', "")
 
-    /** アーティストの曲(アーティストのページと同じ並び: そのアーティストのアルバムを新しい順に、そのあと参加した曲) */
+    /** アーティストの曲(アーティストのページと同じ並び: そのアーティストのアルバムを発売年の順(設定の向き)に、そのあと参加した曲) */
     fun artistTracks(name: String): List<com.uyatame.ucrt.library.LibTrack> {
-        val main = albums.filter { it.artist == name }.sortedByDescending { it.year }
+        val main = albums.filter { it.artist == name }.sortedWith(com.uyatame.ucrt.library.albumYearOrder(settings.value.albumYearAsc))
         val guest = albums.filter { a -> a.artist != name && a.tracks.any { it.artist == name } }
         return main.flatMap { it.tracks } + guest.flatMap { a -> a.tracks.filter { it.artist == name } }
     }

@@ -94,7 +94,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-fun SettingsScreen(vm: MainViewModel, s: AppSettings, page: Int, onPage: (Int) -> Unit) {
+fun SettingsScreen(vm: MainViewModel, s: AppSettings, page: Int, onOpenTab: (Int) -> Unit = {}, onPage: (Int) -> Unit) {
     val back = { onPage(0) }
     // 横向きでは、横に長くなりすぎないよう読みやすい幅にして中央に寄せる
     WideCenter {
@@ -112,7 +112,7 @@ fun SettingsScreen(vm: MainViewModel, s: AppSettings, page: Int, onPage: (Int) -
         7 -> LicensePage(vm, s, back)
         8 -> SettingsPage(SoundPage.title(SoundPage.MAIN), back) { SoundMain(vm, s) { onPage(80 + it) } }
         in 81..89 -> SettingsPage(SoundPage.title(page - 80), { onPage(8) }) { SoundSubPage(vm, s, page - 80) }
-        else -> MainSettings(vm, s, onPage)
+        else -> MainSettings(vm, s, onOpenTab, onPage)
     }
     }
 }
@@ -166,7 +166,7 @@ private fun SubHeader(text: String) {
 }
 
 @Composable
-private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Unit) {
+private fun MainSettings(vm: MainViewModel, s: AppSettings, onOpenTab: (Int) -> Unit, onPage: (Int) -> Unit) {
     val ctx = LocalContext.current
     val folders = 1 + s.libraryFolders.size - (if (s.outputUri == null) 1 else 0)
     Column(
@@ -174,6 +174,23 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ScreenHeader(S(R.string.settings))
+        // ---- 下のメニューに出していない画面(ここから開く) ----
+        val shown = NavTabs.parse(s.navTabs)
+        val hidden = listOf(
+            Triple(NavTabs.LIBRARY, AppIcons.Library, R.string.library) to 0,
+            Triple(NavTabs.DISC, AppIcons.Album, R.string.disc) to 1,
+            Triple(NavTabs.STREAMING, AppIcons.Cloud, R.string.streaming) to TAB_STREAMING,
+            Triple(NavTabs.UPSAMPLE, AppIcons.Upsample, R.string.upsample) to TAB_UPSAMPLE,
+        ).filter { it.first.first !in shown }
+        if (hidden.isNotEmpty()) {
+            GroupLabel(S(R.string.nav_other_screens))
+            UCard(Modifier.fillMaxWidth()) {
+                hidden.forEachIndexed { i, (t, tabId) ->
+                    if (i > 0) HorizontalDivider()
+                    CategoryRow(t.second, S(t.third), S(R.string.nav_not_in_menu)) { onOpenTab(tabId) }
+                }
+            }
+        }
         // ---- CD の取り込み ----
         GroupLabel(S(R.string.settings_group_rip))
         UCard(Modifier.fillMaxWidth()) {
@@ -220,10 +237,11 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onPage: (Int) -> Uni
             ) { onPage(5) }
             HorizontalDivider()
             CategoryRow(
-                Icons.Filled.PlayArrow, S(R.string.aging),
+                AppIcons.Headphones, S(R.string.aging),
                 if (com.uyatame.ucrt.aging.Aging.active) S(R.string.aging_notif, (com.uyatame.ucrt.aging.Aging.progress * 100).toInt())
                 else S(R.string.aging_desc),
             ) { onPage(12) }
+            HorizontalDivider()
             CategoryRow(Icons.Filled.Edit, S(R.string.tag_edit_files), S(R.string.tag_edit_files_desc)) { onPage(10) }
             HorizontalDivider()
             CategoryRow(Icons.Filled.Settings, S(R.string.profiles), S(R.string.profiles_desc)) { onPage(11) }
@@ -643,6 +661,7 @@ private fun HomeSection(vm: MainViewModel) {
 @Composable
 private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
     HomeSection(vm)
+    NavTabsSection(vm, s)
     LockScreenSection(vm, s)
     LauncherIconSection(s)
     ThemeSection(vm, s)
@@ -869,6 +888,21 @@ private fun SpectrumColorPicker(value: Int, onChange: (Int) -> Unit) {
         S(R.string.spectrum_color), if (value == 0) S(R.string.spectrum_color_auto) else hexOf(value),
         if (value == 0) auto else Color(value), value == 0,
     ) { picking = true }
+}
+
+/** 下のメニューに出す画面(出していない画面は、設定のいちばん上から開ける) */
+@Composable
+private fun NavTabsSection(vm: MainViewModel, s: AppSettings) {
+    val shown = NavTabs.parse(s.navTabs)
+    Section(S(R.string.nav_menu)) {
+        Text(S(R.string.nav_menu_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        for ((id, label) in listOf(
+            NavTabs.LIBRARY to R.string.library, NavTabs.DISC to R.string.disc, NavTabs.STREAMING to R.string.streaming,
+            NavTabs.UPSAMPLE to R.string.upsample, NavTabs.AGING to R.string.aging,
+        )) {
+            SwitchRow(S(label), null, id in shown) { vm.set(Keys.navTabs, NavTabs.toggle(s.navTabs, id, it)) }
+        }
+    }
 }
 
 /** ホーム画面のアイコンを選ぶ(プルダウン。今のテーマのおすすめを先頭に出す。どれでも自由に選べる。画面を閉じたときに切り替わる) */

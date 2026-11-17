@@ -75,12 +75,16 @@ private fun agingSourceDesc(s: AgingSource): String = when (s) {
     else -> ""
 }
 
-/** エージングの画面(始める前の設定と、進んでいる間の計器の画面) */
+/** 下のメニューのエージングの番号 */
+const val TAB_AGING = 6
+
+/** エージングの画面(始める前の設定と、進んでいる間の計器の画面)。onBack が null なら、下のメニューの画面として出す(戻るなし) */
 @Composable
-fun AgingScreen(vm: MainViewModel, onBack: () -> Unit) {
-    BackHandler(onBack = onBack)
+fun AgingScreen(vm: MainViewModel, onBack: (() -> Unit)?) {
+    if (onBack != null) BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize()) {
-        PageHeader(S(R.string.aging), onBack)
+        if (onBack != null) PageHeader(S(R.string.aging), onBack)
+        else ScreenTitle(S(R.string.aging), Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 32.dp + barInset()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
