@@ -2,6 +2,9 @@ package com.uyatame.ucrt
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -133,12 +136,29 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
     var simple by remember(s.eqSimpleGains, s.eqGains) { mutableStateOf(s.eqSimpleList) }
     val pro = s.eqMode == 1
     val on = s.eqEnabled
+    // この画面を開いている間は、変えた音がすぐ聞こえるようにする(出力に先に書きためる量を短くする)
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        com.uyatame.ucrt.player.AudioEngine.eqLiveAcquire()
+        onDispose { com.uyatame.ucrt.player.AudioEngine.eqLiveRelease() }
+    }
+    var editPreamp by remember { mutableStateOf(false) }
     fun preview() = vm.previewEq(if (pro) bands.toList() else ParamEq.fromGains(simple), preamp)
     fun save() {
         if (pro) {
             preset = matchPreset(bands)
             vm.saveEq(bands.toList(), preamp, preset)
         } else vm.saveSimpleEq(simple, preamp)
+    }
+    if (editPreamp) {
+        EqNumberDialog(
+            S(R.string.preamp), preamp, -ParamEq.MAX_DB, ParamEq.MAX_DB, "dB",
+            onDismiss = { editPreamp = false },
+        ) { v ->
+            editPreamp = false
+            preamp = (v * 2).roundToInt() / 2f
+            preview()
+            save()
+        }
     }
 
     Section(S(R.string.equalizer)) {
@@ -271,7 +291,7 @@ fun EqualizerPanel(vm: MainViewModel, s: AppSettings) {
                 enabled = on,
                 modifier = Modifier.weight(1f),
             )
-            Text(dbLabel(preamp), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp), textAlign = TextAlign.End)
+            EqValueLabel(dbLabel(preamp), on, Modifier.width(64.dp)) { editPreamp = true }
         }
         SwitchRow(
             S(R.string.prevent_clipping_automatically),
@@ -369,25 +389,103 @@ private fun BandEditor(
                 )
             }
         }
-        ParamSlider(S(R.string.frequency), freqLabel(b.freq), freqToPos(b.freq), enabled, { onChange(b.copy(freq = posToFreq(it))) }, onDone)
+        // 値(右の数字)を押すと、数値で入れられる
+        var editing by remember { mutableIntStateOf(-1) }
+        when (editing) {
+            0 -> EqNumberDialog(S(R.string.frequency), b.freq, ParamEq.MIN_FREQ, ParamEq.MAX_FREQ, "Hz", kilo = true, onDismiss = { editing = -1 }) {
+                editing = -1
+                onChange(b.copy(freq = it)); onDone()
+            }
+            1 -> EqNumberDialog(S(R.string.gain), b.gain, -ParamEq.MAX_DB, ParamEq.MAX_DB, "dB", onDismiss = { editing = -1 }) {
+                editing = -1
+                onChange(b.copy(gain = (it * 10).roundToInt() / 10f)); onDone()
+            }
+            2 -> EqNumberDialog(S(R.string.width_q), b.q, ParamEq.MIN_Q, ParamEq.MAX_Q, "Q", onDismiss = { editing = -1 }) {
+                editing = -1
+                onChange(b.copy(q = (it * 100).roundToInt() / 100f)); onDone()
+            }
+        }
+        ParamSlider(S(R.string.frequency), freqLabel(b.freq), freqToPos(b.freq), enabled, { onChange(b.copy(freq = posToFreq(it))) }, onDone) { editing = 0 }
         ParamSlider(
             S(R.string.gain), dbLabel(b.gain), (b.gain + ParamEq.MAX_DB) / (2 * ParamEq.MAX_DB), enabled && b.type.hasGain,
             { onChange(b.copy(gain = ((it * 2 * ParamEq.MAX_DB - ParamEq.MAX_DB) * 2).roundToInt() / 2f)) }, onDone,
-        )
+        ) { editing = 1 }
         ParamSlider(
             S(R.string.width_q), "Q " + "%.2f".format(java.util.Locale.US, b.q), qToPos(b.q), enabled,
             { onChange(b.copy(q = (posToQ(it) * 100).roundToInt() / 100f)) }, onDone,
-        )
+        ) { editing = 2 }
     }
 }
 
 @Composable
-private fun ParamSlider(label: String, value: String, pos: Float, enabled: Boolean, onChange: (Float) -> Unit, onDone: () -> Unit) {
+private fun ParamSlider(
+    label: String, value: String, pos: Float, enabled: Boolean, onChange: (Float) -> Unit, onDone: () -> Unit, onEdit: () -> Unit,
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(68.dp))
         Slider(pos.coerceIn(0f, 1f), onChange, Modifier.weight(1f), enabled = enabled, onValueChangeFinished = onDone)
-        Text(value, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp), textAlign = TextAlign.End)
+        EqValueLabel(value, enabled, Modifier.width(76.dp), onEdit)
     }
+}
+
+/** 値の表示(押すと数値で入れられる。押せることが分かるよう、枠で囲む) */
+@Composable
+fun EqValueLabel(value: String, enabled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Text(
+        value,
+        style = MaterialTheme.typography.labelMedium,
+        textAlign = TextAlign.Center,
+        maxLines = 1,
+        color = if (enabled) cs.primary else cs.onSurfaceVariant,
+        modifier = modifier.padding(start = 4.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, if (enabled) cs.outline else cs.outlineVariant, RoundedCornerShape(8.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 8.dp, horizontal = 4.dp),
+    )
+}
+
+/** 数値を入れる(範囲の外・読めない値は、決定できない)。kilo = 「1.2k」のような書き方を許す(周波数) */
+@Composable
+fun EqNumberDialog(
+    title: String, initial: Float, min: Float, max: Float, unit: String, kilo: Boolean = false,
+    onDismiss: () -> Unit, onDone: (Float) -> Unit,
+) {
+    fun fmt(v: Float): String =
+        if (v == v.roundToInt().toFloat()) v.roundToInt().toString() else "%.2f".format(java.util.Locale.US, v).trimEnd('0').trimEnd('.')
+    var text by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(fmt(initial), androidx.compose.ui.text.TextRange(0, fmt(initial).length))) }
+    val v = EqNumber.parse(text.text, kilo)
+    val ok = v != null && v >= min && v <= max
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                androidx.compose.material3.OutlinedTextField(
+                    text, { text = it },
+                    singleLine = true,
+                    suffix = { Text(unit) },
+                    isError = !ok,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = if (kilo) androidx.compose.ui.text.input.KeyboardType.Text else androidx.compose.ui.text.input.KeyboardType.Decimal,
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Done,
+                    ),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { if (ok) onDone(v!!) }),
+                    modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                )
+                Text(
+                    S(R.string.eq_value_range, fmt(min), fmt(max), unit) + if (kilo) S(R.string.eq_value_kilo) else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (ok) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+        confirmButton = { TextButton({ if (ok) onDone(v!!) }, enabled = ok) { Text(S(R.string.ok)) } },
+        dismissButton = { TextButton(onDismiss) { Text(S(R.string.cancel)) } },
+    )
 }
 
 /** 周波数特性の曲線と、帯域の点 */

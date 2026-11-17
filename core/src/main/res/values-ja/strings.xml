@@ -1576,4 +1576,6 @@
     <string name="aging_part_wide">"広帯域"</string>
     <string name="aging_part_quiet">"休み"</string>
     <string name="aging_analyzer_library">"曲のときは 20 kHz まで表示"</string>
+    <string name="eq_value_range">"範囲 %1$s 〜 %2$s %3$s"</string>
+    <string name="eq_value_kilo">"(1.2k = 1200 Hz)"</string>
 </resources>

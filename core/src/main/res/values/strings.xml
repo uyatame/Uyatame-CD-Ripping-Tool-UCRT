@@ -1580,4 +1580,6 @@
     <string name="aging_part_wide">"Wide band"</string>
     <string name="aging_part_quiet">"Quiet"</string>
     <string name="aging_analyzer_library">"Up to 20 kHz while playing songs"</string>
+    <string name="eq_value_range">"Range %1$s to %2$s %3$s"</string>
+    <string name="eq_value_kilo">" (1.2k = 1200 Hz)"</string>
 </resources>

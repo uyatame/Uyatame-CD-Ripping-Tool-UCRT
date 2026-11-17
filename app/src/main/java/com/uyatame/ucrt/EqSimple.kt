@@ -105,11 +105,21 @@ fun GraphicEq(
                 color = cs.onSurfaceVariant, modifier = Modifier.weight(1f),
             )
             val v = gains[sel]
-            Text(
+            // 押すと数値で入れられる
+            var editing by remember { mutableStateOf(false) }
+            if (editing) {
+                EqNumberDialog(
+                    freqLabel(EqBands.FREQS[sel]), v, -SIMPLE_EQ_MAX, SIMPLE_EQ_MAX, "dB", onDismiss = { editing = false },
+                ) {
+                    editing = false
+                    set(sel, it)
+                    doneNow()
+                }
+            }
+            EqValueLabel(
                 (if (v > 0) "+" else "") + "%.1f".format(java.util.Locale.US, v) + " dB",
-                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
-                color = if (enabled) cs.primary else cs.onSurfaceVariant,
-            )
+                enabled,
+            ) { editing = true }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Canvas(

@@ -62,6 +62,20 @@ object AudioEngine {
         private set
 
 
+    /**
+     * イコライザーを調整している間か(調整の画面を開いている間)。この間は、出力に先に書きためる量を短くして、
+     * 変えた音がすぐ聞こえるようにする(ふだんは途切れにくいよう、約 1.5 秒分を書きためている)
+     */
+    @Volatile var eqLive = false
+        private set
+    private var eqLiveUsers = 0
+
+    fun eqLiveAcquire() = synchronized(this) { eqLiveUsers++; eqLive = true }
+    fun eqLiveRelease() = synchronized(this) { eqLiveUsers = (eqLiveUsers - 1).coerceAtLeast(0); eqLive = eqLiveUsers > 0 }
+
+    /** 調整している間に、先に書きためる長さ(ミリ秒) */
+    const val EQ_LIVE_MS = 150
+
     fun setEq(enabled: Boolean, b: List<EqBand>, preamp: Float, auto: Boolean) {
         if (b != bands) maxBoost = ParamEq.maxBoostDb(b)
         eqEnabled = enabled
@@ -804,6 +818,16 @@ class AudioOutput(
         val frames = src.remaining() / frameBytes
         val samples = frames * channels
         if (samples <= 0) return
+        // イコライザーを調整している間は、鳴っていない分が EQ_LIVE_MS を超えないよう待ってから書く
+        // (イコライザーは書くときに掛けるので、書きためが短いほど、変えた音が早く聞こえる)
+        if (AudioEngine.eqLive && !exact && !noEq) {
+            val limit = sampleRate.toLong() * AudioEngine.EQ_LIVE_MS / 1000
+            var guard = 0
+            while (!paused && !failed && !stop() && framesWritten - headFrames() > limit && guard < 1000) {
+                try { Thread.sleep(3) } catch (_: InterruptedException) { break }
+                guard++
+            }
+        }
         // スペクトラムアナライザー(表示している間だけ。音には触れない)
         // (DoP は DSD のデータなので、DSD の再生の側で写す)
         if (SpectrumTap.enabled && !exact) SpectrumTap.submit(this, src, srcEnc, frames, channels, sampleRate, framesWritten)
