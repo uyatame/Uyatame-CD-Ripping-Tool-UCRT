@@ -320,15 +320,14 @@ internal class PcmToFloat {
  * float(-1〜1)を、DAC に送るサンプル(slot バイト、リトルエンディアン、上位詰め)にまとめて書く。
  * 値は以前の 1 サンプルずつの変換(f2i → putSlot)と同じになる。書き終えた位置を返す
  */
-internal fun floatToSlots(src: FloatArray, n: Int, gain: Float, slot: Int, dst: ByteArray, o0: Int): Int {
+internal fun floatToSlots(src: FloatArray, n: Int, gain: Float, slot: Int, dst: ByteArray, o0: Int, dither: Tpdf? = null): Int {
     var o = o0
     val k = 2147483648f
     when (slot) {
+        // 16 bit: 計算で細かい値になった音を丸めるので、ディザーを掛ける(丸めのひずみを、ごく小さな雑音に変える)
         2 -> for (i in 0 until n) {
-            var x = src[i] * gain
-            if (x > 0.9999999f) x = 0.9999999f else if (x < -1f) x = -1f
-            val v = Math.round(x * k)
-            dst[o] = (v shr 16).toByte(); dst[o + 1] = (v shr 24).toByte()
+            val v = quantize16(src[i], gain, dither)
+            dst[o] = v.toByte(); dst[o + 1] = (v shr 8).toByte()
             o += 2
         }
         3 -> for (i in 0 until n) {
@@ -404,6 +403,9 @@ class AudioOutput(
     private var fbuf2 = FloatArray(0)
     private var bbuf = ByteArray(0)
     private val frameTmp = IntArray(8)
+    /** 16 bit の DAC へ丸めるときのディザー(書き込むスレッド用と、流れ作業の出力のスレッド用) */
+    private val dither = Tpdf()
+    private val pipeDither = Tpdf(System.nanoTime() xor 0x5DEECE66DL)
     private var warned = -1
     /** 出力先が変わったときの知らせを受け取るもの(Android 7.0 から。型は AudioRouting.OnRoutingChangedListener) */
     private var routing: Any? = null
@@ -442,7 +444,7 @@ class AudioOutput(
                 var bytes = ByteArray(0)
                 UpsamplePipeline(upFactor) { buf, n, g ->
                     if (bytes.size < n * 2 * slot) bytes = ByteArray(n * 2 * slot)
-                    val len = floatToSlots(buf, n * 2, g, slot, bytes, 0)
+                    val len = floatToSlots(buf, n * 2, g, slot, bytes, 0, pipeDither)
                     usbDac.write(session, bytes, len) { released }
                 }.also { AudioEngine.log("upsample: ${it.threadCount} threads on $cores cores") }
             } else null
@@ -744,11 +746,20 @@ class AudioOutput(
                 pushUsb(n, stop)
                 return
             }
+            // 16 bit の DAC へ、16 bit より細かい音(24 bit・32 bit・float の音源)や音量を掛けた音を送るときは、
+            // 切り捨てずにディザーを掛けて丸める。16 bit の音源をそのまま送るとき(ビットパーフェクト)は、何も足さない
+            val requantize16 = slot == 2 && !exact && (gain != 1.0 || srcEnc == AFormat.ENCODING_PCM_FLOAT || pcmBytes(srcEnc) > 2)
             var o = 0
             for (f in 0 until frames) {
                 for (c in 0 until channels) frameTmp[c] = readI32(src, srcEnc)
                 for (c in 0 until dch) {
                     var v = frameTmp[if (c < channels) c else 0]
+                    if (requantize16) {
+                        val q = quantize16(v / 2147483648f, gain.toFloat(), dither)
+                        bbuf[o] = q.toByte(); bbuf[o + 1] = (q shr 8).toByte()
+                        o += 2
+                        continue
+                    }
                     if (gain != 1.0) v = (v * gain).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
                     putSlot(v, slot, o)
                     o += slot
@@ -791,7 +802,7 @@ class AudioOutput(
             outBuf = fbuf
         }
         ensureB(outSamples * slot)
-        val o = floatToSlots(outBuf, outSamples, g, slot, bbuf, 0)
+        val o = floatToSlots(outBuf, outSamples, g, slot, bbuf, 0, dither)
         pushUsb(o, stop)
     }
 
