@@ -45,11 +45,12 @@
         </intent>
     </queries>
 
+    <!-- アイコン: Ensō を白黒(グレー寄り)にしたもの。Android 4〜5 なので、角を丸めた PNG(mipmap-*dpi/ic_launcher_mono.png) -->
     <application
         android:name=".legacy.LegacyApp"
         android:allowBackup="false"
         android:requestLegacyExternalStorage="true"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/ic_launcher_mono"
         android:label="@string/legacy_app_name"
         android:theme="@style/Theme.UCRT.Legacy">
 
