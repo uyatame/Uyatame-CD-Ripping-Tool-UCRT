@@ -1585,7 +1585,6 @@
     <string name="year_new_first">"↓ newest"</string>
     <string name="year_old_first">"↑ oldest"</string>
     <string name="nav_menu">"Bottom menu"</string>
-    <string name="nav_menu_desc">"Choose the screens shown in the bottom menu. Settings is always shown, and screens you hide can be opened from the top of Settings."</string>
-    <string name="nav_other_screens">"Other screens"</string>
+    <string name="nav_menu_desc">"Choose the screens shown in the bottom menu. Settings is always shown. Screens you hide can be opened from Settings: Disc under CD ripping, Library and Streaming under Music player, Upsample and Burn-in under General."</string>
     <string name="nav_not_in_menu">"Not in the bottom menu"</string>
 </resources>

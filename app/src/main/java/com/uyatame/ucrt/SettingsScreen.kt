@@ -174,26 +174,18 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onOpenTab: (Int) -> 
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ScreenHeader(S(R.string.settings))
-        // ---- 下のメニューに出していない画面(ここから開く) ----
+        // 下のメニューに出していない画面は、それぞれの欄の頭に出す(押すと、メニューから開いたときと同じ画面になる)
         val shown = NavTabs.parse(s.navTabs)
-        val hidden = listOf(
-            Triple(NavTabs.LIBRARY, AppIcons.Library, R.string.library) to 0,
-            Triple(NavTabs.DISC, AppIcons.Album, R.string.disc) to 1,
-            Triple(NavTabs.STREAMING, AppIcons.Cloud, R.string.streaming) to TAB_STREAMING,
-            Triple(NavTabs.UPSAMPLE, AppIcons.Upsample, R.string.upsample) to TAB_UPSAMPLE,
-        ).filter { it.first.first !in shown }
-        if (hidden.isNotEmpty()) {
-            GroupLabel(S(R.string.nav_other_screens))
-            UCard(Modifier.fillMaxWidth()) {
-                hidden.forEachIndexed { i, (t, tabId) ->
-                    if (i > 0) HorizontalDivider()
-                    CategoryRow(t.second, S(t.third), S(R.string.nav_not_in_menu)) { onOpenTab(tabId) }
-                }
-            }
+        @Composable
+        fun screenRow(id: String, icon: ImageVector, label: Int, tabId: Int, summary: String = S(R.string.nav_not_in_menu)) {
+            if (id in shown) return
+            CategoryRow(icon, S(label), summary) { onOpenTab(tabId) }
+            HorizontalDivider()
         }
         // ---- CD の取り込み ----
         GroupLabel(S(R.string.settings_group_rip))
         UCard(Modifier.fillMaxWidth()) {
+            screenRow(NavTabs.DISC, AppIcons.Album, R.string.disc, 1)
             CategoryRow(
                 AppIcons.Download, S(R.string.saving_ripping),
                 folderLabel(s.outputUri) + S(R.string.auto_track_info) + if (s.autoMeta) "ON" else "OFF",
@@ -210,6 +202,8 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onOpenTab: (Int) -> 
         // ---- 音楽プレーヤー ----
         GroupLabel(S(R.string.settings_group_player))
         UCard(Modifier.fillMaxWidth()) {
+            screenRow(NavTabs.LIBRARY, AppIcons.Library, R.string.library, 0)
+            screenRow(NavTabs.STREAMING, AppIcons.Cloud, R.string.streaming, TAB_STREAMING)
             CategoryRow(
                 AppIcons.Library, S(R.string.library),
                 S(R.string.folders_add_music_from_your, folders.coerceAtLeast(0)),
@@ -236,12 +230,12 @@ private fun MainSettings(vm: MainViewModel, s: AppSettings, onOpenTab: (Int) -> 
                     (if (AppLanguage.supported) S(R.string.separator) + languageLabel(AppLanguage.current(ctx)) else ""),
             ) { onPage(5) }
             HorizontalDivider()
-            CategoryRow(
-                AppIcons.Headphones, S(R.string.aging),
+            screenRow(NavTabs.UPSAMPLE, AppIcons.Upsample, R.string.upsample, TAB_UPSAMPLE)
+            screenRow(
+                NavTabs.AGING, AppIcons.Headphones, R.string.aging, TAB_AGING,
                 if (com.uyatame.ucrt.aging.Aging.active) S(R.string.aging_notif, (com.uyatame.ucrt.aging.Aging.progress * 100).toInt())
                 else S(R.string.aging_desc),
-            ) { onPage(12) }
-            HorizontalDivider()
+            )
             CategoryRow(Icons.Filled.Edit, S(R.string.tag_edit_files), S(R.string.tag_edit_files_desc)) { onPage(10) }
             HorizontalDivider()
             CategoryRow(Icons.Filled.Settings, S(R.string.profiles), S(R.string.profiles_desc)) { onPage(11) }

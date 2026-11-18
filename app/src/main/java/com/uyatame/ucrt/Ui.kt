@@ -420,8 +420,8 @@ fun App(vm: MainViewModel) {
                         TAB_STREAMING -> StreamingScreen(vm, sp, s, spotifyOpen, { spotifyOpen = it }) { showSpotifyPlayer = true }
                         TAB_UPSAMPLE -> UpsampleScreen(vm, s)
                         TAB_APPS -> AppsScreen()
-                        // メニューに出しているときは戻るなし。設定から開いたときは、戻ると設定へ
-                        TAB_AGING -> AgingScreen(vm, if (TAB_AGING in navIds) null else ({ tab = 2 }))
+                        // ほかの画面と同じ出し方(設定から開いたときは、戻ると設定へ。上の BackHandler)
+                        TAB_AGING -> AgingScreen(vm, null)
                         else -> SettingsScreen(vm, s, settingsPage, onOpenTab = { tab = it }) { settingsPage = it }
                     }
                 }
