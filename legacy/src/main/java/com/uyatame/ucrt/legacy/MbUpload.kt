@@ -89,7 +89,7 @@ object MbUpload {
         val placeholder = m.title.isBlank() || m.artist.isBlank() || m.title == UNKNOWN_ALBUM || m.artist == UNKNOWN_ARTIST ||
             m.tracks.size < toc.audioCount ||
             m.tracks.take(toc.audioCount).withIndex().any { (i, t) ->
-                t.title.isBlank() || audio.getOrNull(i)?.let { t.title == S(R.string.track_2).format(it.number) } == true
+                t.title.isBlank() || audio.getOrNull(i)?.let { t.title == S(R.string.track_2).format(java.util.Locale.ROOT, it.number) } == true
             }
         if (placeholder) { act.snack(S(R.string.mb_upload_fill_in)); return }
         MusicBrainz.version = SettingsPages.version(app)

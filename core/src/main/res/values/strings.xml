@@ -1600,4 +1600,5 @@
     <string name="cache_temp">"Leftover work files"</string>
     <string name="cache_temp_desc">"Leftovers from ripping, tag editing or disc writing that stopped midway."</string>
     <string name="cache_clear">"Clear"</string>
+    <string name="ui_style_theme_glass">"While a glass theme (such as Glass) is selected, liquid glass is always used."</string>
 </resources>

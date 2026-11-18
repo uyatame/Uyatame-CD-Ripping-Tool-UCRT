@@ -91,6 +91,8 @@ object Aging {
     private var appCtx: Context? = null
     /** ライブラリの曲(保存して、続きのときに同じ曲を流す) */
     private var uris: List<String> = emptyList()
+    /** エージングで流している曲の番号(使う人がほかの曲を流し始めたかを見分ける) */
+    private var agingIds: Set<Long> = emptySet()
 
     private class SavedQueue(
         val items: List<PlayItem>, val index: Int, val posMs: Long, val shuffle: Boolean, val repeat: Int, val original: List<PlayItem>,
@@ -164,6 +166,7 @@ object Aging {
             restore = if (q.isNotEmpty() && q.none { it.uri == null }) {
                 SavedQueue(q, p.index, p.positionMs, p.shuffle, p.repeatMode, p.originalOrder)
             } else null
+            agingIds = list.map { it.id }.toHashSet()
             p.playFiles(list, 0)
             p.setModes(1, false)
         }
@@ -243,7 +246,13 @@ object Aging {
                         (AudioEngine.outputStatus.takeIf { it.isNotEmpty() }?.let { " · $it" } ?: "")
                 }
             } else {
-                detail = p?.current?.title.orEmpty()
+                // 使う人がほかの曲を流し始めた・再生を止めた: エージングはそこで終える(その曲は止めず、元の再生リストにも戻さない)
+                val cur = p?.current
+                if (p != null && (cur == null || cur.id !in agingIds)) {
+                    finish(ctx, completed = false, restorePlayer = false)
+                    break
+                }
+                detail = cur?.title.orEmpty()
                 outputLabel = AudioEngine.outputStatus
             }
             applyClock()
@@ -336,11 +345,11 @@ object Aging {
         noisy = null
     }
 
-    private fun finish(ctx: Context, completed: Boolean) {
+    private fun finish(ctx: Context, completed: Boolean, restorePlayer: Boolean = true) {
         if (!active) return
         stopGen()
         val p = player
-        if (p != null && !source.generated) {
+        if (p != null && !source.generated && restorePlayer) {
             // 元の再生リストと設定に戻す(鳴らさない)
             p.stop()
             val r = restore
@@ -349,6 +358,7 @@ object Aging {
         }
         restore = null
         savedModes = null
+        agingIds = emptySet()
         job?.cancel()
         job = null
         runCatching { wake?.release() }

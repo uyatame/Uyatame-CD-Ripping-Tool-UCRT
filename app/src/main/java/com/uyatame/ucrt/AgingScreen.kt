@@ -298,6 +298,13 @@ private fun AgingScopes(accent: Color) {
     val density = LocalDensity.current
     val labelColor = sch.onSurfaceVariant.toArgb()
     val grid = sch.outlineVariant
+    // 描くたびに作らない(1 秒に 15 回描き直すので)
+    val paint = remember { android.graphics.Paint().apply { isAntiAlias = true } }
+    val line = remember { Path() }
+    val fill = remember { Path() }
+    val waveL = remember { Path() }
+    val waveR = remember { Path() }
+    val audible = S(R.string.aging_audible) + " ←"
 
     Panel {
         val an = state.analyzer
@@ -313,11 +320,8 @@ private fun AgingScopes(accent: Color) {
             val h = size.height
             // 目盛り(dB の横線)
             for (i in 1..3) drawLine(grid, Offset(0f, h * i / 4), Offset(w, h * i / 4), 1f)
-            val paint = android.graphics.Paint().apply {
-                color = labelColor
-                textSize = with(density) { 10.sp.toPx() }
-                isAntiAlias = true
-            }
+            paint.color = labelColor
+            paint.textSize = with(density) { 10.sp.toPx() }
             val nc = drawContext.canvas.nativeCanvas as android.graphics.Canvas
             for (hz in doubleArrayOf(20.0, 200.0, 2000.0, 20000.0)) {
                 if (hz >= a.highHz) continue
@@ -330,13 +334,13 @@ private fun AgingScopes(accent: Color) {
             if (a.highHz > 21000) {
                 val x = a.positionOf(20000.0) * w
                 drawLine(sch.onSurfaceVariant, Offset(x, 0f), Offset(x, h), 1.5f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
-                nc.drawText(S(R.string.aging_audible) + " ←", x - paint.measureText(S(R.string.aging_audible) + " ←") - 4f, paint.textSize + 2f, paint)
+                nc.drawText(audible, x - paint.measureText(audible) - 4f, paint.textSize + 2f, paint)
             }
             if (v.isEmpty()) return@Canvas
             // -80〜-20 dB を下から上へ
             fun y(db: Float) = h * (1f - ((db + 80f) / 60f).coerceIn(0f, 1f))
-            val line = Path()
-            val fill = Path()
+            line.reset()
+            fill.reset()
             for (b in v.indices) {
                 val x = (b + 0.5f) / v.size * w
                 val yy = y(v[b])
@@ -360,8 +364,8 @@ private fun AgingScopes(accent: Color) {
             val r = state.waveR
             // 実効値 -20 dBFS の音が見やすいよう、少し大きくして描く
             val gain = 3f
-            fun draw(src: FloatArray, mid: Float, c: Color) {
-                val p = Path()
+            fun draw(src: FloatArray, mid: Float, c: Color, p: Path) {
+                p.reset()
                 for (i in src.indices) {
                     val x = i.toFloat() / (src.size - 1) * w
                     val y = mid - (src[i] * gain).coerceIn(-1f, 1f) * h / 4.4f
@@ -369,8 +373,8 @@ private fun AgingScopes(accent: Color) {
                 }
                 drawPath(p, c, style = Stroke(1.4.dp.toPx()))
             }
-            draw(l, h / 4, accent)
-            draw(r, h * 3 / 4, sch.tertiary)
+            draw(l, h / 4, accent, waveL)
+            draw(r, h * 3 / 4, sch.tertiary, waveR)
         }
     }
 }

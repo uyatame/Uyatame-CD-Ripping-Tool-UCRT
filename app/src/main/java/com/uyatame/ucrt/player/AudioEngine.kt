@@ -831,12 +831,18 @@ class AudioOutput(
         if (samples <= 0) return
         // イコライザーを調整している間は、鳴っていない分が EQ_LIVE_MS を超えないよう待ってから書く
         // (イコライザーは書くときに掛けるので、書きためが短いほど、変えた音が早く聞こえる)
+        // 鳴り始める前(Android は出力の書きためが一杯になるまで鳴らし始めない)や、止まっているときは待たない
+        // (待つと、書きためが一杯にならず、いつまでも鳴り始めない)。再生位置が進んでいる間だけ待つ
         if (AudioEngine.eqLive && !exact && !noEq) {
             val limit = sampleRate.toLong() * AudioEngine.EQ_LIVE_MS / 1000
-            var guard = 0
-            while (!paused && !failed && !stop() && framesWritten - headFrames() > limit && guard < 1000) {
+            var lastHead = headFrames()
+            var lastMove = System.nanoTime()
+            while (!paused && !failed && !stop()) {
+                val h = headFrames()
+                val now = System.nanoTime()
+                if (h != lastHead) { lastHead = h; lastMove = now }
+                if (framesWritten - h <= limit || h <= 0L || now - lastMove > 200_000_000L) break
                 try { Thread.sleep(3) } catch (_: InterruptedException) { break }
-                guard++
             }
         }
         // スペクトラムアナライザー(表示している間だけ。音には触れない)

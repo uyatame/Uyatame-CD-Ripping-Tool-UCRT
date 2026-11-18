@@ -229,7 +229,7 @@ class Lib(private val ctx: Context, private val prefs: Prefs) {
                         added.add(
                             base.copy(
                                 uri = Cue.trackUri(base.uri, ct.number),
-                                title = ct.title ?: S(R.string.track_2).format(ct.number),
+                                title = ct.title ?: S(R.string.track_2).format(java.util.Locale.ROOT, ct.number),
                                 artist = ct.performer ?: sheet.performer ?: base.artist,
                                 album = sheet.title ?: base.album,
                                 albumArtist = sheet.performer ?: base.albumArtist,

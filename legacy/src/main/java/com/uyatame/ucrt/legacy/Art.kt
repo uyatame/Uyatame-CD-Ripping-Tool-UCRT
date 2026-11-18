@@ -44,7 +44,16 @@ object Art {
         dir = File(ctx.cacheDir, "art").also { it.mkdirs() }
         val dm = ctx.resources.displayMetrics
         bigMax = maxOf(dm.widthPixels, dm.heightPixels).coerceIn(DISK_MAX * 2, 2048)
+        // キャッシュの片付け(起動したとき。縮小版の上限と、途中で止まった作業の一時ファイル。本家と同じ CacheCleaner)
+        val cache = ctx.cacheDir
+        pool.execute {
+            runCatching { com.uyatame.ucrt.CacheCleaner.clearTemp(cache) }
+            runCatching { com.uyatame.ucrt.CacheCleaner.trimArt(cache) }
+        }
     }
+
+    /** 保存した縮小版の数(片付けの間隔に使う) */
+    private val written = java.util.concurrent.atomic.AtomicInteger()
 
     fun bucketOf(px: Int): Int = BUCKETS.firstOrNull { it >= px } ?: BUCKETS.last()
 
@@ -80,7 +89,13 @@ object Art {
             val f = diskFile(r.key, b)
             if (f != null && f.exists()) {
                 val bmp = runCatching { BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.RGB_565 }) }.getOrNull()
-                if (bmp != null) { cache.put("${r.key}@$b", bmp); return bmp }
+                if (bmp != null) {
+                    // 使った時刻を残す(上限を超えたら、使っていないものから消すため)。1 日に 1 回まで
+                    val now = System.currentTimeMillis()
+                    if (now - f.lastModified() > 24 * 60 * 60_000L) runCatching { f.setLastModified(now) }
+                    cache.put("${r.key}@$b", bmp)
+                    return bmp
+                }
                 f.delete()
             }
         }
@@ -115,6 +130,8 @@ object Art {
                 val tmp = File(f.path + "." + Thread.currentThread().id + ".tmp")
                 tmp.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
                 if (!tmp.renameTo(f)) tmp.delete()
+                // 200 枚保存するごとに、上限(約 200 MB)を超えた分を、使っていないものから消す
+                if (written.incrementAndGet() % 200 == 0) dir?.parentFile?.let { com.uyatame.ucrt.CacheCleaner.trimArt(it) }
             }
         }
         cache.put("${r.key}@$b", bmp)

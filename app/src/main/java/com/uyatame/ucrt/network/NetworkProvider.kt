@@ -140,6 +140,9 @@ class NetworkProvider : DocumentsProvider() {
             // 1 週間使っていない曲は、上限に関わらず消す
             val old = now - f.lastModified() > com.uyatame.ucrt.CacheCleaner.NET_MAX_AGE_MS && !f.name.endsWith(".part")
             if (!old && total + need <= limit && dir.usableSpace > need + (256L shl 20)) continue
+            // 10 分以内に開いた曲(再生中かもしれない。消すと、戻る・シークで取り込み直しになる)は、空き容量が足りるなら残す
+            // (上限は少しのあいだ超えてよい)
+            if (!old && now - f.lastModified() < 10 * 60_000L && dir.usableSpace > need + (256L shl 20)) continue
             // ほかの曲を取り込んでいる途中のもの(.part)は消さない(取り込みが失敗してしまう)
             if (f.name.endsWith(".part") && now - f.lastModified() < 10 * 60_000L) continue
             total -= f.length()

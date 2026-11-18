@@ -1596,4 +1596,5 @@
     <string name="cache_temp">"作業の一時ファイル"</string>
     <string name="cache_temp_desc">"取り込み・タグの書き換え・CD の書き込みが途中で止まったときの残りです。"</string>
     <string name="cache_clear">"消す"</string>
+    <string name="ui_style_theme_glass">"ガラスのテーマ(Glass など)を選んでいる間は、ここの切り替えに関わらずリキッドグラスになります。"</string>
 </resources>

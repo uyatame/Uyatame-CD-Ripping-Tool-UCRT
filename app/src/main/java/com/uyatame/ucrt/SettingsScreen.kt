@@ -670,6 +670,10 @@ private fun DisplayPage(vm: MainViewModel, s: AppSettings) {
             if (s.appearance == 1 || themeGlass) S(R.string.ui_style_glass_desc) else S(R.string.ui_style_standard_desc),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        // ガラスのテーマ(Glass など)を選んでいる間は、ここの切り替えは効かない(テーマのほうが優先)
+        if (themeGlass) {
+            Text(S(R.string.ui_style_theme_glass), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        }
         if (s.appearance == 1 || themeGlass) {
             // 透け具合(画面では「透明度」。濃さの逆)
             IntSlider(S(R.string.glass_transparency), 100 - s.glassOpacity, 5..90, { "$it%" }, S(R.string.glass_transparency_desc)) {

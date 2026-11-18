@@ -31,11 +31,13 @@ class CacheCleanerTest {
         val old = file(d, "old.flac", 10, 8 * day)
         val recent = file(d, "new.flac", 10, 1 * day)
         val part = file(d, "x.part", 10, 60_000)
+        val playing = file(d, "playing.flac", 10, 5 * 60_000)
         CacheCleaner.trimNet(cache, now, limit = 5)
         assertFalse(old.exists())
-        // 上限を超えていれば、新しいものも消す。ただし取り込み中(.part)は残す
+        // 上限を超えていれば、新しいものも消す。ただし 10 分以内に使ったもの(取り込み中・再生中)は残す
         assertFalse(recent.exists())
         assertTrue(part.exists())
+        assertTrue(playing.exists())
         // 上限に収まっていれば、1 週間以内のものは残る
         val keep = file(d, "keep.flac", 10, 2 * day)
         CacheCleaner.trimNet(cache, now)

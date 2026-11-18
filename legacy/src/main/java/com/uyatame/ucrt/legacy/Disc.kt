@@ -107,7 +107,7 @@ object Disc {
     val albumTitle: String get() = meta?.title ?: UNKNOWN_ALBUM
     val albumArtist: String get() = meta?.artist ?: UNKNOWN_ARTIST
 
-    fun trackTitle(t: TocTrack): String = meta?.tracks?.getOrNull(audioTracks.indexOf(t))?.title?.takeIf { it.isNotBlank() } ?: S(R.string.track_2).format(t.number)
+    fun trackTitle(t: TocTrack): String = meta?.tracks?.getOrNull(audioTracks.indexOf(t))?.title?.takeIf { it.isNotBlank() } ?: S(R.string.track_2).format(java.util.Locale.ROOT, t.number)
     fun trackArtist(t: TocTrack): String = meta?.tracks?.getOrNull(audioTracks.indexOf(t))?.artist?.takeIf { it.isNotBlank() } ?: albumArtist
 
     private fun changed() = Bus.emit(Bus.DISC)
@@ -393,7 +393,7 @@ object Disc {
 
     private fun fitMeta(m: AlbumMeta): AlbumMeta {
         val n = audioTracks.size
-        return m.copy(tracks = (0 until n).map { i -> m.tracks.getOrNull(i) ?: TrackMeta(S(R.string.track_2).format(audioTracks[i].number), m.artist) })
+        return m.copy(tracks = (0 until n).map { i -> m.tracks.getOrNull(i) ?: TrackMeta(S(R.string.track_2).format(java.util.Locale.ROOT, audioTracks[i].number), m.artist) })
     }
 
     private fun sourceName(src: String) = if (src == MusicBrainz.SOURCE) "MusicBrainz" else src
@@ -600,9 +600,9 @@ object Disc {
 
     private fun fileName(t: TocTrack, m: AlbumMeta): String {
         val ai = audioTracks.indexOf(t)
-        val title = m.tracks.getOrNull(ai)?.title?.takeIf { it.isNotBlank() } ?: S(R.string.track_2).format(t.number)
+        val title = m.tracks.getOrNull(ai)?.title?.takeIf { it.isNotBlank() } ?: S(R.string.track_2).format(java.util.Locale.ROOT, t.number)
         val artist = m.tracks.getOrNull(ai)?.artist?.takeIf { it.isNotBlank() } ?: m.artist
-        val n = "%02d".format(t.number)
+        val n = "%02d".format(java.util.Locale.ROOT, t.number)
         val dp = if (m.discTotal > 1) "${m.discNo}-" else ""
         val base = when (p.fileNameMode) {
             0 -> "$dp$n ${safe(title)}"
@@ -741,7 +741,7 @@ object Disc {
     /** 1 曲を取り込む。戻り値は読み取りエラーのセクター数 */
     private fun ripTrack(d: UsbScsiDrive, t: TocTrack, m: AlbumMeta, dir: File, cov: Cover?, onP: (Float) -> Unit): Int {
         val ai = audioTracks.indexOf(t)
-        val title = m.tracks.getOrNull(ai)?.title?.takeIf { it.isNotBlank() } ?: S(R.string.track_2).format(t.number)
+        val title = m.tracks.getOrNull(ai)?.title?.takeIf { it.isNotBlank() } ?: S(R.string.track_2).format(java.util.Locale.ROOT, t.number)
         val artist = m.tracks.getOrNull(ai)?.artist?.takeIf { it.isNotBlank() } ?: m.artist
         val total = audioTracks.size
         trackStatus[t.number] = S(R.string.ripping)

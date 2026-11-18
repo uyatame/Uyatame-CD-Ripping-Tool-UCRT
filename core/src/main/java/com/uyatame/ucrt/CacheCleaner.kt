@@ -43,9 +43,9 @@ object CacheCleaner {
         return freed
     }
 
-    /** NAS の曲の一時コピーの片付け(取り込んでいる途中のもの(.part、10 分以内)は消さない) */
+    /** NAS の曲の一時コピーの片付け(10 分以内に使ったもの(取り込み中・再生中かもしれない)は消さない) */
     fun trimNet(cacheDir: File, now: Long = System.currentTimeMillis(), limit: Long = NET_LIMIT): Long =
-        trim(File(cacheDir, NET_DIR), limit, NET_MAX_AGE_MS, now) { it.name.endsWith(".part") && now - it.lastModified() < 10 * 60_000L }
+        trim(File(cacheDir, NET_DIR), limit, NET_MAX_AGE_MS, now) { now - it.lastModified() < 10 * 60_000L }
 
     fun trimArt(cacheDir: File, now: Long = System.currentTimeMillis()): Long =
         trim(File(cacheDir, ART_DIR), ART_LIMIT, 0, now) { it.name.endsWith(".tmp") && now - it.lastModified() < 60_000L }
