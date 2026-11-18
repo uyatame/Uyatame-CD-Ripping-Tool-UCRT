@@ -548,6 +548,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         // 以前の版で保存した連絡先メールアドレスは不要になったので消す
         viewModelScope.launch { repo.set(com.uyatame.ucrt.data.Keys.contactEmail, "") }
+        // キャッシュの片付け(作業の一時ファイルの消し残し・ジャケットの縮小版の上限・NAS の曲の一時コピーの上限と期限)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val c = ctx.cacheDir
+            if (!busy) runCatching { CacheCleaner.clearTemp(c) }
+            runCatching { CacheCleaner.trimArt(c) }
+            runCatching { CacheCleaner.trimNet(c) }
+        }
         player.onNotice = { snack = it }
         com.uyatame.ucrt.aging.Aging.onChanged = { updateService() }
         player.onQueueEnd = { playNextList() }

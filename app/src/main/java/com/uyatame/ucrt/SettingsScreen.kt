@@ -43,6 +43,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -504,6 +506,7 @@ private fun LibraryFoldersPage(vm: MainViewModel, s: AppSettings) {
         }
     }
     if (com.uyatame.ucrt.library.StorageAccess.allFilesSupported) AllFilesSection(vm)
+    CacheSection(vm)
 }
 
 /** 「すべてのファイルへのアクセス」の許可(任意) */
@@ -886,6 +889,59 @@ private fun SpectrumColorPicker(value: Int, onChange: (Int) -> Unit) {
         S(R.string.spectrum_color), if (value == 0) S(R.string.spectrum_color_auto) else hexOf(value),
         if (value == 0) auto else Color(value), value == 0,
     ) { picking = true }
+}
+
+/** キャッシュ(端末の一時的な置き場)の使用量と、種類ごとに消すボタン */
+@Composable
+private fun CacheSection(vm: MainViewModel) {
+    val ctx = LocalContext.current
+    var sizes by remember { mutableStateOf<List<Long>?>(null) }
+    var rev by remember { mutableIntStateOf(0) }
+    LaunchedEffect(rev) {
+        sizes = withContext(Dispatchers.IO) {
+            val c = ctx.cacheDir
+            listOf(
+                CacheCleaner.dirSize(java.io.File(c, CacheCleaner.NET_DIR)),
+                CacheCleaner.dirSize(java.io.File(c, CacheCleaner.ART_DIR)),
+                CacheCleaner.tempSize(c),
+            )
+        }
+    }
+    fun mb(n: Long) = String.format(java.util.Locale.ROOT, "%.1f MB", n / 1048576.0)
+    val scope = rememberCoroutineScope()
+    Section(S(R.string.cache)) {
+        Text(S(R.string.cache_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val rows = listOf(
+            Triple(R.string.cache_net, R.string.cache_net_desc, 0),
+            Triple(R.string.cache_art, R.string.cache_art_desc, 1),
+            Triple(R.string.cache_temp, R.string.cache_temp_desc, 2),
+        )
+        for ((title, desc, i) in rows) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(S(title) + "  " + (sizes?.getOrNull(i)?.let { mb(it) } ?: "…"), style = MaterialTheme.typography.bodyLarge)
+                    Text(S(desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                // 作業の一時ファイルは、取り込み・書き込みの最中には消さない
+                UOutlinedButton(
+                    {
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                val c = ctx.cacheDir
+                                when (i) {
+                                    0 -> CacheCleaner.clearDir(c, CacheCleaner.NET_DIR)
+                                    1 -> { CacheCleaner.clearDir(c, CacheCleaner.ART_DIR); com.uyatame.ucrt.library.ArtLoader.clearMisses() }
+                                    else -> CacheCleaner.clearTemp(c)
+                                }
+                            }
+                            rev++
+                        }
+                    },
+                    enabled = (sizes?.getOrNull(i) ?: 0L) > 0L && !(i == 2 && vm.busy),
+                ) { Text(S(R.string.cache_clear)) }
+            }
+        }
+    }
 }
 
 /** 下のメニューに出す画面(出していない画面は、設定のいちばん上から開ける) */

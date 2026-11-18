@@ -1587,4 +1587,13 @@
     <string name="vu_face_warm">"暖色"</string>
     <string name="vu_face_cool">"寒色"</string>
     <string name="vu_face_white">"白盤"</string>
+    <string name="cache">"キャッシュ"</string>
+    <string name="cache_desc">"端末に置いている一時的なデータです。自動で片付けますが、ここでいつでも消せます。"</string>
+    <string name="cache_net">"NAS の曲の一時コピー"</string>
+    <string name="cache_net_desc">"NAS の曲は、ここにコピーしてから再生します。約 500 MB まで。1 週間再生していないものは消します。"</string>
+    <string name="cache_art">"ジャケットの縮小版"</string>
+    <string name="cache_art_desc">"一覧のジャケットの小さな画像です。約 200 MB まで。消しても、必要なときに作り直します。"</string>
+    <string name="cache_temp">"作業の一時ファイル"</string>
+    <string name="cache_temp_desc">"取り込み・タグの書き換え・CD の書き込みが途中で止まったときの残りです。"</string>
+    <string name="cache_clear">"消す"</string>
 </resources>

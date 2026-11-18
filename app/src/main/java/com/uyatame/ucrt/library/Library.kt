@@ -267,6 +267,8 @@ object ArtLoader {
     private val BUCKETS = intArrayOf(128, 256, 512, 2048)
     /** 端末に保存する大きさの上限(これより大きい画像は保存しない) */
     private const val DISK_MAX = 512
+    /** 保存した縮小版の数(片付けの間隔に使う) */
+    private val written = java.util.concurrent.atomic.AtomicInteger()
 
     /** 画像の置き場所(メモリーの量で上限を決める) */
     private val cache = object : LruCache<String, ImageBitmap>(
@@ -346,7 +348,12 @@ object ArtLoader {
             val f = diskFile(ctx, key, b)
             if (f.exists()) {
                 val bmp = runCatching { BitmapFactory.decodeFile(f.path, thumbOptions()) }.getOrNull()
-                if (bmp != null) return bmp.asImageBitmap().also { cache.put("$key@$b", it) }
+                if (bmp != null) {
+                    // 使った時刻を残す(上限を超えたら、使っていないものから消すため)。書き込みを減らすよう、1 日に 1 回まで
+                    val now = System.currentTimeMillis()
+                    if (now - f.lastModified() > 24 * 60 * 60_000L) runCatching { f.setLastModified(now) }
+                    return bmp.asImageBitmap().also { cache.put("$key@$b", it) }
+                }
                 f.delete()
             }
         }
@@ -385,6 +392,8 @@ object ArtLoader {
                 val tmp = File(f.path + "." + Thread.currentThread().id + ".tmp")
                 tmp.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
                 if (!tmp.renameTo(f)) tmp.delete()
+                // 保存が 200 枚たまるごとに、上限(約 200 MB)を超えた分を、使っていないものから消す
+                if (written.incrementAndGet() % 200 == 0) com.uyatame.ucrt.CacheCleaner.trimArt(ctx.cacheDir)
             }
         }
         val img = bmp.asImageBitmap()

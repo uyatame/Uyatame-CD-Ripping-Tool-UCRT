@@ -1591,4 +1591,13 @@
     <string name="vu_face_warm">"Warm"</string>
     <string name="vu_face_cool">"Cool"</string>
     <string name="vu_face_white">"White"</string>
+    <string name="cache">"Cache"</string>
+    <string name="cache_desc">"Temporary data kept on this device. It is trimmed automatically, and you can clear it here at any time."</string>
+    <string name="cache_net">"NAS song copies"</string>
+    <string name="cache_net_desc">"Songs played from a NAS are copied here first. Up to about 500 MB, and copies not played for a week are removed."</string>
+    <string name="cache_art">"Artwork thumbnails"</string>
+    <string name="cache_art_desc">"Small artwork for lists. Up to about 200 MB; made again when needed."</string>
+    <string name="cache_temp">"Leftover work files"</string>
+    <string name="cache_temp_desc">"Leftovers from ripping, tag editing or disc writing that stopped midway."</string>
+    <string name="cache_clear">"Clear"</string>
 </resources>

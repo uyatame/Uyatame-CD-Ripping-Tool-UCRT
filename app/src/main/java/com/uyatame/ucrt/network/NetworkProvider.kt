@@ -26,8 +26,9 @@ class NetworkProvider : DocumentsProvider() {
     private val locks = java.util.concurrent.ConcurrentHashMap<String, Any>()
 
     override fun onCreate(): Boolean {
-        // 前回の途中で終わった取り込みの残りを消す
+        // 前回の途中で終わった取り込みの残りを消す。1 週間使っていない曲・上限を超えた分も消す
         runCatching { File(context?.cacheDir, "net-cache").listFiles()?.filter { it.name.endsWith(".part") }?.forEach { it.delete() } }
+        runCatching { context?.cacheDir?.let { com.uyatame.ucrt.CacheCleaner.trimNet(it) } }
         return true
     }
 
@@ -125,15 +126,20 @@ class NetworkProvider : DocumentsProvider() {
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     }
 
-    /** キャッシュが上限(2GB)や空き容量を超えないよう、古いものから消す */
+    /**
+     * キャッシュが上限(約 500 MB。CacheCleaner.NET_LIMIT)や空き容量を超えないよう、古いものから消す。
+     * 1 曲で上限を超える大きな曲(DSD など)は、ほかの曲をすべて消して、その曲だけを置く
+     */
     private fun makeRoom(dir: File, need: Long) {
         val files = (dir.listFiles() ?: return).sortedBy { it.lastModified() }.toMutableList()
         var total = files.sumOf { it.length() }
-        val limit = 2L shl 30
-        if (need > limit) throw FileNotFoundException(com.uyatame.ucrt.S(com.uyatame.ucrt.R.string.net_too_large))
+        val limit = com.uyatame.ucrt.CacheCleaner.NET_LIMIT
+        if (need > (4L shl 30)) throw FileNotFoundException(com.uyatame.ucrt.S(com.uyatame.ucrt.R.string.net_too_large))
         val now = System.currentTimeMillis()
         for (f in files) {
-            if (total + need <= limit && dir.usableSpace > need + (256L shl 20)) break
+            // 1 週間使っていない曲は、上限に関わらず消す
+            val old = now - f.lastModified() > com.uyatame.ucrt.CacheCleaner.NET_MAX_AGE_MS && !f.name.endsWith(".part")
+            if (!old && total + need <= limit && dir.usableSpace > need + (256L shl 20)) continue
             // ほかの曲を取り込んでいる途中のもの(.part)は消さない(取り込みが失敗してしまう)
             if (f.name.endsWith(".part") && now - f.lastModified() < 10 * 60_000L) continue
             total -= f.length()
