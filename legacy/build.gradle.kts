@@ -11,7 +11,7 @@ plugins {
 // UCRT Legacy の版(本家とは別の番号。2026-10-27 にユーザーの指示。0.2.0 から正式版(2026-10-29))。
 // リリースのときは legacyVersion を書き換え、legacyVersionCode を 1 上げる。リリースのタグは legacy-v<legacyVersion>
 // (-alpha などが付いた版はプレリリース、付かない版は通常のリリース。どちらも「最新のリリース」にはしない)
-val legacyVersion = "0.4.0"
+val legacyVersion = "0.9.0"
 // これまでのテスト版(本家の版の番号 44 で作っていた)の上に入れられるように、45 から始める
 val legacyVersionCode = 49
 

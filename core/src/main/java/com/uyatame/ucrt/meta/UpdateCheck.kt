@@ -49,8 +49,9 @@ object UpdateCheck {
     }
 
     /**
-     * UCRT Legacy の最新のリリース(タグが legacy-v で始まるもの。α版などのプレリリースも含む)。
-     * 本家のリリース(v0.6.0 など)は見ない。無い・つながらないときは null
+     * UCRT Legacy の最新のリリース。v0.9.0 からは、本家と同じリリース(タグ v<版>)に Legacy の APK(名前が UCRT_Legacy_ で始まる)も置く。
+     * それより前の Legacy だけのリリース(タグ legacy-v<版>。α版などのプレリリースも含む)も見て、いちばん新しい版を返す。
+     * 無い・つながらないときは null
      */
     fun latestLegacy(appVersion: String): ReleaseInfo? {
         val c = URL("https://api.github.com/repos/$REPO/releases?per_page=30").openConnection() as HttpURLConnection
@@ -60,23 +61,46 @@ object UpdateCheck {
         c.readTimeout = 15000
         try {
             if (c.responseCode != 200) return null
-            val arr = org.json.JSONArray(c.inputStream.bufferedReader().use { it.readText() })
-            for (k in 0 until arr.length()) {
-                val j = arr.optJSONObject(k) ?: continue
-                if (j.optBoolean("draft")) continue
-                val tag = j.optString("tag_name").trim()
-                if (!tag.startsWith("legacy-v")) continue
-                return ReleaseInfo(
-                    version = tag.removePrefix("legacy-v"),
+            return pickLegacy(c.inputStream.bufferedReader().use { it.readText() })
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    /** リリースの一覧(GitHub の API の JSON)から、UCRT Legacy の最新のリリースを選ぶ(下書きは除く) */
+    fun pickLegacy(json: String): ReleaseInfo? {
+        val arr = org.json.JSONArray(json)
+        var best: ReleaseInfo? = null
+        for (k in 0 until arr.length()) {
+            val j = arr.optJSONObject(k) ?: continue
+            if (j.optBoolean("draft")) continue
+            val tag = j.optString("tag_name").trim()
+            val version = when {
+                tag.startsWith("legacy-v") -> tag.removePrefix("legacy-v")
+                // 本家と一緒のリリース: Legacy の APK が置いてあるものだけ(プレリリースは除く)
+                (tag.startsWith("v") || tag.startsWith("V")) && !j.optBoolean("prerelease") && hasLegacyApk(j) ->
+                    tag.removePrefix("v").removePrefix("V")
+                else -> continue
+            }
+            if (best == null || compare(version, best.version) > 0) {
+                best = ReleaseInfo(
+                    version = version,
                     title = j.optString("name").ifBlank { tag },
                     notes = j.optString("body").trim(),
                     pageUrl = j.optString("html_url").ifBlank { "https://github.com/$REPO/releases" },
                 )
             }
-            return null
-        } finally {
-            c.disconnect()
         }
+        return best
+    }
+
+    private fun hasLegacyApk(j: JSONObject): Boolean {
+        val assets = j.optJSONArray("assets") ?: return false
+        for (i in 0 until assets.length()) {
+            val n = assets.optJSONObject(i)?.optString("name").orEmpty()
+            if (n.startsWith("UCRT_Legacy_", ignoreCase = true) && n.endsWith(".apk", ignoreCase = true)) return true
+        }
+        return false
     }
 
     /**
