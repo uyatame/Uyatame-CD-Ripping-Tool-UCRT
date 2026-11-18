@@ -283,6 +283,8 @@ fun VuMeterView(
     height: Dp,
     onStyle: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    /** 針の文字盤(0 = 暖色、1 = 寒色、2 = 白盤) */
+    face: Int = 0,
 ) {
     DisposableEffect(Unit) {
         SpectrumTap.acquire()
@@ -338,6 +340,7 @@ fun VuMeterView(
         if (tick < 0) return@Canvas
         @Suppress("USELESS_CAST", "CAST_NEVER_SUCCEEDS")
         val nc = drawContext.canvas.nativeCanvas as android.graphics.Canvas
+        painter.face = face
         if (style == 1) {
             painter.drawBars(nc, size.width, size.height, meter.peak[0], meter.peak[1], meter.hold[0], meter.hold[1], argb, targb, redDb.toFloat(), hold)
         } else {

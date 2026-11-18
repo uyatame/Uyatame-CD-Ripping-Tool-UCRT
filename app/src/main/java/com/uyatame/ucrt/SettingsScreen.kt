@@ -798,6 +798,10 @@ private fun PlayerScreenPage(vm: MainViewModel, s: AppSettings) {
                 Segmented(S(R.string.vu_style), listOf(S(R.string.vu_style_needle), S(R.string.vu_style_bar)), s.vuStyle) { vm.set(Keys.vuStyle, it) }
                 if (s.vuStyle == 0) {
                     Segmented(S(R.string.vu_mode), listOf(S(R.string.vu_mode_vu), S(R.string.vu_mode_peak)), s.vuMode) { vm.set(Keys.vuMode, it) }
+                    // 文字盤の色(暖色・寒色・白盤)
+                    Segmented(S(R.string.vu_face), listOf(S(R.string.vu_face_warm), S(R.string.vu_face_cool), S(R.string.vu_face_white)), s.vuFace) {
+                        vm.set(Keys.vuFace, it)
+                    }
                     // 0 VU の基準(1 dB ずつ。音圧の高い曲で振り切れるときは、0 に近づける)
                     IntSlider(S(R.string.vu_ref), s.vuRefDb, 0..30, { "−$it dBFS" }, S(R.string.vu_ref_desc)) { vm.set(Keys.vuRefDb, it) }
                 } else {

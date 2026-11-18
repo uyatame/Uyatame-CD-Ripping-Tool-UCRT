@@ -600,6 +600,7 @@ private fun PlayerPage(
                     s.vuStyle, s.vuMode, s.vuRefDb, s.vuRedDb, s.vuHold, s.spectrumRefreshMs, s.spectrumDelayMs,
                     meterColor, col.sub, if (s.vuStyle == 1) h * 0.75f else h * 1.5f,
                     onStyle = { vm.set(com.uyatame.ucrt.data.Keys.vuStyle, it) },
+                    face = s.vuFace,
                 )
             }
             val sp: @Composable () -> Unit = {

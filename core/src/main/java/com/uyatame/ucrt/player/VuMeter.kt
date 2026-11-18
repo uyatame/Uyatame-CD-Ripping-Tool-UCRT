@@ -96,6 +96,11 @@ class VuMeter {
  * バー: L・R の横棒(LED の目盛り)。決めた音量を超えた所は赤
  */
 class VuPainter(private val density: Float) {
+    companion object {
+        /** 選べる文字盤の数 */
+        const val FACES = 3
+    }
+
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
     private val r = RectF()
@@ -104,6 +109,24 @@ class VuPainter(private val density: Float) {
     private class Shaders(val key: FloatArray, val face: Shader, val shade: Shader, val glass: Shader)
     private val cache = arrayOfNulls<Shaders>(2)
 
+    /** 文字盤: 0 = 暖色(明かりの入った琥珀色。今まで)、1 = 寒色(青白い明かり)、2 = 白盤 */
+    var face = 0
+        set(v) {
+            val n = v.coerceIn(0, FACES - 1)
+            if (n != field) { field = n; cache.fill(null) }
+        }
+
+    /** 文字盤のグラデーション(中心 → 端) */
+    private fun faceColors(): IntArray = when (face) {
+        1 -> intArrayOf(0xFFF1FAFF.toInt(), 0xFFB9DDF6.toInt(), 0xFF6EA6D8.toInt())
+        2 -> intArrayOf(0xFFFFFFFF.toInt(), 0xFFF6F5F1.toInt(), 0xFFDCDAD3.toInt())
+        else -> intArrayOf(0xFFFFF2CC.toInt(), 0xFFF8CF7E.toInt(), 0xFFE39B3D.toInt())
+    }
+
+    /** 目盛り・文字の色と、針の色 */
+    private fun inkColor(): Int = when (face) { 1 -> 0xFF13202E.toInt(); 2 -> 0xFF111111.toInt(); else -> 0xFF1C1A17.toInt() }
+    private fun needleColor(): Int = when (face) { 1 -> 0xFF0E1824.toInt(); 2 -> 0xFF0C0C0C.toInt(); else -> 0xFF151311.toInt() }
+
     private fun shadersFor(i: Int, fx0: Float, fy0: Float, fw: Float, fh: Float): Shaders {
         val c = cache[i]
         if (c != null && c.key[0] == fx0 && c.key[1] == fy0 && c.key[2] == fw && c.key[3] == fh) return c
@@ -111,7 +134,7 @@ class VuPainter(private val density: Float) {
         val n = Shaders(
             floatArrayOf(fx0, fy0, fw, fh),
             RadialGradient(cx, fy0 + fh * 1.1f, fw * 0.75f,
-                intArrayOf(0xFFFFF2CC.toInt(), 0xFFF8CF7E.toInt(), 0xFFE39B3D.toInt()), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP),
+                faceColors(), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP),
             LinearGradient(0f, fy0, 0f, fy0 + fh * 0.22f, 0x55000000, 0x00000000, Shader.TileMode.CLAMP),
             LinearGradient(fx0, fy0, fx0 + fw * 0.6f, fy0 + fh, 0x22FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP),
         )
@@ -168,7 +191,7 @@ class VuPainter(private val density: Float) {
         fun ang(v: Float) = (-Math.PI / 2 - half + 2 * half * pos(v)).toFloat()
         fun px(a: Float, k: Float) = cx + cos(a) * rad * k
         fun py(a: Float, k: Float) = py + sin(a) * rad * k
-        val ink = 0xFF1C1A17.toInt()
+        val ink = inkColor()
         val red = 0xFFC8231B.toInt()
 
         // 目盛りの弧(0 から右は赤い帯)
@@ -242,7 +265,7 @@ class VuPainter(private val density: Float) {
         p.color = 0x33000000
         val sh = fh * 0.025f
         c.drawLine(px(a, 0.25f) + sh, py(a, 0.25f) + sh, px(a, 1.08f) + sh, py(a, 1.08f) + sh, p)
-        p.color = 0xFF151311.toInt()
+        p.color = needleColor()
         c.drawLine(px(a, 0.25f), py(a, 0.25f), px(a, 1.08f), py(a, 1.08f), p)
         p.strokeCap = Paint.Cap.BUTT
 

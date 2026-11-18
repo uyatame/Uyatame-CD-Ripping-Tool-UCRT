@@ -137,6 +137,8 @@ data class AppSettings(
     val vuRedDb: Int = 6,
     /** バーのピークホールド */
     val vuHold: Boolean = true,
+    /** 針の VU メーターの文字盤(0 = 暖色、1 = 寒色、2 = 白盤) */
+    val vuFace: Int = 0,
     val bitPerfect: Boolean = false,
     val usbDirect: Boolean = false,
     /** -1 = 自動(USB から音量を変えられる DAC は 50、変えられない DAC は 100) */
@@ -325,6 +327,7 @@ object Keys {
     val vuRefDb = intPreferencesKey("vuRefDb")
     val vuRedDb = intPreferencesKey("vuRedDb")
     val vuHold = booleanPreferencesKey("vuHold")
+    val vuFace = intPreferencesKey("vuFace")
     val bitPerfect = booleanPreferencesKey("bitPerfect")
     val usbDirect = booleanPreferencesKey("usbDirect")
     val usbVolume = intPreferencesKey("usbVolume")
@@ -448,6 +451,7 @@ class SettingsRepository(private val context: Context) {
             vuRefDb = (p[Keys.vuRefDb] ?: d.vuRefDb).coerceIn(0, 30),
             vuRedDb = (p[Keys.vuRedDb] ?: d.vuRedDb).coerceIn(0, 30),
             vuHold = p[Keys.vuHold] ?: d.vuHold,
+            vuFace = (p[Keys.vuFace] ?: d.vuFace).coerceIn(0, 2),
             bitPerfect = p[Keys.bitPerfect] ?: d.bitPerfect,
             usbDirect = p[Keys.usbDirect] ?: d.usbDirect,
             usbVolume = p[Keys.usbVolume] ?: d.usbVolume,

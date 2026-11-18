@@ -1583,4 +1583,8 @@
     <string name="nav_menu">"下のメニュー"</string>
     <string name="nav_menu_desc">"下のメニューに出す画面を選びます。設定は常に出ます。出していない画面は、設定から開けます(ディスクは「CDの取り込み」、ライブラリとストリーミングは「音楽プレーヤー」、アップサンプルとエージングは「全般」の欄)。"</string>
     <string name="nav_not_in_menu">"下のメニューに出していない画面"</string>
+    <string name="vu_face">"文字盤"</string>
+    <string name="vu_face_warm">"暖色"</string>
+    <string name="vu_face_cool">"寒色"</string>
+    <string name="vu_face_white">"白盤"</string>
 </resources>
