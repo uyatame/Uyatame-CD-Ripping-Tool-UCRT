@@ -864,6 +864,7 @@
     <string name="this_is_data_cd_only">"データCDです。音楽CDのみ再生・取り込みできます"</string>
     <string name="this_is_disc_gb_only">"%1$s（%2$s GB）のディスクです。音楽CDのみ再生・取り込みできます"</string>
     <string name="this_output_doesnt_accept_integer">"この出力先は%1$sの整数倍の周波数に対応していないため、整数倍でない変換で%2$sに合わせています"</string>
+    <string name="output_resampled_to_fit">"%1$sはこの出力で直接出せないため、%2$sに変換して再生しています"</string>
     <string name="this_resets_recently_played_and">"「最近再生」と「よく聴く曲」がリセットされます"</string>
     <string name="this_rewrites_title_artist_album">"%1$s曲のファイルの曲名・アーティスト・アルバム名・発売年を書き換えます。ジャケット画像が見つかれば差し替えます。WAVファイルは対象外です。"</string>
     <string name="tints_player_background_to_match">"再生画面の背景をジャケットの色合いにします"</string>
@@ -1134,6 +1135,10 @@
     <string name="up_dsd_convert">"DSD変換"</string>
     <string name="up_dsre_desc">"圧縮音源やCDの音で欠けている高い音を、倍音を作って補い、高いサンプリング周波数で書き出します"</string>
     <string name="up_dsd_desc">"PCMとDSD（DSF/DFF）の相互変換、DSDの周波数の変換、PCMの周波数・ビット数の変換をします"</string>
+    <string name="up_hybrid">"DSRE+DSD"</string>
+    <string name="up_hybrid_desc">"DSREで高域を補ってから、DSDまたはPCMに変換します"</string>
+    <string name="up_hybrid_rate_note">"DSREの動作レートはDSDの系統で決まります（352.8 / 384 kHz）。プリセットのレートは使われません"</string>
+    <string name="up_hybrid_rate_note_pcm">"DSREの動作レートは、書き出しのPCMレートで決まります。プリセットのレートは使われません"</string>
     <string name="up_queue">"変換する曲（%1$d）"</string>
     <string name="up_add">"曲を追加"</string>
     <string name="up_clear_done">"終わった曲を消す"</string>
@@ -1186,6 +1191,11 @@
     <string name="dsre_clear">"クリア"</string>
     <string name="dsre_strong">"強め"</string>
     <string name="dsre_light">"控えめ"</string>
+    <string name="dsre_pure">"純正"</string>
+    <string name="dsre_engine">"エンジン"</string>
+    <string name="dsre_engine_legacy">"従来"</string>
+    <string name="dsre_engine_pure">"純正"</string>
+    <string name="dsre_width_pure_note">"純正エンジンでは、広がりを狭める方向 (1.00 未満) は効きません"</string>
     <string name="dsre_save_preset">"プリセットを保存"</string>
     <string name="dsre_preset_name">"名前"</string>
     <string name="dsre_export">"書き出す"</string>

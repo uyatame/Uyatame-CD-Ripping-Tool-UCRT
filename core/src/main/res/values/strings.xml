@@ -868,6 +868,7 @@
     <string name="this_is_data_cd_only">"This is a data CD. Only audio CDs can be played or ripped"</string>
     <string name="this_is_disc_gb_only">"This is a %1$s disc (%2$s GB). Only audio CDs can be played or ripped"</string>
     <string name="this_output_doesnt_accept_integer">"This output doesn't accept integer multiples of %1$s, so it is converted to %2$s (non-integer)"</string>
+    <string name="output_resampled_to_fit">"%1$s can't be output directly here, so it is resampled to %2$s for playback"</string>
     <string name="this_resets_recently_played_and">"This resets \"Recently played\" and \"Most played\""</string>
     <string name="this_rewrites_title_artist_album">"This rewrites the title, artist, album, and year in %1$s files. Cover art is replaced if found. WAV files are skipped."</string>
     <string name="tints_player_background_to_match">"Tints the player background to match the album art"</string>
@@ -1138,6 +1139,10 @@
     <string name="up_dsd_convert">"DSD conversion"</string>
     <string name="up_dsre_desc">"Restores the high frequencies missing from compressed or CD-quality audio by generating harmonics, then writes it at a higher sample rate"</string>
     <string name="up_dsd_desc">"Converts between PCM and DSD (DSF/DFF), between DSD rates, and between PCM rates and bit depths"</string>
+    <string name="up_hybrid">"DSRE+DSD"</string>
+    <string name="up_hybrid_desc">"Restores the high frequencies with DSRE first, then converts to DSD or PCM"</string>
+    <string name="up_hybrid_rate_note">"The DSRE rate follows the DSD family (352.8 / 384 kHz). The preset rate is not used."</string>
+    <string name="up_hybrid_rate_note_pcm">"The DSRE rate follows the PCM output rate. The preset rate is not used."</string>
     <string name="up_queue">"Files (%1$d)"</string>
     <string name="up_add">"Add"</string>
     <string name="up_clear_done">"Clear finished"</string>
@@ -1190,6 +1195,11 @@
     <string name="dsre_clear">"Clear"</string>
     <string name="dsre_strong">"Strong"</string>
     <string name="dsre_light">"Light"</string>
+    <string name="dsre_pure">"Pure"</string>
+    <string name="dsre_engine">"Engine"</string>
+    <string name="dsre_engine_legacy">"Classic"</string>
+    <string name="dsre_engine_pure">"Pure"</string>
+    <string name="dsre_width_pure_note">"With the Pure engine, narrowing the width (below 1.00) has no effect"</string>
     <string name="dsre_save_preset">"Save preset"</string>
     <string name="dsre_preset_name">"Name"</string>
     <string name="dsre_export">"Export"</string>

@@ -42,6 +42,8 @@ data class DsreParams(
             DsreParams("clear", 12, 0.55f, 96000, 1.05f, 1.10f),
             DsreParams("strong", 16, 0.70f, 192000, 1.10f, 1.20f),
             DsreParams("light", 4, 0.25f, 48000, 1.00f, 1.00f),
+            // 純正エンジンの原典既定 (harmonic_intensity 1.0 / width 1.15 / dynamic 1.12 に対応)
+            DsreParams("pure", 8, 0.45f, 96000, 1.15f, 1.12f),
         )
 
         fun fromJson(o: JSONObject): DsreParams = DsreParams(

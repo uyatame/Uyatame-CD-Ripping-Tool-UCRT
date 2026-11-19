@@ -487,7 +487,14 @@ class AudioOutput(
             dacSession = -1
             // DAR の PCM アップサンプリング: 出力先(イヤホンジャックなど)が受け付ける周波数まで、アプリの中で上げてから渡す
             val target = OutputDevices.route(ctx, AudioEngine.preferredKey)
-            val outRate = if (dar && !exact && channels in 1..2) normalDarRate(target) else sampleRate
+            val darRate = if (dar && !exact && channels in 1..2) normalDarRate(target) else sampleRate
+            // 元の周波数が枠組みの上限 (192 kHz) を超えていて AudioTrack を作れないとき (352.8 / 384 kHz など) は、
+            // DAR の指定がなくても、出力先が受け付ける周波数へ落として鳴らす (曲を飛ばさない)
+            var directFallback = false
+            val outRate = if (darRate == sampleRate && channels in 1..2 && !formatRateOk(sampleRate)) {
+                directFallback = true
+                fallbackRate(target)
+            } else darRate
             // 整数倍なら 1 段(Upsampler)で。そうでなければ 2 のべき乗倍で近くまで上げてから、残りを RationalResampler で合わせる
             val nf = if (outRate % sampleRate == 0) outRate / sampleRate
             else Integer.highestOneBit((outRate / sampleRate).coerceAtLeast(1))
@@ -505,20 +512,28 @@ class AudioOutput(
                 runCatching { usbDac.close(reattach = true) }
             }
             if (outRate != sampleRate) {
-                val how = if (frac != null) "×%.3f".format(java.util.Locale.US, outRate.toDouble() / sampleRate) else "×$nf"
-                AudioEngine.report(
-                    false,
-                    S(R.string.dar_pcm_upsampling) + " · ${khz(sampleRate)} → ${khz(outRate)}",
-                    "DAR · PCM $how · ${khz(sampleRate)} → ${khz(outRate)} / 32 bit float · " +
-                        AudioEngine.bitrateText(outRate.toLong() * 32 * channels),
-                    if (forcedFrac) {
-                        S(R.string.this_output_doesnt_accept_integer, khz(sampleRate), khz(outRate))
-                    } else "",
-                )
-                AudioEngine.log(
-                    "dar: normal output x$nf ${khz(sampleRate)} -> ${khz(sampleRate * nf)}" +
-                        (frac?.let { " -> ${khz(outRate)} (${it.up}/${it.down})" } ?: "") + " (${target?.name}, type ${target?.type})",
-                )
+                if (directFallback) {
+                    AudioEngine.report(false, S(R.string.output_resampled_to_fit, khz(sampleRate), khz(outRate)))
+                    AudioEngine.log(
+                        "output: ${khz(sampleRate)} is not a valid track rate; resampling to ${khz(outRate)}" +
+                            (frac?.let { " (${it.up}/${it.down})" } ?: "") + " (${target?.name}, type ${target?.type})",
+                    )
+                } else {
+                    val how = if (frac != null) "×%.3f".format(java.util.Locale.US, outRate.toDouble() / sampleRate) else "×$nf"
+                    AudioEngine.report(
+                        false,
+                        S(R.string.dar_pcm_upsampling) + " · ${khz(sampleRate)} → ${khz(outRate)}",
+                        "DAR · PCM $how · ${khz(sampleRate)} → ${khz(outRate)} / 32 bit float · " +
+                            AudioEngine.bitrateText(outRate.toLong() * 32 * channels),
+                        if (forcedFrac) {
+                            S(R.string.this_output_doesnt_accept_integer, khz(sampleRate), khz(outRate))
+                        } else "",
+                    )
+                    AudioEngine.log(
+                        "dar: normal output x$nf ${khz(sampleRate)} -> ${khz(sampleRate * nf)}" +
+                            (frac?.let { " -> ${khz(outRate)} (${it.up}/${it.down})" } ?: "") + " (${target?.name}, type ${target?.type})",
+                    )
+                }
             } else if (!AudioEngine.wantUsbDirect) AudioEngine.report(false, "")
             val stereo = if (channels == 1) AFormat.CHANNEL_OUT_MONO else AFormat.CHANNEL_OUT_STEREO
             // 1.5) 内蔵 DAC への DoP(DoP の出力を頼まれていて、端末が 24bit PCM の直接再生を申告しているとき)。
@@ -606,6 +621,19 @@ class AudioOutput(
             // そうでなければ、出力先が受け付けるいちばん高い周波数
             else -> listOfNotNull(integer, other).maxOrNull() ?: sampleRate
         }
+    }
+
+    /** その周波数の AudioFormat を作れるか (枠組みの上限 192 kHz を超えると作れない) */
+    private fun formatRateOk(rate: Int): Boolean =
+        runCatching {
+            AFormat.Builder().setSampleRate(rate).setChannelMask(AFormat.CHANNEL_OUT_STEREO)
+                .setEncoding(AFormat.ENCODING_PCM_FLOAT).build()
+        }.isSuccess
+
+    /** 直接出せない周波数の代わり (出力先が受け付けるいちばん高い周波数。分からなければ 48 kHz) */
+    private fun fallbackRate(dev: OutputRoute?): Int {
+        val cands = dev?.rates?.filter { it in 4000..192000 && formatRateOk(it) }.orEmpty()
+        return cands.maxOrNull() ?: 48000
     }
 
     /** 通常の出力で、その周波数の AudioTrack を本当に作れるか(作ってすぐ捨てる。結果は覚えておく) */
@@ -903,6 +931,9 @@ class AudioOutput(
             if (fbuf2.size < n) fbuf2 = FloatArray(n)
             u.process(fbuf, frames, fbuf2)
             writeFrac(fbuf2, frames * upFactor, stop)
+        } else if (frac != null) {
+            // 整数倍の段は無く、周波数の変換だけがある場合 (直接出せない高い周波数を落とすときなど)
+            writeFrac(fbuf, frames, stop)
         } else {
             writeTrack(fbuf, samples, stop)
         }
