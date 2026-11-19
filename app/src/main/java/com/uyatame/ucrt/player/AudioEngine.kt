@@ -501,7 +501,12 @@ class AudioOutput(
             upFactor = nf
             trackRate = outRate
             up = if (nf > 1) Upsampler(nf, channels) else null
-            frac = if (outRate != sampleRate * nf) RationalResampler(sampleRate * nf, outRate, channels) else null
+            // 周波数を下げるとき(直接出せない 384 kHz を 48 kHz にするなど)は、下げる割合に合わせてフィルターを長くする
+            // (短いままだと、出力のナイキスト周波数より上の音が折り返して聞こえる帯域に戻ってくる)
+            frac = if (outRate != sampleRate * nf) {
+                val ratio = (sampleRate * nf + outRate - 1) / outRate
+                RationalResampler(sampleRate * nf, outRate, channels, taps = 24 * ratio.coerceIn(1, 16))
+            } else null
             val cores = Runtime.getRuntime().availableProcessors()
             pipe = if (up != null && channels == 2 && cores >= 4) {
                 UpsamplePipeline(nf) { buf, n, _ -> writeFrac(buf, n) }
