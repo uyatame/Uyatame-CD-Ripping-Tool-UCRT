@@ -76,6 +76,7 @@ private fun builtinName(p: DsreParams): String = when (p.name) {
     "natural" -> S(R.string.dsre_natural)
     "clear" -> S(R.string.dsre_clear)
     "strong" -> S(R.string.dsre_strong)
+    "pure" -> S(R.string.dsre_pure)
     else -> S(R.string.dsre_light)
 }
 
@@ -106,23 +107,31 @@ fun UpsampleScreen(vm: MainViewModel, s: AppSettings) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             ScreenHeader(S(R.string.upsample))
-            // ---- DSRE か DSD 変換か ----
+            // ---- DSRE か DSD 変換か、ハイブリッドか ----
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                listOf("DSRE", S(R.string.up_dsd_convert)).forEachIndexed { i, label ->
+                listOf("DSRE", S(R.string.up_dsd_convert), S(R.string.up_hybrid)).forEachIndexed { i, label ->
                     SegmentedButton(
                         selected = spec.mode == i, onClick = { if (!running) save(spec.copy(mode = i, format = defaultFormat(spec, i))) },
-                        shape = SegmentedButtonDefaults.itemShape(i, 2), enabled = !running,
+                        shape = SegmentedButtonDefaults.itemShape(i, 3), enabled = !running,
                     ) { Text(label, maxLines = 1) }
                 }
             }
             Text(
-                if (spec.mode == 0) S(R.string.up_dsre_desc) else S(R.string.up_dsd_desc),
+                when (spec.mode) {
+                    0 -> S(R.string.up_dsre_desc)
+                    2 -> S(R.string.up_hybrid_desc)
+                    else -> S(R.string.up_dsd_desc)
+                },
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             // ---- 曲の並び ----
             QueueCard(running, onAdd = { pick.launch(arrayOf("audio/*", "application/octet-stream")) })
             // ---- 変換の設定 ----
-            if (spec.mode == 0) DsreCard(vm, s, spec, running, ::save) else DsdCard(spec, running, ::save)
+            when (spec.mode) {
+                0 -> DsreCard(vm, s, spec, running, ::save)
+                2 -> HybridCard(vm, s, spec, running, ::save)
+                else -> DsdCard(spec, running, ::save)
+            }
             EditCard(spec, running, ::save)
             // ---- 書き出し先 ----
             Section(S(R.string.up_output_folder)) {
@@ -156,9 +165,11 @@ fun UpsampleScreen(vm: MainViewModel, s: AppSettings) {
     }
 }
 
-/** 切り替えたときの出力の形式(DSRE は PCM だけ) */
-private fun defaultFormat(spec: ConvertSpec, mode: Int): OutFormat =
-    if (mode == 0 && spec.format.dsd) OutFormat.FLAC else spec.format
+/** 切り替えたときの出力の形式(DSRE は PCM だけ。ハイブリッドは DSD / PCM どちらも可なので形式はそのまま) */
+private fun defaultFormat(spec: ConvertSpec, mode: Int): OutFormat = when {
+    mode == 0 && spec.format.dsd -> OutFormat.FLAC
+    else -> spec.format
+}
 
 @Composable
 private fun QueueCard(running: Boolean, onAdd: () -> Unit) {
@@ -246,18 +257,41 @@ private fun DsdCard(spec: ConvertSpec, running: Boolean, save: (ConvertSpec) -> 
             if (it != dsd) save(spec.copy(format = if (it) OutFormat.DSF else OutFormat.FLAC))
         }
         if (dsd) {
-            Chips(S(R.string.up_format), listOf(OutFormat.DSF, OutFormat.DFF), spec.format, !running, { it.name }) { save(spec.copy(format = it)) }
-            val fam48 = spec.dsdRate % 48000 == 0
-            Chips(S(R.string.up_dsd_rate), DSD_RATES.filter { (it % 48000 == 0) == fam48 }, spec.dsdRate, !running, {
-                dsdLabel(it) + " (" + "%.1f".format(java.util.Locale.US, it / 1e6) + " MHz)"
-            }) { save(spec.copy(dsdRate = it)) }
-            Chips(S(R.string.up_dsd_family), listOf(false, true), fam48, !running, { if (it) S(R.string.up_family_48) else S(R.string.up_family_44) }) {
-                if (it != fam48) {
-                    val mult = spec.dsdRate / (if (fam48) 3072000 else 2822400)
-                    save(spec.copy(dsdRate = (if (it) 3072000 else 2822400) * mult))
-                }
-            }
-            Text(S(R.string.up_dsd_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            DsdOutputOptions(spec, running, save)
+        } else {
+            PcmOptions(spec, running, PCM_RATES, save)
+        }
+    }
+}
+
+/** DSD の書き出しの選択肢(形式・周波数・系統)。DSD 変換とハイブリッドで共用する */
+@Composable
+private fun DsdOutputOptions(spec: ConvertSpec, running: Boolean, save: (ConvertSpec) -> Unit) {
+    Chips(S(R.string.up_format), listOf(OutFormat.DSF, OutFormat.DFF), spec.format, !running, { it.name }) { save(spec.copy(format = it)) }
+    val fam48 = spec.dsdRate % 48000 == 0
+    Chips(S(R.string.up_dsd_rate), DSD_RATES.filter { (it % 48000 == 0) == fam48 }, spec.dsdRate, !running, {
+        dsdLabel(it) + " (" + "%.1f".format(java.util.Locale.US, it / 1e6) + " MHz)"
+    }) { save(spec.copy(dsdRate = it)) }
+    Chips(S(R.string.up_dsd_family), listOf(false, true), fam48, !running, { if (it) S(R.string.up_family_48) else S(R.string.up_family_44) }) {
+        if (it != fam48) {
+            val mult = spec.dsdRate / (if (fam48) 3072000 else 2822400)
+            save(spec.copy(dsdRate = (if (it) 3072000 else 2822400) * mult))
+        }
+    }
+    Text(S(R.string.up_dsd_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+/** ハイブリッドの設定(DSRE の設定 + 書き出し)。書き出しは DSD / PCM を選べる(DSD 変換と同じ切替) */
+@Composable
+private fun HybridCard(vm: MainViewModel, s: AppSettings, spec: ConvertSpec, running: Boolean, save: (ConvertSpec) -> Unit) {
+    DsreCard(vm, s, spec, running, save, hybrid = true)
+    Section(S(R.string.up_output)) {
+        val dsd = spec.format.dsd
+        Chips(S(R.string.up_output_kind), listOf(true, false), dsd, !running, { if (it) "DSD" else "PCM" }) {
+            if (it != dsd) save(spec.copy(format = if (it) OutFormat.DSF else OutFormat.FLAC))
+        }
+        if (dsd) {
+            DsdOutputOptions(spec, running, save)
         } else {
             PcmOptions(spec, running, PCM_RATES, save)
         }
@@ -265,7 +299,7 @@ private fun DsdCard(spec: ConvertSpec, running: Boolean, save: (ConvertSpec) -> 
 }
 
 @Composable
-private fun DsreCard(vm: MainViewModel, s: AppSettings, spec: ConvertSpec, running: Boolean, save: (ConvertSpec) -> Unit) {
+private fun DsreCard(vm: MainViewModel, s: AppSettings, spec: ConvertSpec, running: Boolean, save: (ConvertSpec) -> Unit, hybrid: Boolean = false) {
     val ctx = LocalContext.current
     val p = spec.dsre
     val users = remember(s.dsrePresets) { userPresets(s.dsrePresets) }
@@ -311,6 +345,10 @@ private fun DsreCard(vm: MainViewModel, s: AppSettings, spec: ConvertSpec, runni
         )
     }
     Section(S(R.string.dsre_settings)) {
+        // ---- エンジン (従来 / 純正) ----
+        Chips(S(R.string.dsre_engine), listOf(0, 1), spec.dsreEngine, !running, { if (it == 1) S(R.string.dsre_engine_pure) else S(R.string.dsre_engine_legacy) }) {
+            if (it != spec.dsreEngine) save(spec.copy(dsreEngine = it))
+        }
         // ---- プリセット ----
         Text(S(R.string.dsre_presets), style = MaterialTheme.typography.bodyLarge)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -341,11 +379,19 @@ private fun DsreCard(vm: MainViewModel, s: AppSettings, spec: ConvertSpec, runni
         IntSlider(S(R.string.dsre_width), (p.width * 100).toInt(), 50..150, { "%.2f".format(java.util.Locale.US, it / 100f) }, S(R.string.dsre_width_desc)) {
             setP(p.copy(name = "", width = it / 100f))
         }
+        if (spec.dsreEngine == 1) {
+            Text(S(R.string.dsre_width_pure_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         IntSlider(S(R.string.dsre_dynamic), (p.dynamic * 100).toInt(), 100..150, { "%.2f".format(java.util.Locale.US, it / 100f) }, S(R.string.dsre_dynamic_desc)) {
             setP(p.copy(name = "", dynamic = it / 100f))
         }
-        Chips(S(R.string.up_rate), DsreParams.RATES, p.rate, !running, { khzLabel(it) + " kHz" }) { setP(p.copy(name = "", rate = it)) }
-        PcmOptions(spec, running, null, save)
+        if (hybrid) {
+            // ハイブリッドでは DSRE の動作レートは書き出しで決まる (DSD は系統の 352.8 / 384 kHz、PCM は PCM レート) ので、レートの選択は出さない
+            Text(S(if (spec.format.dsd) R.string.up_hybrid_rate_note else R.string.up_hybrid_rate_note_pcm), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Chips(S(R.string.up_rate), DsreParams.RATES, p.rate, !running, { khzLabel(it) + " kHz" }) { setP(p.copy(name = "", rate = it)) }
+            PcmOptions(spec, running, null, save)
+        }
     }
 }
 

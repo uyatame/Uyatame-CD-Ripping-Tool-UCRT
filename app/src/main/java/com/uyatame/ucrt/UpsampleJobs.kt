@@ -89,8 +89,11 @@ object UpsampleJobs {
     fun start(ctx: Context, s: ConvertSpec, tree: Uri) {
         if (running) return
         if (items.none { it.state != State.DONE }) return
-        // DSRE は PCM にしか書き出さない
-        spec = if (s.mode == 0 && s.format.dsd) s.copy(format = com.uyatame.ucrt.convert.OutFormat.FLAC) else s
+        // DSRE は PCM にしか書き出さない(ハイブリッドは DSD / PCM どちらも可)
+        spec = when {
+            s.mode == 0 && s.format.dsd -> s.copy(format = com.uyatame.ucrt.convert.OutFormat.FLAC)
+            else -> s
+        }
         outTree = tree
         cancel = false
         running = true

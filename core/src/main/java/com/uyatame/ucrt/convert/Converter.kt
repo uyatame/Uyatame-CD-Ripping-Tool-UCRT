@@ -25,7 +25,8 @@ enum class OutFormat(val ext: String, val dsd: Boolean, val mime: String) {
 
 /**
  * 変換の設定(アップサンプルのタブの、ファイルごとに共通の設定)。
- * mode 0 = DSRE(高域を補ってアップサンプリング)、1 = DSD 変換(PCM ↔ DSD・DSD → DSD・PCM → PCM)
+ * mode 0 = DSRE(高域を補ってアップサンプリング)、1 = DSD 変換(PCM ↔ DSD・DSD → DSD・PCM → PCM)、
+ * 2 = ハイブリッド(DSRE で高域を補ってから DSD に変換。フォーク側の追加)
  */
 data class ConvertSpec(
     val mode: Int = 1,
@@ -48,6 +49,8 @@ data class ConvertSpec(
     val trimEnd: Boolean = false,
     /** 無音とみなす大きさ(dBFS) */
     val trimDb: Float = -60f,
+    /** DSRE のエンジン (0 = 従来、1 = 純正 (Urabewe 原典))。このフォークの既定は純正 */
+    val dsreEngine: Int = 1,
 ) {
     val outRate: Int get() = if (mode == 0) dsre.rate else pcmRate
 }
@@ -110,7 +113,7 @@ class Converter internal constructor(
             var last = -1L
             var pos = 0L
             // 帯域を調べる(DSRE): 曲の中の 48 か所で 4096 点の FFT をし、平均する
-            val wantSpec = spec.mode == 0
+            val wantSpec = spec.mode != 1
             val nfft = 4096
             val spec2 = DoubleArray(nfft / 2)
             var windows = 0
@@ -230,7 +233,7 @@ class Converter internal constructor(
     fun convert(uri: Uri?, name: String, spec: ConvertSpec, out: SeekOut, tags: OutTags?, prog: ConvertProgress, cancel: () -> Boolean) {
         val pre = opener(uri, name).use { it.decoder.let { d -> Triple(d.sampleRate, d.channels, d.totalSamples) } }
         val (srcRate, ch, total0) = pre
-        val needAnalysis = spec.normalize || spec.trimStart || spec.trimEnd || spec.fadeOut || spec.mode == 0
+        val needAnalysis = spec.normalize || spec.trimStart || spec.trimEnd || spec.fadeOut || spec.mode != 1
         val an = if (needAnalysis) analyze(uri, name, spec, total0, { f, _ -> prog.update(f * 0.25f, true) }, cancel) else null
         val total = an?.frames ?: total0
         val p0 = if (an != null) 0.25f else 0f
@@ -255,7 +258,9 @@ class Converter internal constructor(
             else -> srcRate
         }
         val res = Resample(srcRate, rate, ch)
-        val dsre = if (spec.mode == 0) Dsre(rate, ch, spec.dsre, an?.cutHz ?: (srcRate / 2.0 * 0.95)) else null
+        val dsre = if (spec.mode != 1 && spec.dsreEngine == 0) Dsre(rate, ch, spec.dsre, an?.cutHz ?: (srcRate / 2.0 * 0.95)) else null
+        val pure = if (spec.mode != 1 && spec.dsreEngine == 1) PureDsreStream(rate, ch, spec.dsre, an?.cutHz ?: (srcRate / 2.0 * 0.95)) else null
+        var pureSkip = pure?.latency?.toLong() ?: 0L
         val ceiling = when {
             dsdOut -> 1.0f
             spec.normalize -> minOf(0.999f, 10.0.pow(spec.normalizeDb / 20.0).toFloat())
@@ -266,7 +271,7 @@ class Converter internal constructor(
         var limSkip = lim.latency.toLong()
         log(
             "convert: $name ${srcRate}Hz ${ch}ch -> " + (if (dsdOut) "${spec.format} ${spec.dsdRate}Hz" else "${spec.format} ${rate}Hz ${spec.bits}bit") +
-                (if (dsre != null) " dsre order ${dsre.order}" else "") +
+                (if (dsre != null) " dsre order ${dsre.order}" else if (pure != null) " dsre pure" else "") + (if (spec.mode == 2) " (hybrid)" else "") +
                 (if (normGain != 1f) " gain ${"%.2f".format(20 * log10(normGain.toDouble()))}dB" else "") +
                 (if (keepFrom > 0 || keepTo < total) " keep $keepFrom..$keepTo" else ""),
         )
@@ -313,6 +318,20 @@ class Converter internal constructor(
             dsdW!!.write(bits, counts[0])
         }
 
+        /** 純正 DSRE のあとの音 (遅れの分を捨ててからリミッター → 書き出し) */
+        fun afterDsre(buf: FloatArray, framesIn: Int) {
+            var frames = framesIn
+            var off = 0
+            if (pureSkip > 0) {
+                val d = minOf(pureSkip, frames.toLong()).toInt()
+                pureSkip -= d; off = d; frames -= d
+            }
+            if (frames <= 0) return
+            if (off > 0) System.arraycopy(buf, off * ch, buf, 0, frames * ch)
+            lim.process(buf, frames)
+            emit(buf, frames)
+        }
+
         var processed = 0L
         try {
             opener(uri, name).use { o ->
@@ -344,9 +363,14 @@ class Converter internal constructor(
                         if (outBuf.size < cap) outBuf = FloatArray(cap)
                         val k = res.process(inBuf, m, outBuf)
                         if (k > 0) {
-                            dsre?.process(outBuf, k)
-                            lim.process(outBuf, k)
-                            emit(outBuf, k)
+                            if (pure != null) {
+                                pure.process(outBuf, k)
+                                afterDsre(outBuf, k)
+                            } else {
+                                dsre?.process(outBuf, k)
+                                lim.process(outBuf, k)
+                                emit(outBuf, k)
+                            }
                         }
                     }
                     processed = pos
@@ -358,9 +382,23 @@ class Converter internal constructor(
                 while (true) {
                     val k = res.finish(outBuf)
                     if (k <= 0) break
-                    dsre?.process(outBuf, k)
-                    lim.process(outBuf, k)
-                    emit(outBuf, k)
+                    if (pure != null) {
+                        pure.process(outBuf, k)
+                        afterDsre(outBuf, k)
+                    } else {
+                        dsre?.process(outBuf, k)
+                        lim.process(outBuf, k)
+                        emit(outBuf, k)
+                    }
+                }
+                if (pure != null) {
+                    // 純正 DSRE の残り (遅れていた分)。ここから先は全部が本物の音なので、捨てる分は無い
+                    val ptail = FloatArray(pure.latency * ch)
+                    val pk = pure.flush(ptail)
+                    if (pk > 0) {
+                        pureSkip = 0
+                        afterDsre(ptail, pk)
+                    }
                 }
                 val tail = FloatArray(lim.latency * ch)
                 val k = lim.flush(tail)
@@ -396,6 +434,7 @@ fun ConvertSpec.encode(): String = org.json.JSONObject()
     .put("normalize", normalize).put("normalizeDb", normalizeDb.toDouble())
     .put("fadeIn", fadeIn).put("fadeInSec", fadeInSec.toDouble()).put("fadeOut", fadeOut).put("fadeOutSec", fadeOutSec.toDouble())
     .put("trimStart", trimStart).put("trimEnd", trimEnd).put("trimDb", trimDb.toDouble())
+    .put("dsreEngine", dsreEngine)
     .toString()
 
 /** 保存した設定を読む(読めない項目は初期値) */
@@ -405,7 +444,7 @@ fun decodeConvertSpec(raw: String?): ConvertSpec {
     return runCatching {
         val o = org.json.JSONObject(raw)
         ConvertSpec(
-            mode = o.optInt("mode", d.mode).coerceIn(0, 1),
+            mode = o.optInt("mode", d.mode).coerceIn(0, 2),
             format = runCatching { OutFormat.valueOf(o.optString("format")) }.getOrDefault(d.format),
             pcmRate = o.optInt("pcmRate", d.pcmRate),
             bits = o.optInt("bits", d.bits).let { if (it in setOf(16, 24, 32)) it else 24 },
@@ -420,6 +459,7 @@ fun decodeConvertSpec(raw: String?): ConvertSpec {
             trimStart = o.optBoolean("trimStart", d.trimStart),
             trimEnd = o.optBoolean("trimEnd", d.trimEnd),
             trimDb = o.optDouble("trimDb", d.trimDb.toDouble()).toFloat().coerceIn(-90f, -30f),
+            dsreEngine = o.optInt("dsreEngine", d.dsreEngine).coerceIn(0, 1),
         )
     }.getOrDefault(d)
 }

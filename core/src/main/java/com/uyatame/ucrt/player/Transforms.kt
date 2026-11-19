@@ -64,7 +64,7 @@ internal class Imdct(private val n: Int, scale: Double = 2.0 / n) {
     }
 }
 
-/** 大きさ 2^k の複素 FFT(順方向、その場で) */
+/** 大きさ 2^k の複素 FFT(その場で)。順方向はスケーリングなし、逆方向は 1/n を掛ける */
 internal class Fft(private val n: Int) {
     private val rev = IntArray(n)
     private val cosT = FloatArray(n / 2)
@@ -111,6 +111,17 @@ internal class Fft(private val n: Int) {
                 i += len
             }
             len *= 2
+        }
+    }
+
+    /** 逆 FFT(順方向と対になる。共役を取って順方向に通し、共役を戻して 1/n を掛ける) */
+    fun runInverse(re: FloatArray, im: FloatArray) {
+        for (i in 0 until n) im[i] = -im[i]
+        run(re, im)
+        val s = 1f / n
+        for (i in 0 until n) {
+            re[i] *= s
+            im[i] = -im[i] * s
         }
     }
 }
