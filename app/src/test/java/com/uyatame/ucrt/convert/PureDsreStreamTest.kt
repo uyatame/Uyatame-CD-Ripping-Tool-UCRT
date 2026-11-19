@@ -87,7 +87,7 @@ class PureDsreStreamTest {
     @Test
     fun matchesWholeInInterior() {
         val rate = 48000
-        val frames = 1 shl 20 // 全長版が扱える 2 の冪
+        val frames = 1 shl 21 // 全長版が扱える 2 の冪。窓(FFT_SIZE = 2^19)の 4 つ分にして、両端の窓 1 つ分を除いた内側が残るようにする
         val input = signal(frames, rate, 77)
         val streamed = runStream(input, frames, rate, 65536)
         val wholeBuf = input.copyOf()
