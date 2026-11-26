@@ -74,7 +74,7 @@ data class AppSettings(
     /** ストリーミングのタブで Spotify の機能(ログインしてライブラリを探し、公式 Spotify アプリで再生)を使う */
     val spotifyEnabled: Boolean = false,
     /** AirPlay 受信 (iPhone・iPad・Mac から受け取って UCRT で再生する) */
-    val airplayEnabled: Boolean = true,
+    val airplayEnabled: Boolean = false,
     /** AirPlay の送り先に出る受信機の名前 */
     val airplayName: String = "UCRT",
     /** USB DAC 直接出力の音切れ対策(試験的。端末の省電力で転送が遅れるのを防ぐ) */
