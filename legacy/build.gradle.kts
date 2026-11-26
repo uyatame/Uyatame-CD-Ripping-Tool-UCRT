@@ -78,6 +78,9 @@ tasks.matching { it.name.contains("Assets") || it.name.contains("Lint", ignoreCa
 }
 
 dependencies {
+    // AirPlay 受信(core の airplay パッケージ)が使う Ed25519 / X25519(app と同じ)
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+
     // MP3 で取り込む(LAME の Java 版。app と同じ)
     implementation("de.sciss:jump3r:1.0.5")
     // USB DAC への直接出力(usbfs を直接呼ぶ。app と同じ)

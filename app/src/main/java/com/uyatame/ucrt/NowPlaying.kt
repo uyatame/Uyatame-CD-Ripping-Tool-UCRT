@@ -1050,7 +1050,9 @@ private fun SeekBar(
     style: String = "default",
     onDone: () -> Unit,
 ) {
-    val frac = seeking ?: (p.positionMs.toFloat() / dur).coerceIn(0f, 1f)
+    // 長さが分からない曲 (AirPlay 受信などのライブ) は、経過時間だけを出す
+    val live = p.durationMs <= 0
+    val frac = if (live) 0f else seeking ?: (p.positionMs.toFloat() / dur).coerceIn(0f, 1f)
     val colors = if (col.ambient) {
         SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = 0.28f))
     } else SliderDefaults.colors()
@@ -1068,7 +1070,7 @@ private fun SeekBar(
             }
         }
         if (style == "default") {
-            Slider(value = frac, onValueChange = onSeeking, onValueChangeFinished = onDone, colors = colors)
+            Slider(value = frac, onValueChange = onSeeking, onValueChangeFinished = onDone, colors = colors, enabled = !live)
         } else {
             val src = remember { MutableInteractionSource() }
             val thumbColor = if (style == "ticks") col.accent else if (col.ambient) Color.White else MaterialTheme.colorScheme.primary
@@ -1077,6 +1079,7 @@ private fun SeekBar(
                 onValueChange = onSeeking,
                 onValueChangeFinished = onDone,
                 colors = colors,
+                enabled = !live,
                 interactionSource = src,
                 thumb = {
                     if (style == "ticks") Box(Modifier.size(width = 4.dp, height = 22.dp).clip(RoundedCornerShape(2.dp)).background(thumbColor))
@@ -1086,9 +1089,9 @@ private fun SeekBar(
         }
     }
     Row(Modifier.fillMaxWidth()) {
-        Text(fmtMs((frac * dur).toLong()), style = MaterialTheme.typography.labelMedium, color = col.sub)
+        Text(fmtMs(if (live) p.positionMs else (frac * dur).toLong()), style = MaterialTheme.typography.labelMedium, color = col.sub)
         Spacer(Modifier.weight(1f))
-        Text("-" + fmtMs(((1f - frac) * dur).toLong().coerceAtLeast(0)), style = MaterialTheme.typography.labelMedium, color = col.sub)
+        Text(if (live) "LIVE" else "-" + fmtMs(((1f - frac) * dur).toLong().coerceAtLeast(0)), style = MaterialTheme.typography.labelMedium, color = col.sub)
     }
 }
 

@@ -472,6 +472,30 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
         }
     }
 
+    /** 再生中の曲の表示情報だけを差し替える (AirPlay のメタデータ表示などに使う) */
+    fun updateCurrentMetadata(title: String, artist: String, album: String) {
+        val cur = current ?: return
+        if (index !in queue.indices) return
+        val replaced = cur.copy(
+            title = title.ifEmpty { cur.title },
+            artist = artist,
+            album = album,
+        )
+        queue = queue.toMutableList().also { it[index] = replaced }
+        original = original.map { if (it.id == cur.id) replaced else it }
+        changed()
+    }
+
+    /** 再生中の曲のジャケットだけを差し替える (AirPlay のカバー画像などに使う) */
+    fun updateCurrentArt(artKey: String, artCoverUri: String) {
+        val cur = current ?: return
+        if (index !in queue.indices) return
+        val replaced = cur.copy(artKey = artKey, artCoverUri = artCoverUri)
+        queue = queue.toMutableList().also { it[index] = replaced }
+        original = original.map { if (it.id == cur.id) replaced else it }
+        changed()
+    }
+
     /** 前回の再生状態を読み込む(再生はしない。再生ボタンで続きから始まる) */
     fun restore(items: List<PlayItem>, start: Int, posMs: Long, shuffleOn: Boolean, repeat: Int, originalOrder: List<PlayItem> = items) {
         if (items.isEmpty() || current != null) return
@@ -1367,6 +1391,8 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     /** WAV なら直接読む元を作る。WAV として扱えなければ null(理由はログに出す) */
     /** 曲を PCM にするものを開く(再生と、ReplayGain の解析で使う) */
     private fun openSource(item: PlayItem, from: Long): PcmSource {
+        // AirPlay 受信はファイルではないので、ライブ受信の元を返す
+        if (item.uri?.scheme == "ucrt-airplay") return AirPlaySource()
         val uri = fileOf(item.uri ?: throw java.io.IOException("no file"))
         val start = item.startMs + from
         val src = openWav(uri, start) ?: openBuiltin(uri, start) ?: CodecSource(uri, start)
@@ -1538,6 +1564,51 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     }
 
     /** OS 内蔵のデコーダーで PCM にする */
+    /**
+     * AirPlay 受信のライブ音声。受信側 (AirPlayBridge) が用意する PcmDecoder から
+     * PCM を取り、16bit のまま下流 (EQ / アップサンプリング / 出力) へ渡す。
+     * デコーダーが閉じられたら (TEARDOWN など) false を返して曲を終わらせる
+     */
+    private class AirPlaySource : PcmSource() {
+        private val dec = com.uyatame.ucrt.airplay.AirPlayBridge.newPcmDecoder()
+            ?: throw java.io.IOException("AirPlay receiver is not running")
+        private var out = ByteArray(0)
+        private val bb get() = java.nio.ByteBuffer.wrap(out)
+
+        init {
+            dec.open()
+            rate = dec.sampleRate
+            channels = dec.channels
+            bits = 16
+        }
+
+        override fun read(sink: (java.nio.ByteBuffer, Int) -> Unit): Boolean {
+            if (!dec.decodeNext()) return false
+            val n = dec.blockSize
+            if (firstPtsUs < 0) firstPtsUs = dec.frameSample * 1_000_000L / rate
+            val need = n * channels * 2
+            if (out.size < need) out = ByteArray(need)
+            val s = dec.samples
+            var o = 0
+            for (i in 0 until n) {
+                for (c in 0 until channels) {
+                    val v = s[c][i]
+                    out[o] = v.toByte()
+                    out[o + 1] = (v shr 8).toByte()
+                    o += 2
+                }
+            }
+            val b = bb
+            b.limit(o)
+            sink(b, AFormat.ENCODING_PCM_16BIT)
+            return true
+        }
+
+        override fun close() {
+            dec.close()
+        }
+    }
+
     private inner class CodecSource(uri: Uri, fromMs: Long) : PcmSource() {
         /** 途中から再生するとき、ここより前の音は捨てる(キーフレームから読み始めるため、少し前から出てくる) */
         private val trimUs = if (fromMs > 0) fromMs * 1000 else 0L

@@ -73,6 +73,10 @@ data class AppSettings(
     val externalMedia: Boolean = true,
     /** ストリーミングのタブで Spotify の機能(ログインしてライブラリを探し、公式 Spotify アプリで再生)を使う */
     val spotifyEnabled: Boolean = false,
+    /** AirPlay 受信 (iPhone・iPad・Mac から受け取って UCRT で再生する) */
+    val airplayEnabled: Boolean = true,
+    /** AirPlay の送り先に出る受信機の名前 */
+    val airplayName: String = "UCRT",
     /** USB DAC 直接出力の音切れ対策(試験的。端末の省電力で転送が遅れるのを防ぐ) */
     val usbStabilize: Boolean = true,
     /** ほかのアプリに音を取られて止めたあと、戻ってきたら自動で続きを再生する */
@@ -295,6 +299,8 @@ object Keys {
     val trackArt = booleanPreferencesKey("trackArt")
     val externalMedia = booleanPreferencesKey("externalMedia")
     val spotifyEnabled = booleanPreferencesKey("spotifyEnabled")
+    val airplayEnabled = booleanPreferencesKey("airplayEnabled")
+    val airplayName = stringPreferencesKey("airplayName")
     val usbStabilize = booleanPreferencesKey("usbStabilize")
     val autoResume = booleanPreferencesKey("autoResume")
     val autoNextList = booleanPreferencesKey("autoNextList")
@@ -419,6 +425,8 @@ class SettingsRepository(private val context: Context) {
             trackArt = p[Keys.trackArt] ?: d.trackArt,
             externalMedia = p[Keys.externalMedia] ?: d.externalMedia,
             spotifyEnabled = p[Keys.spotifyEnabled] ?: d.spotifyEnabled,
+            airplayEnabled = p[Keys.airplayEnabled] ?: d.airplayEnabled,
+            airplayName = p[Keys.airplayName] ?: d.airplayName,
             usbStabilize = p[Keys.usbStabilize] ?: d.usbStabilize,
             autoResume = p[Keys.autoResume] ?: d.autoResume,
             autoNextList = p[Keys.autoNextList] ?: d.autoNextList,
