@@ -424,10 +424,12 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                     // キャスト(Chromecast)・メニューは、ロック画面では出さない(出力先を変えたり、ライブラリへ移ったり、再生を止めたりできてしまうため)
                     run {
                     val castTo = com.uyatame.ucrt.player.cast.CastManager.connected
+                    val airTo = com.uyatame.ucrt.airplay.AirPlaySendBridge.connected
+                    val casting = castTo != null || airTo != null
                     IconButton({ showCast = true }) {
                         Icon(
-                            if (castTo != null) AppIcons.CastConnected else AppIcons.Cast, S(R.string.cast_title),
-                            tint = if (castTo != null) col.accent else col.content,
+                            if (casting) AppIcons.CastConnected else AppIcons.Cast, S(R.string.cast_title),
+                            tint = if (casting) col.accent else col.content,
                         )
                     }
                     Box {

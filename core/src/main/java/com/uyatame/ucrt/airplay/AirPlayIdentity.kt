@@ -35,6 +35,10 @@ internal class AirPlayIdentity private constructor(
     }
 
     companion object {
+        /** 送信側セッション用の一時 identity (保存しない)。 */
+        fun ephemeral(): AirPlayIdentity =
+            AirPlayIdentity(Ed25519PrivateKeyParameters(SecureRandom()))
+
         fun loadOrCreate(seedFile: File): AirPlayIdentity {
             val seed = try {
                 if (seedFile.isFile) seedFile.readBytes() else null

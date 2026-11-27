@@ -563,6 +563,8 @@
     <string name="airplay_status_playing">"再生中"</string>
     <string name="airplay_client">"接続元"</string>
     <string name="airplay_apply">"変更する"</string>
+    <string name="airplay_send_searching">"同じネットワークのAirPlay受信機を探しています…"</string>
+    <string name="airplay_send_note">"同じWi-FiネットワークのAirPlay受信機へ、再生中の曲を送信します（試験的）。音は受信機の側で再生されるため、UCRTのUSB DAC直接出力・イコライザー・DARは使われません。曲はCD音質（44.1 kHz / 16-bit）で送られます。"</string>
     <string name="streaming_tap_to_open">"タップで開く"</string>
     <string name="quit_app">"終了"</string>
     <string name="quit_app_desc">"再生を止め、USB DACをAndroidに返して（設定で返さないこともできます）、アプリを完全に終了します"</string>

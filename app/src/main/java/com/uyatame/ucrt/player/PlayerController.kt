@@ -278,8 +278,34 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
 
     // ---------------- Chromecast ----------------
 
-    /** Chromecast で再生しているか */
-    val casting: Boolean get() = CastManager.active
+    /** Chromecast / AirPlay のどちらかへ送っているか */
+    val casting: Boolean get() = CastManager.active || com.uyatame.ucrt.airplay.AirPlaySendBridge.active
+
+    /** AirPlay へ送っているか (Chromecast と同時には使わない前提で、付いている方へ振り分ける) */
+    private val airCasting: Boolean
+        get() = com.uyatame.ucrt.airplay.AirPlaySendBridge.active && CastManager.connected == null
+
+    private fun loadCast(item: PlayItem, fromMs: Long, play: Boolean) {
+        if (airCasting) com.uyatame.ucrt.airplay.AirPlaySendBridge.load(item, fromMs, play)
+        else CastManager.load(ctx, item, fromMs, play)
+    }
+
+    private fun stopCastMedia() {
+        if (airCasting) com.uyatame.ucrt.airplay.AirPlaySendBridge.stopMedia()
+        else CastManager.stopMedia()
+    }
+
+    private fun pauseCast() {
+        if (airCasting) com.uyatame.ucrt.airplay.AirPlaySendBridge.pause()
+        else CastManager.pause()
+    }
+
+    /** AirPlay につないだ・切れたとき: 今の曲を、つないだ先(または端末)で同じ位置から続ける */
+    fun onAirPlayConnectionChanged(on: Boolean) {
+        val pos = positionMs
+        val play = isPlaying
+        if (current != null) startCurrent(pos, if (on) play else false)
+    }
 
     private fun initCast() {
         CastManager.onFinished = { if (casting && current != null) next(auto = true) }
@@ -435,7 +461,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
                 val c = cd
                 val f = file
                 if (casting) {
-                    if (current != null) positionMs = CastManager.positionMs().coerceIn(0L, durationMs.takeIf { it > 0 } ?: Long.MAX_VALUE)
+                    if (current != null) positionMs = (if (airCasting) com.uyatame.ucrt.airplay.AirPlaySendBridge.positionMs() else CastManager.positionMs()).coerceIn(0L, durationMs.takeIf { it > 0 } ?: Long.MAX_VALUE)
                 } else if (c != null) {
                     applySwitches(c, c.seg, c.head())
                     if (cd === c) positionMs = c.positionMs()
@@ -694,7 +720,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
      * releaseOutput と違い、USB DAC は Android に返さない(譲った先が、そのまま USB DAC で鳴らすため)
      */
     fun yieldOutput() {
-        if (casting) CastManager.pause()
+        if (casting) pauseCast()
         syncSwitches()
         halt()
         isPlaying = false
@@ -850,12 +876,12 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
             positionMs = fromMs
             if (item.cdTrack != null) {
                 onNotice?.invoke(S(R.string.cast_unsupported_cd))
-                CastManager.stopMedia()
+                stopCastMedia()
                 isPlaying = false
             } else {
                 isPlaying = play
                 if (play) started = true
-                CastManager.load(ctx, item, fromMs, play)
+                loadCast(item, fromMs, play)
             }
             changed()
             return
@@ -972,7 +998,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     fun pause() {
         if (!isPlaying) return
         if (casting) {
-            CastManager.pause()
+            pauseCast()
             isPlaying = false
             changed()
             return
@@ -987,7 +1013,13 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     fun resume() {
         val item = current ?: return
         if (casting) {
-            if (CastManager.isLoaded(item.id)) {
+            if (airCasting) {
+                if (com.uyatame.ucrt.airplay.AirPlaySendBridge.isLoaded(item.id)) {
+                    com.uyatame.ucrt.airplay.AirPlaySendBridge.play()
+                    isPlaying = true
+                    changed()
+                } else startCurrent(positionMs, true)
+            } else if (CastManager.isLoaded(item.id)) {
                 CastManager.play()
                 isPlaying = true
                 changed()
@@ -1079,7 +1111,7 @@ class PlayerController(private val ctx: Context, scope: CoroutineScope) {
     }
 
     fun stop() {
-        if (casting) CastManager.stopMedia()
+        if (casting) stopCastMedia()
         halt()
         sleepAtMs = 0L
         stopAfterTrack = false

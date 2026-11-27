@@ -91,7 +91,7 @@ internal object Playfair {
         }
     }
 
-    private fun zXor(inp: ByteArray, out: ByteArray, blocks: Int) {
+    fun zXor(inp: ByteArray, out: ByteArray, blocks: Int) {
         for (j in 0 until blocks) {
             for (i in 0 until 16) {
                 out[j * 16 + i] = (u(inp[j * 16 + i]) xor u(zKey[i])).toByte()
@@ -99,7 +99,7 @@ internal object Playfair {
         }
     }
 
-    private fun xXor(inp: ByteArray, out: ByteArray, blocks: Int) {
+    fun xXor(inp: ByteArray, out: ByteArray, blocks: Int) {
         for (j in 0 until blocks) {
             for (i in 0 until 16) {
                 out[j * 16 + i] = (u(inp[j * 16 + i]) xor u(xKey[i])).toByte()
@@ -172,7 +172,7 @@ internal object Playfair {
     }
 
     /** 16 バイトの鍵素材を 11 ラウンド分の鍵へ展開する。 */
-    private fun generateKeySchedule(keyMaterial: ByteArray, keySchedule: Array<IntArray>) {
+    fun generateKeySchedule(keyMaterial: ByteArray, keySchedule: Array<IntArray>) {
         val buf = ByteArray(16)
         tXor(keyMaterial, buf)
 
@@ -358,7 +358,7 @@ internal object Playfair {
     }
 
     /** SAP 本体と (復号済み) ハンドシェイクメッセージから 16 バイトのセッション鍵を導く。 */
-    private fun generateSessionKey(oldSap: ByteArray, messageIn: ByteArray): ByteArray {
+    fun generateSessionKey(oldSap: ByteArray, messageIn: ByteArray): ByteArray {
         val decryptedMessage = ByteArray(128)
         decryptMessage(messageIn, decryptedMessage)
 

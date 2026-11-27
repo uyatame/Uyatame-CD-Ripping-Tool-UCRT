@@ -454,6 +454,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         )
         MediaBridge.player = player
         com.uyatame.ucrt.airplay.AirPlayBridge.attachPlayer(player)
+        com.uyatame.ucrt.airplay.AirPlaySendBridge.attachPlayer(player)
         // AirPlay 受信機は設定 (使うか・受信機名) に従って起動・停止する
         viewModelScope.launch {
             settings.collect { s ->

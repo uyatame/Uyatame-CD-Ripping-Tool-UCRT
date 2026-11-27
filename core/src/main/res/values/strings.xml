@@ -567,6 +567,8 @@
     <string name="airplay_status_playing">"Playing"</string>
     <string name="airplay_client">"Source"</string>
     <string name="airplay_apply">"Apply"</string>
+    <string name="airplay_send_searching">"Looking for AirPlay receivers on this network…"</string>
+    <string name="airplay_send_note">"Send the playing song to an AirPlay receiver on the same Wi-Fi network (experimental). The receiver plays the audio, so UCRT's USB DAC direct output, equalizer and DAR aren't used. Songs are sent at CD quality (44.1 kHz / 16-bit)."</string>
     <string name="streaming_tap_to_open">"Tap to open"</string>
     <string name="quit_app">"Quit"</string>
     <string name="quit_app_desc">"Stops playback, gives the USB DAC back to Android and fully closes the app"</string>
