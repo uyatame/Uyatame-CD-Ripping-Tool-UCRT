@@ -9,5 +9,7 @@ class UcrtApp : Application() {
         Strings.init(this)
         // 曲情報の書き換えなどで、保存場所の URI から実際のファイルを求められるようにする
         FileUris.resolver = { com.uyatame.ucrt.library.StorageAccess.fileOf(it) }
+        // AirPlay 受信機 (Phase 2: 発見まで。失敗してもアプリの起動は止めない)
+        // AirPlay 受信機は設定 (ストリーミングのタブ) に従って MainViewModel が起動する
     }
 }

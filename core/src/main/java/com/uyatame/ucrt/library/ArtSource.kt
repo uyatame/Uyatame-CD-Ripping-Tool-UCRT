@@ -45,7 +45,26 @@ object ArtSource {
             }
         }
         if (bytes == null && coverUri != null) {
-            bytes = ctx.contentResolver.openInputStream(Uri.parse(coverUri))?.use { it.readBytes() }
+            val uri = Uri.parse(coverUri)
+            // file:// はまずファイルを直接読む (ContentResolver が file スキームで例外になる環境があるため)。
+            // 直接読めなければ従来どおり Resolver で読み、そちらも読めなければ例外にする
+            bytes = if (uri.scheme == "file") {
+                // URI 経由でパスが化ける環境 (Windows 系ランタイム等では file:// の全体が
+                // エンコードされてパスが空になる) に備え、生文字列のデコードも含め候補を試す
+                val p0 = uri.path ?: ""
+                val rawStr = coverUri.removePrefix("file://").removePrefix("file:")
+                val decoded = runCatching { Uri.decode(rawStr) }.getOrDefault(rawStr)
+                val cands = listOf(p0, p0.replace('\\', '/'), if (p0.length > 3 && p0[0] == '/' && p0[2] == ':') p0.substring(1) else p0, decoded, decoded.replace('\\', '/'))
+                var direct: ByteArray? = null
+                for (c in cands) {
+                    if (c.isEmpty()) continue
+                    direct = runCatching { java.io.File(c).inputStream().use { it.readBytes() } }.getOrNull()
+                    if (direct != null) break
+                }
+                direct ?: ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            } else {
+                ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            }
         }
         return bytes
     }
