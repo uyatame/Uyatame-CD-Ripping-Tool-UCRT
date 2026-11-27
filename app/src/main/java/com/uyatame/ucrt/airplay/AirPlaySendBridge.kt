@@ -283,7 +283,7 @@ object AirPlaySendBridge {
                 val base = strm.currentTimestamp()
                 snd.sendProgress(base, base + fromFrames, base + total)
                 snd.sendMetadata(item.title, item.artist, item.album, "")
-                artworkOf(app, item.artCoverUri)?.let { (bytes, mime) -> snd.sendArtwork(bytes, mime) }
+                artworkOf(app, item)?.let { (bytes, mime) -> snd.sendArtwork(bytes, mime) }
                 snd.setVolume(volume * 30.0 - 30.0)
                 runCatching { AirPlaySendService.start(app, item.title, connected?.name ?: "") }
                 loadedFromMs = fromMs
@@ -393,15 +393,10 @@ object AirPlaySendBridge {
         }
     }
 
-    private fun artworkOf(ctx: Context, artUri: String?): Pair<ByteArray, String>? {
-        val s = artUri ?: return null
+    private fun artworkOf(ctx: Context, item: com.uyatame.ucrt.player.PlayItem): Pair<ByteArray, String>? {
+        // 表示と同じ経路 (埋め込みアート・フォルダカバー・明示カバー) で取る
         return try {
-            val uri = Uri.parse(s)
-            val bytes = when (uri.scheme) {
-                "file" -> java.io.File(uri.path ?: return null).readBytes()
-                "content" -> ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
-                else -> return null
-            }
+            val bytes = com.uyatame.ucrt.library.ArtSource.bytes(ctx, item.artTrackUri, item.artCoverUri) ?: return null
             if (bytes.size < 4) return null
             val mime = if (bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte()) "image/png" else "image/jpeg"
             bytes to mime
