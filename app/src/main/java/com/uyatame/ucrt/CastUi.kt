@@ -104,7 +104,7 @@ fun CastSheet(onDismiss: () -> Unit) {
             val apBusy = AirPlaySendBridge.connecting
             for (d in AirPlaySendBridge.devices) {
                 CastRow(
-                    if (apCur?.id == d.id) AppIcons.CastConnected else AppIcons.Speaker, d.name, d.model.ifEmpty { null },
+                    AppIcons.AirPlay, d.name, d.model.ifEmpty { null },
                     selected = apCur?.id == d.id, busy = apBusy?.id == d.id,
                 ) { AirPlaySendBridge.connect(ctx, d) }
             }

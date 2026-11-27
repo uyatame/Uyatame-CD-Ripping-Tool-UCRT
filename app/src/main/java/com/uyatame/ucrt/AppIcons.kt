@@ -82,6 +82,18 @@ object AppIcons {
         "Speaker",
         "M3,9v6h4l5,5V4L7,9H3zM16.5,12c0,-1.77 -1.02,-3.29 -2.5,-4.03v8.05c1.48,-0.73 2.5,-2.25 2.5,-4.02z",
     )
+    /** AirPlay (画面+三角。Flaticon 系の標準的な AirPlay マーク) */
+    val AirPlay: ImageVector = ImageVector.Builder("AirPlay", 24.dp, 24.dp, 24f, 24f)
+        .addPath(
+            pathData = addPathNodes("M5,3.5h14a2.5,2.5 0 0 1 2.5,2.5v9A2.5,2.5 0 0 1 19,17.5H5A2.5,2.5 0 0 1 2.5,15V6A2.5,2.5 0 0 1 5,3.5zM5.5,6.5h13V14h-13z"),
+            pathFillType = PathFillType.EvenOdd,
+            fill = SolidColor(Color.Black),
+        )
+        .addPath(
+            pathData = addPathNodes("M12,11.5L18.2,21H5.8z"),
+            fill = SolidColor(Color.Black),
+        )
+        .build()
     val Queue = icon(
         "Queue",
         "M15,6H3v2h12V6zM15,10H3v2h12v-2zM3,16h8v-2H3V16zM17,6v8.18C16.69,14.07 16.35,14 16,14c-1.66,0 -3,1.34 -3,3s1.34,3 3,3s3,-1.34 3,-3V8h3V6H17z",

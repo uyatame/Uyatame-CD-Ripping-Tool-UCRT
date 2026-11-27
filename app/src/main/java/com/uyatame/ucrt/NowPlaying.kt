@@ -428,7 +428,7 @@ fun NowPlayingScreen(vm: MainViewModel, s: AppSettings, onClose: () -> Unit) {
                     val casting = castTo != null || airTo != null
                     IconButton({ showCast = true }) {
                         Icon(
-                            if (casting) AppIcons.CastConnected else AppIcons.Cast, S(R.string.cast_title),
+                            if (airTo != null) AppIcons.AirPlay else if (casting) AppIcons.CastConnected else AppIcons.Cast, S(R.string.cast_title),
                             tint = if (casting) col.accent else col.content,
                         )
                     }
