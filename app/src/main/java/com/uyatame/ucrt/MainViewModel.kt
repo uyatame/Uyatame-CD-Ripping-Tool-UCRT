@@ -453,6 +453,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             app, detachReceiver, IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED), ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         MediaBridge.player = player
+        com.uyatame.ucrt.airplay.AirPlayBridge.attachPlayer(player)
+        com.uyatame.ucrt.airplay.AirPlaySendBridge.attachPlayer(player)
+        // AirPlay 受信機は設定 (使うか・受信機名) に従って起動・停止する
+        viewModelScope.launch {
+            settings.collect { s ->
+                com.uyatame.ucrt.airplay.AirPlayBridge.applySettings(app, s.airplayEnabled, s.airplayName)
+            }
+        }
         MediaBridge.quit = { quitApp(null) }
         // ロック画面(別のアクティビティ)が、この再生の状態をそのまま使えるように、実行中の自分を教える。画面が点いたときの合図も受け取る
         instance = this

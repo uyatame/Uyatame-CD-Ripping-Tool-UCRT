@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- ロック画面: 画面が消えたときに、ロック画面を先に出しておくため(Android 10 から、裏から画面を開くのに要る。利用者が設定で許可したときだけ) -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- サイレント DAP モード: おやすみモードにする(利用者が設定で許可したときだけ。許可が無ければ音量を 0 にする方式) -->
@@ -435,6 +436,12 @@
             android:name=".KeepAliveService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice|mediaPlayback" />
+
+        <!-- AirPlay 送信中はフォアグラウンドに居続ける (裏に回ると通信制限で UDP が止まるため) -->
+        <service
+            android:name=".airplay.AirPlaySendService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!-- 内蔵 DAC の調べ物: メーカーのライブラリを読み込めるかを、別のプロセスで試す(万一そこで落ちても、アプリ本体は落ちない) -->
         <service

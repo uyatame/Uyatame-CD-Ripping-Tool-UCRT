@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.uyatame.ucrt.airplay.AirPlaySendBridge
 import com.uyatame.ucrt.player.cast.CastManager
 
 /** キャスト先(Chromecast)を選ぶシート。開いている間、同じネットワークの機器を探す */
@@ -48,8 +49,16 @@ fun CastSheet(onDismiss: () -> Unit) {
     ) { allowed = it }
     androidx.compose.runtime.LaunchedEffect(Unit) { if (!allowed) ask.launch(CastManager.LOCAL_NETWORK) }
     DisposableEffect(allowed) {
-        if (allowed) CastManager.startDiscovery(ctx)
-        onDispose { if (allowed) CastManager.stopDiscovery() }
+        if (allowed) {
+            CastManager.startDiscovery(ctx)
+            AirPlaySendBridge.startDiscovery(ctx)
+        }
+        onDispose {
+            if (allowed) {
+                CastManager.stopDiscovery()
+                AirPlaySendBridge.stopDiscovery()
+            }
+        }
     }
     val cur = CastManager.connected
     val busy = CastManager.connecting
@@ -61,8 +70,9 @@ fun CastSheet(onDismiss: () -> Unit) {
         ) {
             Text(S(R.string.cast_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
             // この端末で再生する(キャストをやめる)
-            CastRow(AppIcons.Smartphone, S(R.string.cast_this_device), null, selected = cur == null, busy = false) {
+            CastRow(AppIcons.Smartphone, S(R.string.cast_this_device), null, selected = cur == null && !AirPlaySendBridge.active, busy = false) {
                 CastManager.disconnect()
+                AirPlaySendBridge.disconnect()
                 onDismiss()
             }
             for (d in CastManager.devices.sortedBy { it.name }) {
@@ -88,6 +98,36 @@ fun CastSheet(onDismiss: () -> Unit) {
                 Text(S(R.string.cast_volume, cur.name), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 12.dp))
                 Slider(v, { v = it }, onValueChangeFinished = { CastManager.changeVolume(v) })
             }
+            // AirPlay 送信先 (同じシートに同居させる)
+            Text("AirPlay", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
+            val apCur = AirPlaySendBridge.connected
+            val apBusy = AirPlaySendBridge.connecting
+            for (d in AirPlaySendBridge.devices) {
+                CastRow(
+                    AppIcons.AirPlay, d.name, d.model.ifEmpty { null },
+                    selected = apCur?.id == d.id, busy = apBusy?.id == d.id,
+                ) { AirPlaySendBridge.connect(ctx, d) }
+            }
+            if (allowed && AirPlaySendBridge.devices.isEmpty() && apCur == null) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Text(S(R.string.airplay_send_searching), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            AirPlaySendBridge.lastError?.let { err ->
+                Text(err, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
+            }
+            if (apCur != null) {
+                var av by remember { mutableFloatStateOf(AirPlaySendBridge.volume) }
+                Text(S(R.string.cast_volume, apCur.name), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 12.dp))
+                Slider(av, { av = it }, onValueChangeFinished = { AirPlaySendBridge.changeVolume(av) })
+            }
+            Text(
+                S(R.string.airplay_send_note),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 12.dp),
+            )
             Text(
                 S(R.string.cast_note),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,

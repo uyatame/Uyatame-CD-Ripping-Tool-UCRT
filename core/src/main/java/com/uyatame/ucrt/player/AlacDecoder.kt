@@ -415,6 +415,53 @@ internal class AlacDecoder(private val src: RandomInput) : PcmDecoder {
         }
     }
 
+    // ---- 生のフレーム (AirPlay 受信など、入れ物の無い ALAC 用) ----
+
+    private var rawSamplePos = 0L
+
+    /**
+     * 入れ物を読まず、ALAC の設定を直接与えて開く。値は ALACSpecificConfig /
+     * fmtp と同じ並び (frameLength, bitDepth, pb, mb, kb, channels, sampleRate)。
+     * パケットの表は無いので seekSample は使えない。
+     */
+    fun openRaw(
+        frameLength: Int,
+        bitDepth: Int,
+        pb: Int,
+        mb: Int,
+        kb: Int,
+        channels: Int,
+        sampleRate: Int,
+    ) {
+        this.frameLength = frameLength
+        bitsPerSample = bitDepth
+        this.pb = pb
+        this.mb = mb
+        this.kb = kb
+        this.channels = channels
+        this.sampleRate = sampleRate
+        totalSamples = 0
+        samples = Array(channels) { IntArray(frameLength) }
+        predictor = Array(2) { IntArray(frameLength) }
+        mix = Array(2) { IntArray(frameLength) }
+        shiftBuf = Array(2) { IntArray(frameLength) }
+        nextPacket = 0
+        rawSamplePos = 0
+        frameSample = 0
+    }
+
+    /** 生のパケットを 1 つデコードし、そのサンプル数 (blockSize) を返す。 */
+    fun decodePacket(packet: ByteArray, offset: Int, length: Int): Int {
+        if (pk.size < length + 8) pk = ByteArray(length + 8)
+        System.arraycopy(packet, offset, pk, 0, length)
+        java.util.Arrays.fill(pk, length, length + 8, 0)
+        pkBits = length * 8
+        frameSample = rawSamplePos
+        decodeFrame()
+        rawSamplePos += blockSize
+        return blockSize
+    }
+
     // ---- 途中から ----
 
     /**

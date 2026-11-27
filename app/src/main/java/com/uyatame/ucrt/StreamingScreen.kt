@@ -22,6 +22,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,10 +57,15 @@ fun StreamingScreen(
     onSpotifyOpen: (Boolean) -> Unit,
     onOpenSpotifyPlayer: () -> Unit,
 ) {
+    var airplayOpen by remember { mutableStateOf(false) }
     if (spotifyOpen && s.spotifyEnabled) {
         // Spotify の画面の中のページを戻りきったら、ストリーミングのトップへ
         BackHandler(enabled = sp.stack.isEmpty()) { onSpotifyOpen(false) }
         SpotifyScreen(sp, onBack = { sp.home(); onSpotifyOpen(false) }) { if (vm.player.isPlaying) vm.player.pause() }
+        return
+    }
+    if (airplayOpen && s.airplayEnabled) {
+        AirPlayDetailScreen(vm, s) { airplayOpen = false }
         return
     }
     WideCenter {
@@ -91,6 +100,19 @@ fun StreamingScreen(
                 )
                 Text(
                     S(R.string.streaming_spotify_note),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ServiceRow(
+                    "AirPlay", S(R.string.streaming_airplay_desc),
+                    enabled = s.airplayEnabled,
+                    onToggle = { on ->
+                        vm.set(Keys.airplayEnabled, on)
+                        if (!on) airplayOpen = false
+                    },
+                    onOpen = { airplayOpen = true },
+                )
+                Text(
+                    S(R.string.streaming_airplay_note),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
